@@ -47,3 +47,4 @@ docker-compose*.yml
 # OS files
 .env.local
 .env.*
+.env

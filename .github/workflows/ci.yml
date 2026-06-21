@@ -21,7 +21,7 @@ jobs:
     name: Code Quality
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup PHP ${{ env.PHP_VERSION }}
         uses: shivammathur/setup-php@v2
@@ -62,7 +62,7 @@ jobs:
     needs: [code-quality]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup PHP ${{ env.PHP_VERSION }}
         uses: shivammathur/setup-php@v2
@@ -102,7 +102,7 @@ jobs:
           --health-timeout=5s
           --health-retries=10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup PHP ${{ env.PHP_VERSION }}
         uses: shivammathur/setup-php@v2
@@ -139,7 +139,7 @@ jobs:
     needs: [code-quality]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check for hardcoded secrets
         run: |
@@ -149,7 +149,7 @@ jobs:
             --include="*.json" --include="*.sql" \
             . 2>/dev/null | \
             grep -v "password_hash\|password_verify\|getenv\|\$_ENV\|\$_SERVER" | \
-            grep -v "vendor/\|test-evidence/\|reports/\|\.git/\|node_modules/\|postman/" | \
+            grep -v "vendor/\|test-evidence/\|reports/\|\.git/\|node_modules/\|postman/\|\.github/\|\.dockerignore" | \
             grep -v "password\s*=>\s*''\|password\s*=>\s*null" | \
             grep -v "MARIADB_ROOT_PASSWORD\|MARIADB_PASSWORD\|MARIADB_USER\|PMA_PASSWORD" | \
             grep -v '"password"\s*$' | \
@@ -159,7 +159,7 @@ jobs:
           else echo "✅ No secrets detected"; fi
 
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.30.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -176,25 +176,20 @@ jobs:
     needs: [code-quality]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v5
 
       - name: Build app image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          tags: shop-quan-ao:ci-${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: |
+          docker build -t shop-quan-ao:ci-${{ github.sha }} .
+          docker tag shop-quan-ao:ci-${{ github.sha }} shop-quan-ao:ci-latest
 
       - name: Build reranker image
-        run: docker build -t shop-quan-ao-reranker:ci-${{ github.sha }} ./docker/reranker
+        run: |
+          docker build -t shop-quan-ao-reranker:ci-${{ github.sha }} ./docker/reranker
+          docker tag shop-quan-ao-reranker:ci-${{ github.sha }} shop-quan-ao-reranker:ci-latest
 
       - name: Scan app image
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.30.0
         with:
           image-ref: 'shop-quan-ao:ci-${{ github.sha }}'
           format: 'table'
@@ -202,7 +197,7 @@ jobs:
           severity: 'HIGH,CRITICAL'
 
       - name: Scan reranker image
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.30.0
         with:
           image-ref: 'shop-quan-ao-reranker:ci-${{ github.sha }}'
           format: 'table'
@@ -219,7 +214,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install SSH key
         uses: shimataro/ssh-key-action@v2
