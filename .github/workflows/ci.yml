@@ -143,18 +143,15 @@ jobs:
 
       - name: Check for hardcoded secrets
         run: |
-          echo "🔍 Scanning for secrets..."
-          RESULTS=$(grep -rn "sk-\|AKIA\|api_key\|api_secret\|password\s*=" \
-            --include="*.php" --include="*.yml" --include="*.yaml" \
-            --include="*.json" --include="*.sql" \
-            . 2>/dev/null | \
-            grep -v "password_hash\|password_verify\|getenv\|\$_ENV\|\$_SERVER" | \
-            grep -v "vendor/\|test-evidence/\|reports/\|\.git/\|node_modules/\|postman/\|\.github/\|\.dockerignore" | \
-            grep -v "password\s*=>\s*''\|password\s*=>\s*null" | \
-            grep -v "MARIADB_ROOT_PASSWORD\|MARIADB_PASSWORD\|MARIADB_USER\|PMA_PASSWORD\|ADMIN_EMAIL\|ADMIN_PASSWORD" | \
-            grep -v '"password"\s*$' | \
-            grep -v '\${.*:-' | \
-            head -20 || true)
+          echo "🔍 Scanning for real secrets (API keys, tokens, private keys)..."
+          # Only flag actual secret STRINGS — NOT PHP variable names like $password
+          # Patterns:
+          #   sk-[a-z0-9]{20,}     → API keys (sk-xxx...)
+          #   AKIA[A-Z0-9]{16}     → AWS access keys
+          #   -----BEGIN           → private keys
+          #   ghp_xxx              → GitHub PAT
+          #   github_pat_          → GitHub fine-grained PAT
+          RESULTS=$(grep -rn 'sk-[a-z0-9]\{20,\}\|AKIA[A-Z0-9]\{16\}\|-----BEGIN[ A-Z]\{5,\}RSA\|ghp_\w\{36\}\|github_pat_\w\{82\}'             --include="*.php" --include="*.yml" --include="*.yaml"             --include="*.json" --include="*.sql" --include="*.md"             . 2>/dev/null |             grep -v "vendor/\|test-evidence/\|reports/\|\.git/\|node_modules/\|postman/\|\.github/" |             grep -v 'your-\|placeholder\|example\|sk-\.\.\.\|XXXXX\|test-\*' |             head -20 || true)
           if [ -n "$RESULTS" ]; then echo "❌ Secrets leaked:"; echo "$RESULTS"; exit 1
           else echo "✅ No secrets detected"; fi
 
