@@ -12,13 +12,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     if (!empty($email) && !empty($password)) {
         
-        // 1. KIỂM TRA ADMIN — credentials từ env (mặc định dev)
+        // 1. KIỂM TRA ADMIN — credentials từ env hoặc database
         $adminEmail = getenv('ADMIN_EMAIL') ?: 'admin@gmail.com';
         $adminPass  = getenv('ADMIN_PASSWORD') ?: '';
-        if ($adminPass === '') {
-            $adminPass = getenv('APP_ENV') === 'test' ? '' : '123456'; // dev default only
+        if ($adminPass !== '') {
+            $isAdmin = ($email === $adminEmail || $email === 'admin') && $password === $adminPass;
+        } else {
+            // Verify admin against database with password_verify
+            $stmt = $pdo->prepare("SELECT * FROM users WHERE (email = ? OR username = ?) AND role = 'admin' LIMIT 1");
+            $stmt->execute([$email, $email]);
+            $adminUser = $stmt->fetch();
+            $isAdmin = $adminUser && password_verify($password, $adminUser['password']);
         }
-        if (($email === $adminEmail || $email === 'admin') && $password === $adminPass) {
+        if ($isAdmin) {
             $_SESSION['user_id'] = 0; 
             $_SESSION['username'] = 'Admin Shop';
             $_SESSION['role'] = 'admin';

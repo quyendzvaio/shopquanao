@@ -1,8 +1,11 @@
 <?php
+/**
+ * API Login — xác thực qua database (password_verify).
+ * Không hardcode credentials.
+ */
 require_once __DIR__ . '/../../config.php';
 
 $data = getJsonInput();
-
 $email    = trim($data['email'] ?? '');
 $password = $data['password'] ?? '';
 
@@ -12,25 +15,9 @@ if (!$email || !$password) {
 
 global $pdo;
 
-// Check admin hardcoded credentials
-if (($email === 'admin@gmail.com' || $email === 'admin') && $password === '123456') {
-    $token = bin2hex(random_bytes(32));
-    // admin might not exist in DB — create on the fly or return static
-    jsonResponse([
-        'message' => 'Login successful',
-        'user' => [
-            'id'       => 0,
-            'username' => 'Admin Shop',
-            'email'    => 'admin@gmail.com',
-            'role'     => 'admin',
-        ],
-        'token' => 'admin-static-token',
-    ]);
-}
-
-// Normal user login
-$stmt = $pdo->prepare("SELECT * FROM users WHERE email = ?");
-$stmt->execute([$email]);
+// Find user by email or username
+$stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? OR username = ? LIMIT 1");
+$stmt->execute([$email, $email]);
 $user = $stmt->fetch();
 
 if (!$user || !password_verify($password, $user['password'])) {
