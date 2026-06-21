@@ -1,0 +1,46 @@
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE & editors
+.idea/
+.vscode/
+*.code-workspace
+.agents/
+.codex/
+.claude/
+
+# Runtime
+vendor/
+.phpunit.cache/
+.phpunit.result.cache
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+/var/log/
+
+# Cache (runtime)
+/tmp/shop_cache/
+
+# Test artifacts
+test-evidence/
+reports/
+coverage/
+
+# Build artifacts
+node_modules/
+.postman/
+
+# SQL backups
+backups/
