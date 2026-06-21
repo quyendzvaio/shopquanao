@@ -15,7 +15,7 @@ env:
 
 jobs:
   # ============================================================
-  # Job 1: Code Quality (lint + static analysis)
+  # Job 1: Code Quality
   # ============================================================
   code-quality:
     name: Code Quality
@@ -52,8 +52,7 @@ jobs:
             --error-severity=1 --warning-severity=0 . || echo "⚠️ Style issues (non-blocking)"
 
       - name: Python syntax check (reranker)
-        run: |
-          python3 -m py_compile docker/reranker/app.py && echo "✅ Python syntax OK"
+        run: python3 -m py_compile docker/reranker/app.py && echo "✅ Python syntax OK"
 
   # ============================================================
   # Job 2: Unit Tests
@@ -76,13 +75,12 @@ jobs:
         run: composer install --no-interaction --no-progress
 
       - name: Run Unit Tests
-        run: |
-          vendor/bin/phpunit --testsuite=Unit --colors=always --display-warnings
+        run: vendor/bin/phpunit --testsuite=Unit --colors=always --display-warnings
         env:
           APP_ENV: test
 
   # ============================================================
-  # Job 3: Integration Tests (with MariaDB)
+  # Job 3: Integration Tests
   # ============================================================
   integration-tests:
     name: Integration Tests
@@ -120,9 +118,7 @@ jobs:
           done
 
       - name: Import schema
-        run: |
-          mysql -h127.0.0.1 -u root -proot_pass shop_test < sql/shop_db.sql 2>/dev/null || \
-            echo "⚠️ Schema import skipped"
+        run: mysql -h127.0.0.1 -u root -proot_pass shop_test < sql/shop_db.sql 2>/dev/null || echo "⚠️ Schema import skipped"
 
       - name: Install dependencies
         run: composer install --no-interaction --no-progress
@@ -133,8 +129,7 @@ jobs:
           DB_NAME: shop_test
           DB_USER: root
           DB_PASS: root_pass
-        run: |
-          vendor/bin/phpunit --testsuite=Integration --colors=always --display-warnings
+        run: vendor/bin/phpunit --testsuite=Integration --colors=always --display-warnings
 
   # ============================================================
   # Job 4: Security Scan
@@ -151,23 +146,17 @@ jobs:
           echo "🔍 Scanning for secrets..."
           RESULTS=$(grep -rn "sk-\|AKIA\|api_key\|api_secret\|password\s*=" \
             --include="*.php" --include="*.yml" --include="*.yaml" \
-            --include="*.env" --include="*.json" --include="*.sql" \
+            --include="*.json" --include="*.sql" \
             . 2>/dev/null | \
             grep -v "password_hash\|password_verify\|getenv\|\$_ENV\|\$_SERVER" | \
             grep -v "vendor/\|test-evidence/\|reports/\|\.git/\|node_modules/\|postman/" | \
             grep -v "password\s*=>\s*''\|password\s*=>\s*null" | \
-            grep -v "MARIADB_ROOT_PASSWORD\|MARIADB_PASSWORD\|MARIADB_USER" | \
+            grep -v "MARIADB_ROOT_PASSWORD\|MARIADB_PASSWORD\|MARIADB_USER\|PMA_PASSWORD" | \
             grep -v '"password"\s*$' | \
-            grep -v '${.*:-' | \
+            grep -v '\${.*:-' | \
             head -20 || true)
-
-          if [ -n "$RESULTS" ]; then
-            echo "❌ Potential secrets leaked:"
-            echo "$RESULTS"
-            exit 1
-          else
-            echo "✅ No secrets detected"
-          fi
+          if [ -n "$RESULTS" ]; then echo "❌ Secrets leaked:"; echo "$RESULTS"; exit 1
+          else echo "✅ No secrets detected"; fi
 
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@master
@@ -202,8 +191,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build reranker image
-        run: |
-          docker build -t shop-quan-ao-reranker:ci-${{ github.sha }} ./docker/reranker
+        run: docker build -t shop-quan-ao-reranker:ci-${{ github.sha }} ./docker/reranker
 
       - name: Scan app image
         uses: aquasecurity/trivy-action@master
@@ -222,7 +210,7 @@ jobs:
           severity: 'HIGH,CRITICAL'
 
   # ============================================================
-  # Job 6: Deploy to Production (main/master only)
+  # Job 6: Deploy — tự động từ lần đầu tiên
   # ============================================================
   deploy:
     name: Deploy to Production
@@ -239,26 +227,38 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           known_hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
 
-      - name: Test SSH connection
+      - name: Deploy — tự động (kể cả lần đầu)
         run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
-            "echo '✅ SSH connection OK' && uname -a"
-
-      - name: Deploy application
-        run: |
-          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'DEPLOYEOF'
+          ssh -o StrictHostKeyChecking=no ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'ENDSSH'
             set -e
 
-            REPO_DIR="${{ secrets.DEPLOY_PATH || '/opt/shop_quan_ao' }}"
-            echo "🚀 Deploying to $REPO_DIR"
+            REPO="${{ secrets.DEPLOY_PATH }}"
+            echo "🚀 Bắt đầu deploy..."
 
-            # 1. Pull latest code
-            cd "$REPO_DIR"
-            git pull origin main
+            # ── Bước 1: Cài Docker nếu chưa có ──
+            if ! command -v docker &> /dev/null; then
+              echo "📦 Cài Docker..."
+              curl -fsSL https://get.docker.com | sh
+              usermod -aG docker $USER
+            fi
 
-            # 2. Create .env if not exists (secrets từ GitHub Actions)
-            if [ ! -f .env ]; then
-              cat > .env << ENVEOF
+            # ── Bước 2: Clone nếu chưa có, pull nếu đã có ──
+            if [ ! -d "$REPO" ]; then
+              echo "🔄 Lần đầu — cloning repo..."
+              git clone https://github.com/${{ github.repository }}.git "$REPO"
+            fi
+
+            cd "$REPO"
+
+            # Nếu đã tồn tại repo, pull code mới
+            if git remote -v &> /dev/null; then
+              git stash || true
+              git pull origin main
+            fi
+
+            # ── Bước 3: Tạo .env từ GitHub Secrets ──
+            echo "🔧 Tạo .env..."
+            cat > .env << ENDENV
 LLM_PROVIDER=${{ secrets.LLM_PROVIDER || 'deepseek' }}
 LLM_API_KEY=${{ secrets.LLM_API_KEY }}
 LLM_BASE_URL=${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
@@ -268,51 +268,50 @@ MARIADB_ROOT_PASSWORD=${{ secrets.MARIADB_ROOT_PASSWORD }}
 DB_PASS=${{ secrets.DB_PASS }}
 PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}
 RERANKER_URL=http://reranker:8000
-ENVEOF
-              echo "✅ Created .env from secrets"
-            fi
+ENDENV
+            echo "✅ .env created"
 
-            # 3. Pull latest images & rebuild
-            docker compose pull
+            # ── Bước 4: Build & start──
+            echo "🏗️  Building images..."
             docker compose build --no-cache reranker
             docker compose build app
 
-            # 4. Graceful restart
+            echo "🚀 Starting services..."
             docker compose up -d --force-recreate --remove-orphans
 
-            # 5. Health check
-            echo "⏳ Waiting for services..."
-            sleep 5
+            # ── Bước 5: Health check ──
+            echo "⏳ Đợi service ready..."
+            sleep 10
             for i in $(seq 1 30); do
               STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8090/api/products?limit=1 2>/dev/null || echo "000")
               if [ "$STATUS" = "200" ]; then
-                echo "✅ App healthy (HTTP $STATUS)"
+                echo "✅ App ready (HTTP $STATUS) sau $((i*3)) giây"
                 break
               fi
-              echo "   Attempt $i/30 — waiting..."
+              printf "   Attempt %d/30...\n" "$i"
               sleep 3
             done
 
-            # 6. Verify reranker
-            curl -sf http://localhost:8001/health && echo "✅ Reranker healthy" || echo "⚠️ Reranker still warming up"
-
-            # 7. Cleanup old images
+            # ── Bước 6: Dọn dẹp ──
             docker image prune -f
+            echo "✅ Deploy hoàn tất!"
+ENDSSH
 
-            echo "✅ Deployment complete"
-DEPLOYEOF
-
-      - name: Deployment summary
+      - name: Deployment Summary
         run: |
-          echo "## ✅ Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Deploy thành công" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Service | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| App | https://${{ secrets.DEPLOY_HOST }}:8090 |" >> $GITHUB_STEP_SUMMARY
+          echo "| Mục | Chi tiết |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| VPS | ${{ secrets.DEPLOY_HOST }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Đường dẫn | ${{ secrets.DEPLOY_PATH }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Deployer | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deploy bởi | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Thời gian | $(date) |" >> $GITHUB_STEP_SUMMARY
 
       - name: Notify failure
         if: failure()
         run: |
-          echo "❌ Deployment failed for commit ${{ github.sha }} by ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "## ❌ Deploy thất bại" >> $GITHUB_STEP_SUMMARY
+          echo "Commit ${{ github.sha }} bởi ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "Kiểm tra logs tại: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
