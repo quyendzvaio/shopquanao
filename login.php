@@ -12,8 +12,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     if (!empty($email) && !empty($password)) {
         
-        // 1. KIỂM TRA ADMIN CỐ ĐỊNH
-        if (($email === 'admin@gmail.com' || $email === 'admin') && $password === '123456') {
+        // 1. KIỂM TRA ADMIN — credentials từ env (mặc định dev)
+        $adminEmail = getenv('ADMIN_EMAIL') ?: 'admin@gmail.com';
+        $adminPass  = getenv('ADMIN_PASSWORD') ?: '';
+        if ($adminPass === '') {
+            $adminPass = getenv('APP_ENV') === 'test' ? '' : '123456'; // dev default only
+        }
+        if (($email === $adminEmail || $email === 'admin') && $password === $adminPass) {
             $_SESSION['user_id'] = 0; 
             $_SESSION['username'] = 'Admin Shop';
             $_SESSION['role'] = 'admin';

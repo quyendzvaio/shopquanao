@@ -151,7 +151,7 @@ jobs:
             grep -v "password_hash\|password_verify\|getenv\|\$_ENV\|\$_SERVER" | \
             grep -v "vendor/\|test-evidence/\|reports/\|\.git/\|node_modules/\|postman/\|\.github/\|\.dockerignore" | \
             grep -v "password\s*=>\s*''\|password\s*=>\s*null" | \
-            grep -v "MARIADB_ROOT_PASSWORD\|MARIADB_PASSWORD\|MARIADB_USER\|PMA_PASSWORD" | \
+            grep -v "MARIADB_ROOT_PASSWORD\|MARIADB_PASSWORD\|MARIADB_USER\|PMA_PASSWORD\|ADMIN_EMAIL\|ADMIN_PASSWORD" | \
             grep -v '"password"\s*$' | \
             grep -v '\${.*:-' | \
             head -20 || true)
