@@ -159,7 +159,7 @@ jobs:
           else echo "✅ No secrets detected"; fi
 
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.29.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -189,7 +189,7 @@ jobs:
           docker tag shop-quan-ao-reranker:ci-${{ github.sha }} shop-quan-ao-reranker:ci-latest
 
       - name: Scan app image
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.29.0
         with:
           image-ref: 'shop-quan-ao:ci-${{ github.sha }}'
           format: 'table'
@@ -197,7 +197,7 @@ jobs:
           severity: 'HIGH,CRITICAL'
 
       - name: Scan reranker image
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.29.0
         with:
           image-ref: 'shop-quan-ao-reranker:ci-${{ github.sha }}'
           format: 'table'
