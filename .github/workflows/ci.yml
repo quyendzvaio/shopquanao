@@ -206,25 +206,29 @@ jobs:
           known_hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
 
       - name: Deploy via SSH
+        env:
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          REPO: \${{ secrets.DEPLOY_PATH }}
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script_stop: true
-          envs: 'GITHUB_TOKEN'
+          envs: 'GITHUB_TOKEN,REPO'
           script: |
-            REPO=${{ secrets.DEPLOY_PATH }}
             if ! command -v docker &> /dev/null; then
               curl -fsSL https://get.docker.com | sh
             fi
             if [ ! -d "$REPO" ]; then
+              echo "Cloning ${{ github.repository }}..."
               git clone https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git "$REPO"
             fi
             cd "$REPO"
-            git stash || true
-            git remote set-url origin https://x-access-token:\${GITHUB_TOKEN}@github.com/\${{ github.repository }}.git
+            git stash --include-untracked || true
+            git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
             git pull origin main
+            echo "Repo updated to $(git rev-parse --short HEAD)"
             echo "LLM_PROVIDER=${{ secrets.LLM_PROVIDER || 'deepseek' }}" > .env
             echo "LLM_API_KEY=${{ secrets.LLM_API_KEY }}" >> .env
             echo "LLM_BASE_URL=${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}" >> .env
