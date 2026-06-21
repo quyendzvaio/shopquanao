@@ -1,0 +1,49 @@
+# ============================================================
+# Docker ignore — keep production images lean
+# ============================================================
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# IDE & editors
+.agents
+.codex
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# CI/CD
+.github
+
+# Documentation (not needed at runtime)
+docs/
+*.md
+DOCKER.md
+CLAUDE.md
+
+# Test & reports (heavy, production- irrelevant)
+test-evidence/
+reports/
+postman/
+
+# Scripts (dev only)
+scripts/
+node_modules/
+
+# Docker files (not needed inside image)
+docker-compose.yml
+docker-compose*.yml
+.dockerignore
+
+# Logs
+*.log
+
+# OS files
+.env.local
+.env.*

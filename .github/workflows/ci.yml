@@ -1,0 +1,172 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  # ============================================================
+  # Job 1: Unit Tests
+  # ============================================================
+  unit-tests:
+    name: Unit Tests (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.2']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo, pdo_mysql, curl, mbstring, sqlite3
+          tools: composer, phpunit
+
+      - name: Validate composer
+        run: composer validate --strict || echo "⚠️ composer.json not strict"
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress
+
+      - name: PHP Lint (syntax check)
+        run: |
+          find . -name '*.php' -not -path './vendor/*' -not -path './test-evidence/*' \
+            -not -path './reports/*' -not -path './.codex/*' -not -path './.git/*' \
+            -exec php -l {} \; 2>&1 | grep -v "No syntax errors" | grep -v "^$" || echo "✅ All syntax OK"
+
+      - name: PHPCS (PSR-12)
+        run: |
+          vendor/bin/phpcs --standard=PSR12 --extensions=php \
+            --ignore=test-evidence,reports,.codex,.agents,vendor,tests \
+            --error-severity=1 . || echo "⚠️ Style issues (non-blocking)"
+
+      - name: Run Unit Tests
+        run: |
+          vendor/bin/phpunit --testsuite=Unit --colors=always --display-warnings
+
+  # ============================================================
+  # Job 2: Integration Tests (with MariaDB)
+  # ============================================================
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: root_pass
+          MARIADB_DATABASE: shop_test
+          MARIADB_USER: test_user
+          MARIADB_PASSWORD: test_pass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo, pdo_mysql, curl, mbstring
+
+      - name: Wait for DB
+        run: |
+          for i in $(seq 1 30); do
+            mysqladmin ping -h127.0.0.1 -u root -proot_pass 2>/dev/null && break
+            sleep 1
+          done
+
+      - name: Import schema
+        run: |
+          mysql -h127.0.0.1 -u root -proot_pass shop_test < sql/shop_db.sql 2>/dev/null || \
+            echo "⚠️ Schema import skipped (DB may already be initialized)"
+
+      - name: Install deps
+        run: composer install --no-interaction --no-progress
+
+      - name: Run Integration Tests
+        env:
+          DB_HOST: 127.0.0.1
+          DB_NAME: shop_test
+          DB_USER: root
+          DB_PASS: root_pass
+        run: |
+          vendor/bin/phpunit --testsuite=Integration --colors=always --display-warnings
+
+  # ============================================================
+  # Job 3: Security Scan
+  # ============================================================
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for hardcoded secrets
+        run: |
+          echo "🔍 Scanning for potential secrets..."
+          RESULTS=$(grep -rn "sk-\|AKIA\|api_key\|api_secret\|password\s*=" \
+            --include="*.php" --include="*.yml" --include="*.yaml" --include="*.env" \
+            --include="*.json" --include="*.md" --include="*.sql" \
+            . 2>/dev/null | \
+            grep -v "password_hash\|password_verify\|getenv\|\$_ENV\|\$_SERVER" | \
+            grep -v "vendor/\|test-evidence/\|reports/\|\.git/\|node_modules/\|postman/" | \
+            grep -v "password\s*=>\s*''\|password\s*=>\s*null" | \
+            grep -v "MARIADB_ROOT_PASSWORD\|MARIADB_PASSWORD\|MARIADB_USER" | \
+            grep -v '"password"\s*$' | \
+            head -20 || true)
+
+          if [ -n "$RESULTS" ]; then
+            echo "⚠️ Potential secrets found:"
+            echo "$RESULTS"
+          else
+            echo "✅ No secrets detected"
+          fi
+
+      - name: Run Trivy vulnerability scanner (fs)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'table'
+          exit-code: '0'
+          severity: 'HIGH,CRITICAL'
+          skip-dirs: 'vendor,test-evidence,reports,.git,node_modules,postman'
+
+  # ============================================================
+  # Job 4: Docker Build & Scan
+  # ============================================================
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: shop-quan-ao:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan Docker image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'shop-quan-ao:ci'
+          format: 'table'
+          exit-code: '0'
+          severity: 'HIGH,CRITICAL'

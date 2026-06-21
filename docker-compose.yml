@@ -1,0 +1,80 @@
+services:
+  app:
+    build:
+      context: .
+    container_name: shop_quan_ao_app
+    restart: unless-stopped
+    ports:
+      - "8090:80"
+    environment:
+      DB_HOST: db
+      DB_NAME: shop_db
+      DB_USER: shop_user
+      DB_PASS: shop_pass
+      DB_CONNECT_RETRIES: 30
+      LLM_PROVIDER: deepseek
+      LLM_API_KEY: sk-d21dcb9c1191486b8698c03fcf146af6
+      LLM_BASE_URL: https://api.deepseek.com
+      LLM_MODEL: deepseek-chat
+      LLM_TIMEOUT: 60
+      RERANKER_URL: http://reranker:8000
+    depends_on:
+      db:
+        condition: service_healthy
+      reranker:
+        condition: service_started
+
+  db:
+    image: mariadb:10.11
+    container_name: shop_quan_ao_db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: root_pass
+      MARIADB_DATABASE: shop_db
+      MARIADB_USER: shop_user
+      MARIADB_PASSWORD: shop_pass
+    ports:
+      - "3308:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./sql/shop_db.sql:/docker-entrypoint-initdb.d/01-shop_db.sql:ro
+      - ./docker/mariadb-ft.cnf:/etc/mysql/conf.d/mariadb-ft.cnf:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  reranker:
+    build: ./docker/reranker
+    container_name: shop_quan_ao_reranker
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; exit(0 if urllib.request.urlopen(\"http://localhost:8000/health\").status == 200 else 1)'"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+
+  phpmyadmin:
+    image: phpmyadmin:5.2
+    container_name: shop_quan_ao_phpmyadmin
+    profiles:
+      - tools
+    restart: unless-stopped
+    ports:
+      - "8091:80"
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: root_pass
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data:

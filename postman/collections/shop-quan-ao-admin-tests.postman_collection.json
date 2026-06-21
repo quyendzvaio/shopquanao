@@ -1,0 +1,468 @@
+{
+  "info": {
+    "name": "Shop Quan Ao - Kiem thu Admin 2026-06-05",
+    "description": "Kiem thu chuc nang xoa san pham va quan ly thanh vien. Du lieu tam: san pham ID 104, thanh vien ID 4.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "product_id",
+      "value": "105"
+    },
+    {
+      "key": "product_name",
+      "value": "QA_DELETE_PRODUCT_20260605_RERUN"
+    },
+    {
+      "key": "member_id",
+      "value": "4"
+    },
+    {
+      "key": "member_username",
+      "value": "qa_member_20260605"
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - Xoa san pham",
+      "item": [
+        {
+          "name": "TC-SP-01 - Chua dang nhap khong duoc truy cap",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Tra ve HTTP 302', function () {",
+                  "  pm.response.to.have.status(302);",
+                  "});",
+                  "pm.test('Chuyen huong den trang dang nhap', function () {",
+                  "  pm.expect(pm.response.headers.get('Location')).to.include('../login.php');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/admin/manage_products.php",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "manage_products.php"
+              ]
+            }
+          },
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          }
+        },
+        {
+          "name": "TC-AUTH-01 - Dang nhap admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Dang nhap thanh cong', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.text()).to.include('Tổng quan hệ thống');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "admin",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "123456",
+                  "type": "text"
+                },
+                {
+                  "key": "login",
+                  "value": "1",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/login.php",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "login.php"
+              ]
+            }
+          }
+        },
+        {
+          "name": "TC-SP-02 - San pham ton tai truoc khi xoa",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Danh sach san pham tai thanh cong', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Tim thay san pham kiem thu', function () {",
+                  "  pm.expect(pm.response.text()).to.include(pm.variables.get('product_name'));",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/admin/manage_products.php",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "manage_products.php"
+              ]
+            }
+          }
+        },
+        {
+          "name": "TC-SP-03 - Xoa san pham hop le",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Xoa va tai lai danh sach thanh cong', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('San pham khong con trong danh sach', function () {",
+                  "  pm.expect(pm.response.text()).to.not.include(pm.variables.get('product_name'));",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/admin/manage_products.php?delete_id={{product_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "manage_products.php"
+              ],
+              "query": [
+                {
+                  "key": "delete_id",
+                  "value": "{{product_id}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "TC-SP-04 - Xoa ID khong ton tai",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('He thong khong phat sinh loi server', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.text()).to.include('Quản lý sản phẩm');",
+                  "});",
+                  "pm.test('San pham kiem thu van khong xuat hien lai', function () {",
+                  "  pm.expect(pm.response.text()).to.not.include(pm.variables.get('product_name'));",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/admin/manage_products.php?delete_id=999999",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "manage_products.php"
+              ],
+              "query": [
+                {
+                  "key": "delete_id",
+                  "value": "999999"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Quan ly thanh vien",
+      "item": [
+        {
+          "name": "TC-TV-01 - Thanh vien ton tai va dang hoat dong",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.text();",
+                  "const row = (body.match(new RegExp('<tr[^>]*>[\\\\s\\\\S]*?' + pm.variables.get('member_username') + '[\\\\s\\\\S]*?<\\\\/tr>')) || [''])[0];",
+                  "pm.test('Tim thay thanh vien kiem thu', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(row).to.include(pm.variables.get('member_username'));",
+                  "});",
+                  "pm.test('Trang thai ban dau la Hoat dong', function () {",
+                  "  pm.expect(row).to.include('Hoạt động');",
+                  "});",
+                  "pm.test('Quyen ban dau la USER', function () {",
+                  "  pm.expect(row).to.include('USER');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/admin/manage_users.php",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "manage_users.php"
+              ]
+            }
+          }
+        },
+        {
+          "name": "TC-TV-02 - Khoa thanh vien",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.text();",
+                  "const row = (body.match(new RegExp('<tr[^>]*>[\\\\s\\\\S]*?' + pm.variables.get('member_username') + '[\\\\s\\\\S]*?<\\\\/tr>')) || [''])[0];",
+                  "pm.test('Thong bao khoa thanh cong', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(body).to.include('Đã khóa tài khoản thành công.');",
+                  "});",
+                  "pm.test('Trang thai thanh vien la Da khoa', function () {",
+                  "  pm.expect(row).to.include('Đã khóa');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/admin/manage_users.php?action=lock&id={{member_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "manage_users.php"
+              ],
+              "query": [
+                {
+                  "key": "action",
+                  "value": "lock"
+                },
+                {
+                  "key": "id",
+                  "value": "{{member_id}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "TC-TV-03 - Mo khoa thanh vien",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.text();",
+                  "const row = (body.match(new RegExp('<tr[^>]*>[\\\\s\\\\S]*?' + pm.variables.get('member_username') + '[\\\\s\\\\S]*?<\\\\/tr>')) || [''])[0];",
+                  "pm.test('Thong bao mo khoa thanh cong', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(body).to.include('Đã mở khóa tài khoản thành công.');",
+                  "});",
+                  "pm.test('Trang thai thanh vien la Hoat dong', function () {",
+                  "  pm.expect(row).to.include('Hoạt động');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/admin/manage_users.php?action=unlock&id={{member_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "manage_users.php"
+              ],
+              "query": [
+                {
+                  "key": "action",
+                  "value": "unlock"
+                },
+                {
+                  "key": "id",
+                  "value": "{{member_id}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "TC-TV-04 - Doi quyen USER sang ADMIN",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.text();",
+                  "const row = (body.match(new RegExp('<tr[^>]*>[\\\\s\\\\S]*?' + pm.variables.get('member_username') + '[\\\\s\\\\S]*?<\\\\/tr>')) || [''])[0];",
+                  "pm.test('Thong bao doi quyen thanh cong', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(body).to.include('Đã cập nhật quyền thành công.');",
+                  "});",
+                  "pm.test('Quyen thanh vien la ADMIN', function () {",
+                  "  pm.expect(row).to.include('ADMIN');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/admin/manage_users.php?toggle_role=admin&id={{member_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "manage_users.php"
+              ],
+              "query": [
+                {
+                  "key": "toggle_role",
+                  "value": "admin"
+                },
+                {
+                  "key": "id",
+                  "value": "{{member_id}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "TC-TV-05 - Khoi phuc quyen ADMIN ve USER",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.text();",
+                  "const row = (body.match(new RegExp('<tr[^>]*>[\\\\s\\\\S]*?' + pm.variables.get('member_username') + '[\\\\s\\\\S]*?<\\\\/tr>')) || [''])[0];",
+                  "pm.test('Khoi phuc quyen thanh cong', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(body).to.include('Đã cập nhật quyền thành công.');",
+                  "});",
+                  "pm.test('Quyen thanh vien tro lai USER', function () {",
+                  "  pm.expect(row).to.include('USER');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/admin/manage_users.php?toggle_role=user&id={{member_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "manage_users.php"
+              ],
+              "query": [
+                {
+                  "key": "toggle_role",
+                  "value": "user"
+                },
+                {
+                  "key": "id",
+                  "value": "{{member_id}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

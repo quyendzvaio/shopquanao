@@ -1,0 +1,36 @@
+{
+    "name": "shop-quan-ao/chatbot",
+    "description": "Fashion Shop - Agentic RAG Chatbot (PHP + DeepSeek)",
+    "type": "project",
+    "require": {
+        "php": ">=8.2",
+        "ext-pdo": "*",
+        "ext-pdo_mysql": "*",
+        "ext-curl": "*",
+        "ext-mbstring": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0",
+        "squizlabs/php_codesniffer": "^3.10",
+        "phpstan/phpstan": "^1.12"
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test:unit": "phpunit --testsuite=Unit",
+        "test:integration": "phpunit --testsuite=Integration",
+        "lint": "phpcs --standard=PSR12 --extensions=php --ignore=test-evidence,reports,.codex,.agents,vendor .",
+        "lint:fix": "phpcbf --standard=PSR12 --extensions=php --ignore=test-evidence,reports,.codex,.agents,vendor .",
+        "stan": "phpstan analyse --level=1 api/ config/",
+        "check": ["@lint", "@stan"]
+    },
+    "autoload": {
+        "classmap": [
+            "api/cache/",
+            "api/controllers/chatbot/"
+        ]
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    }
+}
