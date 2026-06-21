@@ -212,16 +212,18 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script_stop: true
+          envs: 'GITHUB_TOKEN'
           script: |
             REPO=${{ secrets.DEPLOY_PATH }}
             if ! command -v docker &> /dev/null; then
               curl -fsSL https://get.docker.com | sh
             fi
             if [ ! -d "$REPO" ]; then
-              git clone https://github.com/${{ github.repository }}.git "$REPO"
+              git clone https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git "$REPO"
             fi
             cd "$REPO"
             git stash || true
+            git remote set-url origin https://x-access-token:\${GITHUB_TOKEN}@github.com/\${{ github.repository }}.git
             git pull origin main
             echo "LLM_PROVIDER=${{ secrets.LLM_PROVIDER || 'deepseek' }}" > .env
             echo "LLM_API_KEY=${{ secrets.LLM_API_KEY }}" >> .env
