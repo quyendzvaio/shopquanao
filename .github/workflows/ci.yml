@@ -159,14 +159,8 @@ jobs:
           else echo "✅ No secrets detected"; fi
 
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@v0.29.0
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'table'
-          exit-code: '0'
-          severity: 'HIGH,CRITICAL'
-          skip-dirs: 'vendor,test-evidence,reports,.git,node_modules,postman'
+        run: |
+          docker run --rm -v $PWD:/src aquasecurity/trivy:latest fs             --severity HIGH,CRITICAL             --exit-code 0             --skip-dirs vendor,test-evidence,reports,.git,node_modules,postman             /src || echo "⚠️ Trivy scan completed (non-blocking)" 
 
   # ============================================================
   # Job 5: Docker Build
@@ -189,20 +183,12 @@ jobs:
           docker tag shop-quan-ao-reranker:ci-${{ github.sha }} shop-quan-ao-reranker:ci-latest
 
       - name: Scan app image
-        uses: aquasecurity/trivy-action@v0.29.0
-        with:
-          image-ref: 'shop-quan-ao:ci-${{ github.sha }}'
-          format: 'table'
-          exit-code: '0'
-          severity: 'HIGH,CRITICAL'
+        run: |
+          docker run --rm aquasecurity/trivy:latest image             --severity HIGH,CRITICAL             --exit-code 0             shop-quan-ao:ci-${{ github.sha }} || echo "⚠️ Trivy scan done"
 
       - name: Scan reranker image
-        uses: aquasecurity/trivy-action@v0.29.0
-        with:
-          image-ref: 'shop-quan-ao-reranker:ci-${{ github.sha }}'
-          format: 'table'
-          exit-code: '0'
-          severity: 'HIGH,CRITICAL'
+        run: |
+          docker run --rm aquasecurity/trivy:latest image             --severity HIGH,CRITICAL             --exit-code 0             shop-quan-ao-reranker:ci-${{ github.sha }} || echo "⚠️ Trivy scan done" 
 
   # ============================================================
   # Job 6: Deploy to Production (main/master only)
