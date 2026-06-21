@@ -210,7 +210,7 @@ jobs:
           severity: 'HIGH,CRITICAL'
 
   # ============================================================
-  # Job 6: Deploy — tự động từ lần đầu tiên
+  # Job 6: Deploy to Production (main/master only)
   # ============================================================
   deploy:
     name: Deploy to Production
@@ -227,91 +227,51 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           known_hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
 
-      - name: Deploy — tự động (kể cả lần đầu)
-        run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'ENDSSH'
-            set -e
-
-            REPO="${{ secrets.DEPLOY_PATH }}"
-            echo "🚀 Bắt đầu deploy..."
-
-            # ── Bước 1: Cài Docker nếu chưa có ──
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          script: |
+            REPO=${{ secrets.DEPLOY_PATH }}
             if ! command -v docker &> /dev/null; then
-              echo "📦 Cài Docker..."
               curl -fsSL https://get.docker.com | sh
-              usermod -aG docker $USER
             fi
-
-            # ── Bước 2: Clone nếu chưa có, pull nếu đã có ──
             if [ ! -d "$REPO" ]; then
-              echo "🔄 Lần đầu — cloning repo..."
               git clone https://github.com/${{ github.repository }}.git "$REPO"
             fi
-
             cd "$REPO"
-
-            # Nếu đã tồn tại repo, pull code mới
-            if git remote -v &> /dev/null; then
-              git stash || true
-              git pull origin main
-            fi
-
-            # ── Bước 3: Tạo .env từ GitHub Secrets ──
-            echo "🔧 Tạo .env..."
-            cat > .env << ENDENV
-LLM_PROVIDER=${{ secrets.LLM_PROVIDER || 'deepseek' }}
-LLM_API_KEY=${{ secrets.LLM_API_KEY }}
-LLM_BASE_URL=${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
-LLM_MODEL=${{ secrets.LLM_MODEL || 'deepseek-chat' }}
-LLM_TIMEOUT=${{ secrets.LLM_TIMEOUT || '60' }}
-MARIADB_ROOT_PASSWORD=${{ secrets.MARIADB_ROOT_PASSWORD }}
-DB_PASS=${{ secrets.DB_PASS }}
-PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}
-RERANKER_URL=http://reranker:8000
-ENDENV
-            echo "✅ .env created"
-
-            # ── Bước 4: Build & start──
-            echo "🏗️  Building images..."
+            git stash || true
+            git pull origin main
+            echo "LLM_PROVIDER=${{ secrets.LLM_PROVIDER || 'deepseek' }}" > .env
+            echo "LLM_API_KEY=${{ secrets.LLM_API_KEY }}" >> .env
+            echo "LLM_BASE_URL=${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}" >> .env
+            echo "LLM_MODEL=${{ secrets.LLM_MODEL || 'deepseek-chat' }}" >> .env
+            echo "LLM_TIMEOUT=${{ secrets.LLM_TIMEOUT || '60' }}" >> .env
+            echo "MARIADB_ROOT_PASSWORD=${{ secrets.MARIADB_ROOT_PASSWORD }}" >> .env
+            echo "DB_PASS=${{ secrets.DB_PASS }}" >> .env
+            echo "PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}" >> .env
+            echo "RERANKER_URL=http://reranker:8000" >> .env
             docker compose build --no-cache reranker
             docker compose build app
-
-            echo "🚀 Starting services..."
             docker compose up -d --force-recreate --remove-orphans
-
-            # ── Bước 5: Health check ──
-            echo "⏳ Đợi service ready..."
             sleep 10
             for i in $(seq 1 30); do
               STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8090/api/products?limit=1 2>/dev/null || echo "000")
               if [ "$STATUS" = "200" ]; then
-                echo "✅ App ready (HTTP $STATUS) sau $((i*3)) giây"
+                echo "App ready (HTTP $STATUS)"
                 break
               fi
-              printf "   Attempt %d/30...\n" "$i"
               sleep 3
             done
-
-            # ── Bước 6: Dọn dẹp ──
             docker image prune -f
-            echo "✅ Deploy hoàn tất!"
-ENDSSH
+            echo "Deploy done!"
 
-      - name: Deployment Summary
+      - name: Summary
         run: |
-          echo "## ✅ Deploy thành công" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Mục | Chi tiết |" >> $GITHUB_STEP_SUMMARY
-          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
-          echo "| VPS | ${{ secrets.DEPLOY_HOST }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Đường dẫn | ${{ secrets.DEPLOY_PATH }} |" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Deploy complete" >> $GITHUB_STEP_SUMMARY
+          echo "| Host | ${{ secrets.DEPLOY_HOST }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Deploy bởi | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Thời gian | $(date) |" >> $GITHUB_STEP_SUMMARY
-
-      - name: Notify failure
-        if: failure()
-        run: |
-          echo "## ❌ Deploy thất bại" >> $GITHUB_STEP_SUMMARY
-          echo "Commit ${{ github.sha }} bởi ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-          echo "Kiểm tra logs tại: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "| By | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
