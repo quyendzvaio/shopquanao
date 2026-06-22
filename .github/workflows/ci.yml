@@ -174,10 +174,8 @@ jobs:
           docker build -t shop-quan-ao:ci-${{ github.sha }} .
           docker tag shop-quan-ao:ci-${{ github.sha }} shop-quan-ao:ci-latest
 
-      - name: Build reranker image
-        run: |
-          docker build -t shop-quan-ao-reranker:ci-${{ github.sha }} ./docker/reranker
-          docker tag shop-quan-ao-reranker:ci-${{ github.sha }} shop-quan-ao-reranker:ci-latest
+      # reranker image build skipped — Python deps too large for limited disk
+
 
       - name: Scan app image
         run: |
@@ -274,12 +272,13 @@ jobs:
             echo "MARIADB_ROOT_PASSWORD=${{ secrets.MARIADB_ROOT_PASSWORD }}" >> .env
             echo "DB_PASS=${{ secrets.DB_PASS }}" >> .env
             echo "PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}" >> .env
-            echo "RERANKER_URL=http://reranker:8000" >> .env
+            echo "RERANKER_URL=" >> .env
             echo ".env written (\$(wc -l < .env) lines)"
 
-            # Build app (single-stage, minimal deps)
+            # Build app (single-stage, minimal deps — no reranker, saves >1GB disk)
             echo "Building app..."
             docker compose build --no-cache app 2>&1 | tail -5
+            docker compose build --no-cache db 2>&1 | tail -3 || true
 
             # Deploy
             echo "Starting containers..."

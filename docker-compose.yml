@@ -22,8 +22,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      reranker:
-        condition: service_started
 
   db:
     image: mariadb:10.11
