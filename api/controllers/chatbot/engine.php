@@ -14,7 +14,7 @@ class ChatbotEngine {
 
     const INTENTS = [
         'greeting'       => ['chào', 'hello', 'hi', 'xin chào', 'hey', 'helo', 'hí', 'chao'],
-        'product_search' => ['tìm', 'kiếm', 'sản phẩm', 'có áo', 'có quần', 'có váy', 'còn hàng', 'giá', 'bao nhiêu', 'mua', 'rẻ', 'đắt', 'khoác', 'thun', 'len', 'jean', 'váy', 'đầm', 'dưới', 'trên', 'khoảng', 'từ', 'đến'],
+        'product_search' => ['tìm', 'kiếm', 'sản phẩm', 'có áo', 'có quần', 'có váy', 'còn hàng', 'giá', 'bao nhiêu', 'mua', 'rẻ', 'đắt', 'áo', 'quần', 'váy', 'đầm', 'khoác', 'thun', 'len', 'polo', 'gile', 'sơ mi', 'vest', 'hoodie', 'jean', 'jeans', 'baggy', 'jogger', 'short', 'kaki', 'bò', 'dưới', 'trên', 'khoảng', 'từ', 'đến', 'maxi', 'chân váy', 'phụ kiện', 'túi', 'mũ'],
         'product_detail' => ['chi tiết', 'thông tin', 'mô tả', 'hình ảnh', 'size', 'kích thước', 'chất liệu'],
         'size_advice'    => ['size', 'mặc size', 'chọn size', 'cao', 'nặng', 'cân nặng', 'chiều cao', 'kg', 'mặc vừa'],
         'order_status'   => ['đơn hàng', 'đơn', 'order', 'tra cứu', 'trạng thái đơn', 'đang giao', 'chờ xử lý'],
@@ -49,8 +49,8 @@ class ChatbotEngine {
         'áo phông' => 'áo phông',
         'áo dài tay' => 'áo dài tay',
         'áo' => null, // category match only
-        'quần jeans' => 'quần jean',
-        'quần jean' => 'quần jean',
+        'quần jeans' => 'quần jeans',
+        'quần jean' => 'quần jeans',
         'quần tây' => 'quần tây',
         'quần kaki' => 'quần kaki',
         'quần baggy' => 'quần baggy',

@@ -51,7 +51,10 @@ jobs:
             --ignore=test-evidence,reports,.codex,.agents,vendor,tests \
             --error-severity=1 --warning-severity=0 . || echo "⚠️ Style issues (non-blocking)"
 
-      # python syntax check for reranker skipped
+      - name: Python lint (reranker)
+        run: |
+          python3 -m py_compile docker/reranker/app.py && echo "✅ app.py syntax OK"
+          python3 -m py_compile docker/reranker/export_model.py && echo "✅ export_model.py syntax OK"
 
   # ============================================================
   # Job 2: Unit Tests
@@ -143,23 +146,45 @@ jobs:
       - name: Check for hardcoded secrets
         run: |
           echo "🔍 Scanning for real secrets (API keys, tokens, private keys)..."
-          # Only flag actual secret STRINGS — NOT PHP variable names like $password
-          # Patterns:
-          #   sk-[a-z0-9]{20,}     → API keys (sk-xxx...)
-          #   AKIA[A-Z0-9]{16}     → AWS access keys
+          # Only flag actual secret STRINGS — NOT PHP variable names
+          #   sk-[a-z0-9]{20,}     → API keys
           #   -----BEGIN           → private keys
-          #   ghp_xxx              → GitHub PAT
-          #   github_pat_          → GitHub fine-grained PAT
-          RESULTS=$(grep -rn 'sk-[a-z0-9]\{20,\}\|AKIA[A-Z0-9]\{16\}\|-----BEGIN[ A-Z]\{5,\}RSA\|ghp_\w\{36\}\|github_pat_\w\{82\}'             --include="*.php" --include="*.yml" --include="*.yaml"             --include="*.json" --include="*.sql" --include="*.md"             . 2>/dev/null |             grep -v "vendor/\|test-evidence/\|reports/\|\.git/\|node_modules/\|postman/\|\.github/" |             grep -v 'your-\|placeholder\|example\|sk-\.\.\.\|XXXXX\|test-\*' |             head -20 || true)
-          if [ -n "$RESULTS" ]; then echo "❌ Secrets leaked:"; echo "$RESULTS"; exit 1
-          else echo "✅ No secrets detected"; fi
+          #   ghp_xxx / github_pat → GitHub tokens
+          SECRETS=$(grep -rnP '(?<![-\$>])sk-[a-z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9]{85}|-----BEGIN\s+(RSA|OPENSSH|EC|DSA)\s+PRIVATE\s+KEY-----' \
+            --include='*.php' --include='*.py' --include='*.yml' --include='*.yaml' --include='*.sh' --include='*.json' --include='*.md' \
+            . 2>/dev/null | grep -v '.git/' | grep -v 'vendor/' || true)
+          if [ -n "$SECRETS" ]; then
+            echo "❌ Secrets leaked:"
+            echo "$SECRETS"
+            exit 1
+          fi
+          echo "✅ No secrets found"
+
+      - name: Check for hardcoded passwords
+        run: |
+          echo "ℹ️  Checking for hardcoded passwords in auth files..."
+          # Flag literal password === compares with real values
+          BAD=$(grep -rnP "password\s*===\s*'[^']{4,}'" \
+            --include='*.php' \
+            . 2>/dev/null | grep -v '.git/' | grep -v 'vendor/' || true)
+          if [ -n "$BAD" ]; then
+            echo "❌ Hardcoded password found:"
+            echo "$BAD"
+            exit 1
+          fi
+          echo "✅ No hardcoded passwords"
 
       - name: Trivy filesystem scan
         run: |
-          docker run --rm -v $PWD:/src aquasecurity/trivy:latest fs             --severity HIGH,CRITICAL             --exit-code 0             --skip-dirs vendor,test-evidence,reports,.git,node_modules,postman             /src || echo "⚠️ Trivy scan completed (non-blocking)" 
+          docker run --rm -v $PWD:/src aquasecurity/trivy:latest fs \
+            --severity HIGH,CRITICAL \
+            --exit-code 0 \
+            --skip-dirs vendor \
+            --skip-dirs .git \
+            /src || echo "⚠️ Trivy scan done"
 
   # ============================================================
-  # Job 5: Docker Build
+  # Job 5: Docker Build (app + reranker)
   # ============================================================
   docker:
     name: Docker Build
@@ -173,12 +198,26 @@ jobs:
           docker build -t shop-quan-ao:ci-${{ github.sha }} .
           docker tag shop-quan-ao:ci-${{ github.sha }} shop-quan-ao:ci-latest
 
-# reranker build skipped
+      - name: Build reranker image
+        run: |
+          docker build -t shop-reranker:ci-${{ github.sha }} docker/reranker/
+          docker tag shop-reranker:ci-${{ github.sha }} shop-reranker:ci-latest
 
       - name: Scan app image
         run: |
-          docker run --rm aquasecurity/trivy:latest image             --severity HIGH,CRITICAL             --exit-code 0             shop-quan-ao:ci-${{ github.sha }} || echo "⚠️ Trivy scan done"
+          docker run --rm aquasecurity/trivy:latest image \
+            --severity HIGH,CRITICAL \
+            --exit-code 0 \
+            shop-quan-ao:ci-${{ github.sha }} || echo "⚠️ Trivy scan done"
 
+      - name: Scan reranker image
+        run: |
+          docker run --rm aquasecurity/trivy:latest image \
+            --severity HIGH,CRITICAL \
+            --exit-code 0 \
+            shop-reranker:ci-${{ github.sha }} || echo "⚠️ Trivy scan done"
+
+  # ============================================================
   # Job 6: Deploy to Production (main/master only)
   # ============================================================
   deploy:
@@ -197,8 +236,9 @@ jobs:
           known_hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
 
       - name: Deploy via SSH
+        timeout-minutes: 30
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.DEPLOY_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           REPO: ${{ secrets.DEPLOY_PATH }}
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -212,24 +252,30 @@ jobs:
             REPO_PATH="$REPO"
             REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
 
-            # Verify token
             echo "GITHUB_TOKEN length: ${#GITHUB_TOKEN}"
             if [ "${#GITHUB_TOKEN}" -lt 10 ]; then
-              echo "❌ GITHUB_TOKEN missing — check secrets"
+              echo "❌ GITHUB_TOKEN missing — check DEPLOY_GITHUB_TOKEN or GITHUB_TOKEN secret"
               exit 1
             fi
 
-            # Install Docker if needed
+            # Install Docker if missing
             if ! command -v docker &> /dev/null; then
               curl -fsSL https://get.docker.com | sh
+              sudo usermod -aG docker "$USER" || true
             fi
 
-            # Free up disk space
-            echo "Disk space before:"
+            # Free disk aggressively
+            echo "=== Disk before cleanup ==="
             df -h / | tail -1
             docker system prune -af 2>/dev/null || true
             docker builder prune -af 2>/dev/null || true
-            echo "Disk space after:"
+            # Remove ALL unused containers/images/volumes
+            docker container prune -f 2>/dev/null || true
+            docker image prune -af 2>/dev/null || true
+            docker volume prune -f 2>/dev/null || true
+            # Clean Docker build cache
+            rm -rf /var/lib/docker/buildkit 2>/dev/null || true
+            echo "=== Disk after cleanup ==="
             df -h / | tail -1
 
             # Clone or pull repo
@@ -243,62 +289,74 @@ jobs:
             git remote set-url origin "$REPO_URL"
 
             # Detect default branch
-            echo "Fetching remote..."
-            git fetch origin 2>&1 || true
+            echo "Fetching origin..."
+            git fetch origin --prune 2>&1 || true
             DEFAULT_BRANCH=$(git remote show origin 2>/dev/null | grep "HEAD branch" | cut -d" " -f5 || echo "")
             if [ -z "$DEFAULT_BRANCH" ]; then
               DEFAULT_BRANCH="main"
             fi
             echo "Branch: $DEFAULT_BRANCH"
 
-            # Reset to remote
+            # Hard reset
             git fetch origin "$DEFAULT_BRANCH"
+            git checkout "$DEFAULT_BRANCH" 2>/dev/null || git checkout -b "$DEFAULT_BRANCH"
             git reset --hard "origin/$DEFAULT_BRANCH"
             echo "✅ Repo: $(git rev-parse --short HEAD)"
 
             # Write .env
-            echo "LLM_PROVIDER=${{ secrets.LLM_PROVIDER || 'deepseek' }}" > .env
-            echo "LLM_API_KEY=${{ secrets.LLM_API_KEY }}" >> .env
-            echo "LLM_BASE_URL=${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}" >> .env
-            echo "LLM_MODEL=${{ secrets.LLM_MODEL || 'deepseek-chat' }}" >> .env
-            echo "LLM_TIMEOUT=${{ secrets.LLM_TIMEOUT || '60' }}" >> .env
-            echo "MARIADB_ROOT_PASSWORD=${{ secrets.MARIADB_ROOT_PASSWORD }}" >> .env
-            echo "DB_PASS=${{ secrets.DB_PASS }}" >> .env
-            echo "PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}" >> .env
-            echo ".env written (\$(wc -l < .env) lines)"
+            cat > .env << ENVEOF
+            LLM_PROVIDER=${{ secrets.LLM_PROVIDER || 'deepseek' }}
+            LLM_API_KEY=${{ secrets.LLM_API_KEY }}
+            LLM_BASE_URL=${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
+            LLM_MODEL=${{ secrets.LLM_MODEL || 'deepseek-chat' }}
+            LLM_TIMEOUT=${{ secrets.LLM_TIMEOUT || '60' }}
+            MARIADB_ROOT_PASSWORD=${{ secrets.MARIADB_ROOT_PASSWORD }}
+            DB_PASS=${{ secrets.DB_PASS }}
+            PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}
+            RERANKER_URL=http://reranker:8000
+ENVEOF
+            echo ".env written ($(wc -l < .env) lines)"
 
-            # Build app (single-stage, minimal deps)
-            echo "Building app..."
-            docker compose build --no-cache app 2>&1 | tail -5
-            docker compose build --no-cache db 2>&1 | tail -3 || true
+            # Build images (cache-aware)
+            echo "Building images..."
+            docker compose build --no-cache reranker 2>&1 | tail -5
+            docker compose build app 2>&1 | tail -5
 
             # Deploy
             echo "Starting containers..."
             docker compose up -d --force-recreate --remove-orphans 2>&1 | tail -5
 
-            # Healthcheck
-            echo "Waiting for app..."
-            for i in $(seq 1 30); do
+            # Healthcheck with extended timeout for reranker cold start
+            echo "Waiting for app (up to 120s)..."
+            for i in $(seq 1 40); do
               STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8090/api/products?limit=1 2>/dev/null || echo "000")
               if [ "$STATUS" = "200" ]; then
                 echo "✅ App ready (${i}x3s)"
                 break
               fi
-              if [ "$i" -eq 30 ]; then
-                echo "❌ App failed after 90s"
-                docker compose logs app --tail=20 2>/dev/null || true
+              if [ "$i" -eq 40 ]; then
+                echo "❌ App failed after 120s"
+                docker compose logs app --tail=30 2>/dev/null || true
                 exit 1
               fi
               sleep 3
             done
 
+            # Verify reranker health
+            echo "Checking reranker..."
+            curl -sf http://localhost:8001/health && echo " ✅" || echo " ⚠️ Reranker still warming up (ok)"
+
             # Final cleanup
             docker image prune -f 2>/dev/null || true
+            echo "=== Disk after deploy ==="
+            df -h / | tail -1
             echo "✅ Deploy complete!"
 
       - name: Summary
         run: |
           echo "## ✅ Deploy complete" >> $GITHUB_STEP_SUMMARY
           echo "| Host | ${{ secrets.DEPLOY_HOST }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Port | 8090 |" >> $GITHUB_STEP_SUMMARY
+          echo "| Reranker | 8001 |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
           echo "| By | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY

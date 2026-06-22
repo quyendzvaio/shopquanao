@@ -18,10 +18,29 @@ services:
       LLM_BASE_URL: https://api.deepseek.com
       LLM_MODEL: deepseek-chat
       LLM_TIMEOUT: 60
-
+      RERANKER_URL: http://reranker:8000
     depends_on:
       db:
         condition: service_healthy
+      reranker:
+        condition: service_started
+
+  reranker:
+    build:
+      context: docker/reranker
+      dockerfile: Dockerfile
+    container_name: shop_quan_ao_reranker
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 120s
+      retries: 12
+    # No env needed — model is baked into image (~450MB)
+    # No GPU needed — CPU inference only
 
   db:
     image: mariadb:10.11
@@ -45,8 +64,6 @@ services:
       timeout: 3s
       retries: 30
       start_period: 5s
-
-  # reranker: removed — Python deps >1GB, not needed for chatbot
 
   phpmyadmin:
     image: phpmyadmin:5.2

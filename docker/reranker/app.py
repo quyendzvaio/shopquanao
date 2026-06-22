@@ -1,20 +1,42 @@
 """
-Reranker sidecar — cross-encoder model for reranking search results.
-Model loads in background at startup (download từ HuggingFace Hub ~1.1GB).
-Health endpoint returns 503 until model ready.
+Reranker sidecar — TF-IDF with character n-grams (scikit-learn).
+Lightweight Vietnamese text reranker, < 300 MB total image.
+
+API contract (backward-compatible):
+  POST /rerank  { query, texts[] } → { scores[], sorted_indices[], elapsed_ms }
+  GET  /health                      → { status, model, loaded }
 """
-import threading
 import time
+import re
+
+import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from sentence_transformers import CrossEncoder
+from sklearn.feature_extraction.text import TfidfVectorizer
 
-app = FastAPI(title="Reranker")
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+MAX_TEXTS = 100
+VECTORIZER_KWARGS = dict(
+    analyzer="char",
+    ngram_range=(2, 4),
+    max_features=50000,
+    lowercase=True,
+    sublinear_tf=True,       # use 1 + log(tf)
+)
 
-model: CrossEncoder | None = None
-model_ready = threading.Event()
-warmup_started = False
+app = FastAPI(title="Reranker", version="3.0-tfidf")
 
+# Global vectorizer (fit on each request — small corpus, fast)
+# No model loading needed, so we're ready instantly
+_ready = True
+_start_time = time.time()
+
+
+# ---------------------------------------------------------------------------
+# Pydantic schemas
+# ---------------------------------------------------------------------------
 class RerankRequest(BaseModel):
     query: str
     texts: list[str]
@@ -24,63 +46,93 @@ class RerankResponse(BaseModel):
     sorted_indices: list[int]
     elapsed_ms: int
 
-def _load_model():
-    """Background thread: tải model ngay khi server start."""
-    global model
-    try:
-        model = CrossEncoder('BAAI/bge-reranker-v2-m3', device='cpu')
-    except Exception as e:
-        print(f"[RERANKER] Model load failed: {e}", flush=True)
-    finally:
-        model_ready.set()
 
-@app.on_event("startup")
-async def startup():
-    """Start loading model in background thread so API can still serve health checks."""
-    global warmup_started
-    if not warmup_started:
-        warmup_started = True
-        t = threading.Thread(target=_load_model, daemon=True)
-        t.start()
+# ---------------------------------------------------------------------------
+# Vietnamese-aware text preprocessing
+# ---------------------------------------------------------------------------
+def _preprocess(text: str) -> str:
+    """Normalize Vietnamese text: lowercase, collapse whitespace."""
+    text = text.lower().strip()
+    # Remove special chars but keep Vietnamese letters
+    text = re.sub(r"[^\w\sàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
+
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
 @app.get("/health")
 def health():
     return {
-        "status": "ok" if model is not None else "warming_up",
-        "model": "BAAI/bge-reranker-v2-m3",
-        "loaded": model is not None,
-        "warmup_seconds": time.time() - startup.start_time if hasattr(startup, 'start_time') else 0,
+        "status": "ok",
+        "model": "TF-IDF char-ngram (2-4)",
+        "loaded": True,
+        "elapsed_s": round(time.time() - _start_time, 1),
     }
 
+
+# ---------------------------------------------------------------------------
+# Rerank endpoint
+# ---------------------------------------------------------------------------
 @app.post("/rerank", response_model=RerankResponse)
-def rerank(req: RerankRequest):
-    if model is None:
-        # Chưa load xong → đợi tối đa 120s
-        if not model_ready.wait(timeout=120):
-            # Fallback: dùng keyword overlap sort
-            return _fallback_rerank(req.query, req.texts)
+def rerank(req: RerankRequest) -> RerankResponse:
+    n = len(req.texts)
+    if n == 0:
+        return RerankResponse(scores=[], sorted_indices=[], elapsed_ms=0)
+    if n > MAX_TEXTS:
+        raise HTTPException(status_code=400, detail=f"Max {MAX_TEXTS} texts")
 
     t0 = time.perf_counter()
-    pairs = [[req.query, t] for t in req.texts]
-    scores = model.predict(pairs).tolist()
-    sorted_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+
+    # Preprocess
+    query_pp = _preprocess(req.query)
+    texts_pp = [_preprocess(t) for t in req.texts]
+
+    # Build TF-IDF on the fly (small corpus, fast)
+    all_docs = [query_pp] + texts_pp
+    vectorizer = TfidfVectorizer(**VECTORIZER_KWARGS)
+    tfidf_matrix = vectorizer.fit_transform(all_docs)
+
+    # Cosine similarity: query (row 0) vs each text (rows 1..n)
+    query_vec = tfidf_matrix[0:1]
+    doc_vecs = tfidf_matrix[1:]
+    similarities = (query_vec @ doc_vecs.T).toarray().flatten()
+
+    # Fallback: if all zeros (no common n-grams), use exact word overlap
+    if similarities.max() < 1e-9:
+        scores = _word_overlap(req.query, req.texts)
+    else:
+        scores = similarities.tolist()
+
+    # Sort descending
+    sorted_indices = sorted(range(n), key=lambda i: scores[i], reverse=True)
+
     elapsed = int((time.perf_counter() - t0) * 1000)
     return RerankResponse(scores=scores, sorted_indices=sorted_indices, elapsed_ms=elapsed)
 
-# Track startup time
-startup.start_time = time.time()
 
-def _fallback_rerank(query: str, texts: list[str]) -> RerankResponse:
-    """Fallback keyword overlap khi model chưa sẵn sàng."""
-    query_words = set(query.lower().split())
-    scored = []
-    for i, t in enumerate(texts):
+# ---------------------------------------------------------------------------
+# Word overlap fallback (for short queries with no common n-grams)
+# ---------------------------------------------------------------------------
+def _word_overlap(query: str, texts: list[str]) -> list[float]:
+    """Jaccard-like word overlap."""
+    q_words = set(query.lower().split())
+    scores = []
+    for t in texts:
         tw = set(t.lower().split())
-        overlap = len(query_words & tw) / max(len(query_words | tw), 1)
-        scored.append((overlap, i))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return RerankResponse(
-        scores=[s[0] for s in scored],
-        sorted_indices=[s[1] for s in scored],
-        elapsed_ms=0,
-    )
+        if not q_words and not tw:
+            scores.append(0.0)
+        elif not q_words or not tw:
+            scores.append(0.0)
+        else:
+            scores.append(len(q_words & tw) / max(len(q_words | tw), 1))
+    return scores
+
+
+# ---------------------------------------------------------------------------
+# Entry
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

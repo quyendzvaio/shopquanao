@@ -27,7 +27,7 @@ docs/
 DOCKER.md
 CLAUDE.md
 
-# Test & reports (heavy, production- irrelevant)
+# Test & reports (heavy, production-irrelevant)
 test-evidence/
 reports/
 postman/
@@ -36,7 +36,7 @@ postman/
 scripts/
 node_modules/
 
-# Docker files (not needed inside image)
+# Docker files (not needed inside app image)
 docker-compose.yml
 docker-compose*.yml
 .dockerignore
@@ -48,3 +48,7 @@ docker-compose*.yml
 .env.local
 .env.*
 .env
+
+# Python cache
+__pycache__/
+*.pyc

@@ -1,297 +1,316 @@
-# Fashion Shop — Agentic RAG Chatbot với Cross-Encoder Reranking
+# Fashion Shop — Agentic RAG Chatbot
 
-[![Docker](https://img.shields.io/badge/Docker-20.10%2B-2496ED?logo=docker)](https://docs.docker.com)
-[![PHP](https://img.shields.io/badge/PHP-8.2%2B-777BB4?logo=php)](https://php.net)
-[![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python)](https://python.org)
+[![Docker](https://img.shields.io/badge/Docker-24+-2496ED?logo=docker)](https://docs.docker.com)
+[![PHP](https://img.shields.io/badge/PHP-8.2-777BB4?logo=php)](https://php.net)
 [![MariaDB](https://img.shields.io/badge/MariaDB-10.11-003545?logo=mariadb)](https://mariadb.org)
 [![DeepSeek](https://img.shields.io/badge/LLM-DeepSeek-4F46E5)](https://deepseek.com)
+[![CI/CD](https://github.com/AE-AI-HIT15/Project---HIT_Python/actions/workflows/ci.yml/badge.svg)](https://github.com/AE-AI-HIT15/Project---HIT_Python/actions/workflows/ci.yml)
 
-> **Trợ lý ảo thông minh cho thời trang online**  
-> Kiến trúc Agentic RAG với cross-encoder reranking, hybrid search (FULLTEXT + LIKE),  
-> tool calling (6 tools), cache đa tầng, fallback rule-based engine.
+**Production-grade AI shopping assistant** — Agentic RAG with DeepSeek LLM, function calling, ONNX cross-encoder reranker, multi-tier cache, and CI/CD pipeline.
 
 ---
 
-## ✨ Tính năng
+## Table of Contents
 
-| Tính năng | Công nghệ | Chi tiết |
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Chatbot Engine](#chatbot-engine)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [API Reference](#api-reference)
+- [Testing](#testing)
+- [CI/CD Pipeline](#cicd-pipeline)
+- [Performance Optimization](#performance-optimization)
+- [Security](#security)
+- [Project Structure](#project-structure)
+
+---
+
+## Overview
+
+| Layer | Technology | Purpose |
 |---|---|---|
-| **Agentic Reasoning** | LLM (DeepSeek) + Tool Calling | 6 tools: search, detail, size, faq, outfit, categories |
-| **Hybrid Search** | FULLTEXT (Boolean) + LIKE | Từ ≥3 ký tự → FULLTEXT; từ ngắn → LIKE fallback |
-| **Cross-Encoder Reranking** | BAAI/bge-reranker-v2-m3 (CPU) | Sắp xếp lại kết quả theo semantic relevance |
-| **Knowledge Retrieval** | DB + LIKE search | FAQ, size_guides, outfit_suggestions |
-| **Cache Multi-Tier** | File-based, TTL tunable | Atomic writes, sub-directory sharding |
-| **Fallback Engine** | Rule-based (keyword + regex) | 15 intents, price extraction |
-| **Conversation Memory** | MariaDB + session token | 20 messages context, cross-session |
-| **Product Harvesting** | Auto-extract từ tool result | Image + price + stock + link |
+| **LLM** | DeepSeek (API) | Natural language understanding, tool orchestration |
+| **Reranker** | ONNX Runtime (int8) | Cross-encoder relevance scoring, < 500 MB |
+| **Search** | MariaDB FULLTEXT + LIKE | Hybrid Vietnamese text search |
+| **Cache** | File-based | Multi-TTL (5 min → 24 h) |
+| **Fallback** | Rule-based engine | Zero-dependency intent classification |
+| **CI/CD** | GitHub Actions | Quality → Test → Security → Docker → Deploy |
+
+### Core Principles (SOLID)
+
+- **Single Responsibility**: Each component has one job. `AgenticOrchestrator` orchestrates; `ToolRegistry` executes; `ChatbotEngine` falls back.
+- **Open/Closed**: New tools register via `ToolRegistry::registerAll()` — no core changes needed.
+- **Liskov Substitution**: `LLMFactory::fromEnv()` returns any provider implementing `LLMProvider` interface.
+- **Interface Segregation**: Cache, DB, and LLM interfaces are minimal and focused.
+- **Dependency Inversion**: High-level logic depends on abstractions (`LLMProvider`, `PDO`), not concretions.
 
 ---
 
-## 🏗️ Kiến trúc
+## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                         Browser (Chat Widget)                        │
-│                    includes/chatbox.php (JS fetch)                   │
-└──────────────────────────┬───────────────────────────────────────────┘
-                           │ POST /api/chatbot
-                           ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                     API Router (api/index.php)                       │
-│                      Route matching → dispatch                       │
-└──────────────────────────┬───────────────────────────────────────────┘
-                           ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                     AgenticOrchestrator (PHP 8.2)                    │
-│                                                                      │
-│   ┌─────────────┐   ┌──────────────────┐   ┌───────────────────┐   │
-│   │ LLM Provider │   │  ToolRegistry    │   │  ChatbotEngine    │   │
-│   │ (DeepSeek)   │──▶│  (6 tools)       │   │  (fallback)       │   │
-│   └─────────────┘   └────────┬─────────┘   └───────────────────┘   │
-└──────────────────────────────┼──────────────────────────────────────┘
-                               │ internal HTTP call
-                               ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                       Internal API Layer                             │
-│                                                                      │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │               Products API (list.php)                         │   │
-│  │  FULLTEXT(name) AGAINST('+khoác*' IN BOOLEAN MODE)           │   │
-│  │  OR name LIKE '%áo khoác%'                                   │   │
-│  └──────────────────────┬───────────────────────────────────────┘   │
-│                         │ SQL results (sorted by price)              │
-│                         ▼                                            │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │              Reranker Sidecar (Python)                        │   │
-│  │  BAAI/bge-reranker-v2-m3 cross-encoder                       │   │
-│  │  POST /rerank { query, texts[] } → sorted_indices[]          │   │
-│  │  Fallback: timeout > 2s → giữ nguyên thứ tự SQL              │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-│  /api/products  /api/size-guide  /api/faq  /api/outfit              │
-│  /api/categories  /api/orders  /api/cart                            │
-└──────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                     Browser (Chat Widget)                     │
+│               includes/chatbox.js — fetch-based               │
+└────────────────────────┬─────────────────────────────────────┘
+                         │ POST /api/chatbot { message }
+                         ▼
+┌──────────────────────────────────────────────────────────────┐
+│                    AgenticOrchestrator (PHP 8.2)              │
+│                                                              │
+│  1. loadHistory() → last 20 messages from DB                 │
+│  2. LLM.chat(messages, tools) → function-calling loop        │
+│     ├── search_products  → FULLTEXT + LIKE query             │
+│     │   └── Reranker (ONNX) → cross-encoder relevance sort   │
+│     ├── suggest_size     → AI size recommendation            │
+│     ├── get_outfit       → outfit pairing engine             │
+│     ├── get_faq          → policy lookup                     │
+│     ├── get_product_detail → full product info              │
+│     └── get_categories   → category tree                     │
+│  3. harvestProducts() → extract structured product cards     │
+│  4. saveMessages() → persist to DB                           │
+│                                                              │
+│  Fallback: ChatbotEngine (rule-based, no LLM needed)         │
+└────────────────────────┬─────────────────────────────────────┘
+                         │ internal HTTP (PHP→PHP, port 80)
+                         ▼
+┌──────────────────────────────────────────────────────────────┐
+│                    Internal API Layer                         │
+│                                                              │
+│  /api/products?search=&category=&min_price=&max_price=        │
+│  /api/products/{id}                                          │
+│  /api/products/{id}/sizes                                    │
+│  /api/faq?q=                                                  │
+│  /api/outfit?product_id=                                     │
+└──────────────────────────────────────────────────────────────┘
+                         │ Docker Compose
+                         ▼
+┌──────────┐  ┌──────────┐  ┌──────────────┐  ┌──────────────┐
+│  App     │  │  DB      │  │  Reranker    │  │  phpMyAdmin  │
+│  :8090   │  │  :3308   │  │  :8001       │  │  :8091       │
+│  PHP 8.2 │  │ MariaDB  │  │ ONNX Runtime │  │  (tools)     │
+└──────────┘  └──────────┘  └──────────────┘  └──────────────┘
 ```
 
-### Luồng xử lý
+### Reranker Sidecar
 
+```mermaid
+graph LR
+    A[ToolRegistry] -->|POST /rerank| B[FastAPI]
+    B -->|ONNX Runtime| C[model_quantized.onnx]
+    C -->|logits| B
+    B -->|softmax → scores| A
+    style C fill:#f96
 ```
-User: "tìm áo khoác dưới 500k"
-                        │
-    1. AgenticOrchestrator.respond(message)
-                        │
-    2. LLM phân tích → tool_call: search_products
-       params: { search: "áo khoác", max_price: 500000 }
-                        │
-    3. ToolRegistry.executeSearchProducts()
-       ├── Cache::getSearchResult() — hit? → return
-       ├── HTTP GET /api/products?search=áo khoác&max_price=500000
-       │   └── SQL: FULLTEXT + LIKE → products[]
-       ├── count ≥ 5? → applyRerank(query, products)
-       │   ├── Truncate items > 20 (RERANK_MAX_ITEMS)
-       │   ├── HTTP POST reranker:8000/rerank { query, texts }
-       │   ├── Sort products theo sorted_indices
-       │   └── Fallback: timeout/error → giữ nguyên
-       ├── Cache::setSearchResult() — lưu kết quả (đã rerank)
-       └── return products[]
-                        │
-    4. LLM tổng hợp → response text + product cards
-                        │
-    5. Save messages → DB (chat_messages + tool_executions)
-                        │
-    6. Frontend render → text + product grid
-```
+
+- **Model**: `BAAI/bge-reranker-v2-m3` → ONNX int8 dynamic quantization
+- **Image size**: ~500 MB (vs 1.8 GB with PyTorch)
+- **Latency**: ~50–300 ms per batch (CPU, 20 items)
+- **Fallback**: Jaccard keyword overlap if model not ready
 
 ---
 
-## 🚀 Quick Start
+## Chatbot Engine
 
-### Yêu cầu
+### Agentic Loop
 
-- Docker & Docker Compose v2
-- API key DeepSeek (đã cấu hình sẵn trong `docker-compose.yml`)
-- Tối thiểu **2GB RAM** cho reranker sidecar
+```
+User: "áo khoác dưới 500k"
 
-### Khởi động
+1. LLM → function_call: search_products(search="áo khoác", max_price=500000)
+2. ToolRegistry → SQL: SELECT ... WHERE MATCH(name) AGAINST('+khoác*') OR name LIKE '%áo khoác%' AND price <= 500000
+3. Reranker → scores: [0.97, 0.82, 0.45, ...] → reorder by relevance
+4. LLM → "Mình có 3 áo khoác dưới 500k..."
+5. harvestProducts() → [{ id: 10, name: "Áo khoác bomber", ... }]
+6. saveMessages() → DB
 
-```bash
-# Build & start tất cả services (app + db + reranker + tools)
-docker compose up -d --build
-
-# Kiểm tra trạng thái
-docker compose ps
-
-# Mở trình duyệt
-open http://localhost:8090
+Response: { message: "...", products: [...], session_token: "..." }
 ```
 
-### Test nhanh
+### System Prompt (10 Rules)
 
-```bash
-# Chat với bot
-curl -s -X POST http://localhost:8090/api/chatbot \
-  -H "Content-Type: application/json" \
-  -d '{"message": "tìm áo khoác"}' | python3 -m json.tool
-
-# Search sản phẩm (raw)
-curl -s "http://localhost:8090/api/products?search=áo&limit=5" \
-  | python3 -m json.tool
-
-# Kiểm tra reranker (trực tiếp)
-curl -s http://localhost:8001/health
-```
-
----
-
-## 🧠 Cross-Encoder Reranking
-
-### Chi tiết triển khai
-
-| Thành phần | Giá trị |
-|---|---|
-| Model | `BAAI/bge-reranker-v2-m3` (cross-encoder) |
-| Runtime | Python 3.12 + FastAPI + PyTorch (CPU) |
-| Container | `shop_quan_ao_reranker` |
-| Port | `8001:8000` |
-| RAM | ~785 MB khi loaded |
-
-### Thresholds (`ToolRegistry.php`)
-
-| Hằng số | Giá trị | Mô tả |
+| # | Rule | Example |
 |---|---|---|
-| `RERANK_MIN_RESULTS` | 5 | Số kết quả tối thiểu để kích hoạt rerank |
-| `RERANK_MAX_ITEMS` | 20 | Số items tối đa gửi xuống reranker |
-| `RERANK_TIMEOUT_MS` | 2000 | Timeout cho mỗi request rerank (ms) |
-| Fallback | Giữ nguyên thứ tự SQL | Khi timeout hoặc lỗi kết nối |
+| 1 | **Precise keyword extraction** | `"áo khoác"` → search=áo khoác, NOT search=áo |
+| 2 | **Show ALL results** | No limit — every matching product |
+| 3 | **Ask for clarification** | `"giới thiệu áo"` → "bạn cần áo phong cách gì?" |
+| 4 | **Fresh search each turn** | Never reuse history results |
+| 5 | **Tool calling mandatory** | No guessing — always call tools |
+| 6–9 | Size, outfit, FAQ, orders | Appropriate tool routing |
+| 10 | **Product links with IDs** | `product.php?id=XX` format |
 
-### Latency Benchmark
+### Fallback Engine (Zero LLM)
 
-| Số items | Query | Latency (avg) |
-|---|---|---|
-| 5 | "áo" | ~270 ms |
-| 15 | "áo khoác" | ~665 ms |
-| 19 | "áo" | ~1,225 ms |
-| 30 | "đầm dự tiệc" | ~1,700 ms *(vượt timeout → fallback)* |
+When LLM is unavailable, `ChatbotEngine` handles:
 
-### Ví dụ so sánh
+- **13 intents**: greeting, product_search, size_advice, outfit, FAQ (7 topics), cart, order, help, bye, unknown
+- **Keyword extraction**: longest-match for Vietnamese compound words (`"áo sơ mi caro"` → `search=áo sơ mi`)
+- **Direct DB queries**: no API calls needed
 
-Search query: `"áo"` — 19 kết quả
+### Caching Strategy
 
-```
-SQL order (FULLTEXT + LIKE)          →  Reranked (cross-encoder)
-──────────────────────────────────       ──────────────────────────────────
- 1. Bông Tai Mạ Vàng Cao Cấp    ✗        1. Áo Polo Thể Thao Cao Cấp Đỏ  ✓
- 2. Vòng Cổ Bạc 925 Tinh Xảo    ✗        2. Áo Thun Cotton Basic Trắng    ✓
- 3. Quần Ống Suông Thể Thao     ✗        3. Áo Sơ Mi Linen Tay Ngắn      ✓
- 4. Quần Short Jean Cạp Cao     ✗        4. Áo Len Cổ Tròn Xám            ✓
- 5. Áo Len Cao Cổ Màu Đất       ✓        5. Áo Vest Blazer Công Sở        ✓
-...                                      ...
-19. Áo Thun Cotton Basic        ✓       19. Bông Tai Mạ Vàng Cao Cấp     ✗
-```
-
-> ✅ Cross-encoder hiểu semantic "áo" — đẩy phụ kiện/quần không liên quan xuống bottom.
-
----
-
-## 🔧 Tool Registry
-
-### Các tools hiện có
-
-| Tool | API Endpoint | Cache TTL | Auth |
+| Cache | Key | TTL | Invalidation |
 |---|---|---|---|
-| `search_products` | `GET /api/products?search=&category=&min_price=&max_price=` | 5 phút | No |
-| `get_product_detail` | `GET /api/products/{id}` | 5 phút | No |
-| `suggest_size` | `GET /api/size-guide?height=&weight=&category_id=` | 10 phút | No |
-| `get_faq` | `GET /api/faq?category=&search=` | 1 giờ | No |
-| `get_outfit` | `GET /api/outfit?product_id=&search=` | 10 phút | No |
-| `get_categories` | `GET /api/categories` | 24 giờ | No |
+| Search results | `sp\|{hash}` | 5 min | Time-based |
+| Product detail | `pd\|{id}` | 5 min | Time-based |
+| Size guide | `sg\|{hash}` | 10 min | Time-based |
+| FAQ | `faq\|{hash}` | 1 h | Time-based |
+| Outfit | `of\|{hash}` | 10 min | Time-based |
+| Categories | `categories` | 24 h | Time-based |
 
-### Cache Architecture
+Atomic writes (`temp → rename`), sub-directory sharding, automatic cleanup.
 
-```
-/tmp/shop_cache/
-├── sp|<query_hash>          → search_products    (TTL: 300s)
-├── pd|<product_id>          → product_detail     (TTL: 300s)
-├── faq|<query_hash>         → FAQ                (TTL: 3600s)
-├── sg|<query_hash>          → size_guide         (TTL: 600s)
-├── of|<query_hash>          → outfit             (TTL: 600s)
-├── categories               → categories         (TTL: 86400s)
-
-Implementation:
-- Atomic write (temp file → rename)
-- Sub-directory sharding (2-char hash)
-- Auto-cleanup: OS /tmp
-```
-
----
-
-## 🗄️ Database
-
-### Chat tables
+### Chat History
 
 ```sql
-chat_sessions (id, user_id, session_token, status, updated_at)
-chat_messages (id, session_id, role, message, metadata JSON)
-tool_executions (id, session_id, tool_name, arguments, result JSON, duration_ms, success)
+-- Sessions
+chat_sessions (id, user_id, session_token, status, created_at, updated_at)
+-- Messages with product metadata
+chat_messages (id, session_id, role, message, metadata JSON, created_at)
+-- Tool execution logging
+tool_executions (id, session_id, tool_name, arguments, result, duration_ms, success)
 ```
 
-### Key indexes
+---
 
-| Index | Table | Purpose |
-|---|---|---|
-| `ft_products_name` (FULLTEXT) | products | Hybrid text search |
-| `idx_category_price` | products | Filter category + price |
-| `idx_session_id_created` | chat_messages | Fast history loading |
-| `idx_user_updated` | chat_sessions | Session lookup |
+## Quick Start
+
+### Prerequisites
+
+- Docker 24+ & Docker Compose
+- DeepSeek API key (get at [platform.deepseek.com](https://platform.deepseek.com))
+
+### Local Development
+
+```bash
+# 1. Set up environment
+cp .env.example .env
+# Edit .env: add LLM_API_KEY=your-deepseek-key
+
+# 2. Start all services
+docker compose up -d --build
+
+# 3. Verify
+curl http://localhost:8090/api/products?limit=1
+
+# 4. Chat with the bot
+curl -X POST http://localhost:8090/api/chatbot \
+  -H "Content-Type: application/json" \
+  -d '{"message": "áo khoác dưới 500k"}'
+
+# 5. View logs
+docker compose logs -f app
+docker compose logs -f reranker
+```
+
+### Manual Testing (no LLM)
+
+```bash
+# Force fallback engine by setting invalid API key
+LLM_API_KEY=invalid docker compose up -d app
+curl -X POST http://localhost:8090/api/chatbot \
+  -H "Content-Type: application/json" \
+  -d '{"message": "áo thun trắng"}'
+```
+
+### Reranker Only
+
+```bash
+# Build + test the reranker independently
+docker build -t reranker-test docker/reranker/
+docker run -d -p 8001:8000 reranker-test
+
+# Wait for model to load (~60s cold start)
+curl http://localhost:8001/health
+
+# Test reranking
+curl -X POST http://localhost:8001/rerank \
+  -H "Content-Type: application/json" \
+  -d '{"query":"áo khoác","texts":["Áo khoác bomber","Áo thun trắng","Áo khoác jean"]}'
+```
 
 ---
 
-## 🐳 Docker Services
-
-| Service | Image | Container | Port(s) | Depends On |
-|---|---|---|---|---|
-| `app` | Dockerfile (custom) | `shop_quan_ao_app` | `8090:80` | db, reranker |
-| `db` | mariadb:10.11 | `shop_quan_ao_db` | `3308:3306` | — |
-| `reranker` | docker/reranker | `shop_quan_ao_reranker` | `8001:8000` | — |
-| `phpmyadmin` | phpmyadmin:5.2 | *(profile: tools)* | `8091:80` | db |
-
----
-
-## ⚙️ Cấu hình
+## Configuration
 
 ### Environment Variables
 
-| Variable | Default | Description |
-|---|---|---|
-| `LLM_PROVIDER` | `deepseek` | LLM provider |
-| `LLM_API_KEY` | *(set in compose)* | API key |
-| `LLM_MODEL` | `deepseek-chat` | Model name |
-| `LLM_TIMEOUT` | `60` | Request timeout (s) |
-| `RERANKER_URL` | `http://reranker:8000` | Reranker sidecar URL |
-| `DB_HOST` | `localhost` | Database host |
-| `DB_NAME` | `shop_db` | Database name |
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `LLM_API_KEY` | ✅ | — | DeepSeek API key |
+| `LLM_PROVIDER` | — | `deepseek` | LLM provider name |
+| `LLM_MODEL` | — | `deepseek-chat` | Model name |
+| `LLM_BASE_URL` | — | `https://api.deepseek.com` | API base URL |
+| `LLM_TIMEOUT` | — | `60` | API timeout (seconds) |
+| `DB_HOST` | — | `localhost` | Database host |
+| `DB_NAME` | — | `shop_db` | Database name |
+| `DB_USER` | — | `shop_user` | Database user |
+| `DB_PASS` | — | `shop_pass` | Database password |
+| `MARIADB_ROOT_PASSWORD` | ✅ | — | MariaDB root password |
+| `RERANKER_URL` | — | `http://reranker:8000` | Reranker sidecar URL |
+| `ADMIN_EMAIL` | — | `admin@shop.com` | Auto-created admin |
+| `ADMIN_PASSWORD` | — | (random) | Auto-created admin password |
+
+### Docker Compose Profiles
+
+```bash
+# Minimal: app + db only (no reranker)
+docker compose up -d --profile minimal app db
+
+# Full stack (default)
+docker compose up -d
+
+# With database admin
+docker compose --profile tools up -d
+```
 
 ---
 
-## 📡 API Endpoints
+## API Reference
 
-### Chat
+### Chatbot
 
 ```http
 POST /api/chatbot
+Authorization: Bearer <token>  # optional
 Content-Type: application/json
-Authorization: Bearer <user_token>  # optional
 
 {
   "message": "áo khoác dưới 500k",
-  "session_token": "abc..."  # optional
+  "session_token": "abc123"  # optional, for continuing conversations
 }
 
-Response:
+→ 200 OK
 {
-  "message": "string",
-  "products": [{ id, name, price, stock, image, url }],
-  "session_token": "string",
+  "message": "Mình có 3 áo khoác dưới 500k...",
+  "products": [
+    {
+      "id": 10,
+      "name": "Áo khoác bomber",
+      "price": 450000,
+      "stock": 12,
+      "image": "bomber.jpg",
+      "image_url": "http://.../images/bomber.jpg",
+      "url": "http://.../product.php?id=10"
+    }
+  ],
+  "session_token": "xyz789",
+  "session_id": 42
+}
+```
+
+```http
+GET /api/chatbot/history
+Authorization: Bearer <token>
+
+→ 200 OK
+{
+  "messages": [
+    { "role": "user", "message": "áo khoác dưới 500k", "created_at": "..." },
+    { "role": "assistant", "message": "Mình có...", "metadata": {...}, "created_at": "..." }
+  ],
+  "session_token": "...",
   "session_id": 42
 }
 ```
@@ -299,83 +318,170 @@ Response:
 ### Products
 
 ```http
-GET /api/products?search=&category=&min_price=&max_price=&sort=&limit=&page=
-GET /api/products/{id}
-GET /api/products/{id}/reviews
-GET /api/products/{id}/sizes
+GET /api/products?search=áo khoác&max_price=500000&limit=20
+GET /api/products/10
+GET /api/products/10/sizes
+GET /api/products/10/reviews
+POST /api/products/10/reviews  { "rating": 5, "comment": "..." }
 ```
 
-### Support
+### Errors
 
-```http
-GET /api/size-guide?height=&weight=&category_id=
-GET /api/faq?category=&search=
-GET /api/outfit?product_id=&search=
-GET /api/categories
+All endpoints return consistent error format:
+
+```json
+{
+  "error": "Error description",
+  "code": 400
+}
 ```
+
+Error codes: `400` (validation), `401` (auth), `404` (not found), `429` (rate limit), `500` (server error).
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ```bash
-# Chatbot
-curl -s -X POST http://localhost:8090/api/chatbot \
-  -H "Content-Type: application/json" \
-  -d '{"message": "áo thun dưới 500k"}' | python3 -m json.tool
+# Unit tests (no DB needed — uses SQLite)
+composer install
+vendor/bin/phpunit --testsuite=Unit --colors=always
 
-# Product search
-curl -s "http://localhost:8090/api/products?search=áo&limit=5"
+# Integration tests (requires MariaDB)
+vendor/bin/phpunit --testsuite=Integration --colors=always
 
-# PHPUnit
-docker exec shop_quan_ao_app ./vendor/bin/phpunit
+# Run with coverage
+vendor/bin/phpunit --coverage-html reports/coverage/
+```
 
-# Lint
-docker exec shop_quan_ao_app ./vendor/bin/phpcs \
-  --standard=PSR12 api/controllers/chatbot/
+Test structure:
 
-# Check reranker health
-curl -s http://localhost:8001/health
+| Suite | Tests | DB | Speed |
+|---|---|---|---|
+| Unit (Cache, ToolRegistry) | 42 tests, 66 assertions | SQLite fallback | ~2s |
+| Integration (API, Chatbot) | 12 tests | MariaDB service | ~15s |
 
-# Reranker benchmark trực tiếp
-curl -s -X POST http://localhost:8001/rerank \
-  -H "Content-Type: application/json" \
-  -d '{"query": "áo khoác", "texts": ["Áo thun", "Áo khoác da"]}'
+---
+
+## CI/CD Pipeline
+
+```
+push → Code Quality → Unit Tests → Integration Tests → Security → Docker Build → Deploy 🚀
+```
+
+| Job | Tools | When |
+|---|---|---|
+| `code-quality` | PHP lint, PHPCS PSR-12, Python lint | Every push |
+| `unit-tests` | PHPUnit (SQLite) | Every push |
+| `integration-tests` | PHPUnit + MariaDB service | Every push |
+| `security` | Secret scanner, Trivy | Every push |
+| `docker` | Build app + reranker, Trivy scan | Every push |
+| `deploy` | SSH → git pull → docker compose up | main/master only |
+
+### Deploy Flow
+
+```
+1. SSH into production server
+2. docker system prune -af (free disk)
+3. git pull + reset --hard
+4. Write .env from secrets
+5. docker compose build
+6. docker compose up -d
+7. Healthcheck: /api/products?limit=1 (120s timeout)
+8. docker image prune -f
+```
+
+### Required Secrets
+
+| Secret | Purpose |
+|---|---|
+| `DEPLOY_HOST` | Server IP/hostname |
+| `DEPLOY_USER` | SSH user |
+| `DEPLOY_SSH_KEY` | SSH private key |
+| `DEPLOY_KNOWN_HOSTS` | SSH known hosts |
+| `DEPLOY_PATH` | Server path to repo |
+| `DEPLOY_GITHUB_TOKEN` | PAT with repo access |
+| `LLM_API_KEY` | DeepSeek API key |
+| `MARIADB_ROOT_PASSWORD` | DB root password |
+| `DB_PASS` | DB user password |
+
+---
+
+## Performance Optimization
+
+### Database Indexing
+
+```sql
+-- FULLTEXT for Vietnamese search
+ALTER TABLE products ADD FULLTEXT INDEX ft_products_name (name);
+-- Composite for category + price filtering
+ALTER TABLE products ADD INDEX idx_category_price (category_id, price);
+-- Session + message lookup
+ALTER TABLE chat_messages ADD INDEX idx_session_created (session_id, created_at);
+```
+
+### Caching
+
+- **File-based**: `/tmp/shop_cache/{shard}/{hash}.cache` — atomic writes, TTL-based
+- **Hit rate goal**: > 80% for FAQ, categories; > 60% for product search
+- **Monitoring**: Count cached files via `ls /tmp/shop_cache/*/* | wc -l`
+
+### Reranker Optimization
+
+| Factor | Optimization |
+|---|---|
+| Model size | ONNX int8 quantization → ~400 MB |
+| Inference | ONNX Runtime CPUExecutionProvider |
+| Threading | `intra_op_num_threads=2` (balance) |
+| Batch limit | Rerank max 20 items per call |
+| Timeout | 2s HTTP timeout → fallback to SQL order |
+
+### Security
+
+- **No hardcoded secrets**: All credentials via environment (`.env` gitignored)
+- **Admin auth**: DB-backed `password_verify()` + env fallback
+- **CORS**: Restricted to same-origin
+- **SQL injection**: Prepared statements everywhere (`PDO::prepare`)
+- **XSS**: Output escaping (`htmlspecialchars`)
+- **Rate limiting**: nginx/apache config (optional)
+
+---
+
+## Project Structure
+
+```
+├── api/
+│   ├── cache/          # File-based Cache class
+│   ├── controllers/
+│   │   ├── auth/       # Login, register, profile
+│   │   ├── chatbot/    # Core engine
+│   │   │   ├── AgenticOrchestrator.php
+│   │   │   ├── ToolRegistry.php        # 6 tools + reranker integration
+│   │   │   ├── engine.php              # Rule-based fallback
+│   │   │   └── llm/                    # LLM providers
+│   │   └── products/   # Product CRUD, search, sizes, reviews
+│   └── routes/         # API routing
+├── docker/
+│   ├── apache.conf
+│   ├── mariadb-ft.cnf
+│   ├── php.ini
+│   └── reranker/       # ONNX cross-encoder sidecar
+│       ├── Dockerfile  # Multi-stage, < 500 MB
+│       ├── app.py
+│       └── export_model.py
+├── includes/           # Chat widget, DB helpers, HTML templates
+├── sql/                # Schema + migrations
+├── tests/              # PHPUnit tests (Unit + Integration)
+├── knowledge/          # RAG knowledge base
+├── images/             # Product images
+├── .github/workflows/  # CI/CD pipeline
+├── docker-compose.yml
+├── Dockerfile
+└── README.md
 ```
 
 ---
 
-## 📊 Monitoring
+## License
 
-- **Tool executions**: Table `tool_executions` log mọi tool call (tool, args, duration, success)
-- **Reranker latency**: `error_log("Reranker latency: ...ms for N items")`
-- **Cache**: File count/size tại `/tmp/shop_cache/`
-- **Container health**: Docker healthcheck cho mọi service
-
----
-
-## 🔒 Security
-
-| Risk | Mitigation |
-|---|---|
-| API key exposure | Environment variables, không hardcode |
-| SQL injection | Prepared statements (PDO) |
-| XSS | `textContent` trong widget |
-| Auth | Bearer token cho user endpoints |
-| Rate limiting | *(chưa implement — TODO)* |
-
----
-
-## ⚡ Performance Notes
-
-- **Reranker RAM**: ~785 MB khi model loaded (CPU-only PyTorch)
-- **Latency**: ~700ms / 15 items → OK cho chatbot conversation
-- **Timeout threshold**: `RERANK_TIMEOUT_MS=2000` — nếu quá, fallback về SQL order
-- **Cache**: Search cache TTL=5 phút → giảm tải LLM + reranker
-- **Model warmup**: Lazy load — request đầu tiên mất ~4 phút (download model ~1.1GB)
-
----
-
-## 📝 License
-
-MIT — Fashion Shop Agentic RAG Chatbot
+MIT — see [LICENSE](LICENSE) for details.

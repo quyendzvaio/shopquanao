@@ -5,42 +5,37 @@ Thumbs.db
 *.swo
 *~
 
-# IDE & editors
-.idea/
-.vscode/
-*.code-workspace
-.agents/
-.codex/
-.claude/
+# IDE
+.agents
+.codex
+.vscode
+.idea
 
-# Runtime
+# PHP
 vendor/
-.phpunit.cache/
-.phpunit.result.cache
+composer.lock
 
-# Environment
+# Env
 .env
 .env.local
-.env.production
-
-# Docker
-docker-compose.override.yml
+.env.*.local
 
 # Logs
 *.log
-/var/log/
+
+# Reports
+reports/
+test-evidence/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Docker
+.docker/
 
 # Cache (runtime)
 /tmp/shop_cache/
-
-# Test artifacts
-test-evidence/
-reports/
-coverage/
-
-# Build artifacts
-node_modules/
-.postman/
-
-# SQL backups
-backups/
