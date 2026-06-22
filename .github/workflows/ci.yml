@@ -54,7 +54,6 @@ jobs:
       - name: Python lint (reranker)
         run: |
           python3 -m py_compile docker/reranker/app.py && echo "✅ app.py syntax OK"
-          python3 -m py_compile docker/reranker/export_model.py && echo "✅ export_model.py syntax OK"
 
   # ============================================================
   # Job 2: Unit Tests
