@@ -304,17 +304,15 @@ jobs:
             echo "✅ Repo: $(git rev-parse --short HEAD)"
 
             # Write .env
-            cat > .env << ENVEOF
-            LLM_PROVIDER=${{ secrets.LLM_PROVIDER || 'deepseek' }}
-            LLM_API_KEY=${{ secrets.LLM_API_KEY }}
-            LLM_BASE_URL=${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}
-            LLM_MODEL=${{ secrets.LLM_MODEL || 'deepseek-chat' }}
-            LLM_TIMEOUT=${{ secrets.LLM_TIMEOUT || '60' }}
-            MARIADB_ROOT_PASSWORD=${{ secrets.MARIADB_ROOT_PASSWORD }}
-            DB_PASS=${{ secrets.DB_PASS }}
-            PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}
-            RERANKER_URL=http://reranker:8000
-ENVEOF
+            echo "LLM_PROVIDER=${{ secrets.LLM_PROVIDER || 'deepseek' }}" > .env
+            echo "LLM_API_KEY=${{ secrets.LLM_API_KEY }}" >> .env
+            echo "LLM_BASE_URL=${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}" >> .env
+            echo "LLM_MODEL=${{ secrets.LLM_MODEL || 'deepseek-chat' }}" >> .env
+            echo "LLM_TIMEOUT=${{ secrets.LLM_TIMEOUT || '60' }}" >> .env
+            echo "MARIADB_ROOT_PASSWORD=${{ secrets.MARIADB_ROOT_PASSWORD }}" >> .env
+            echo "DB_PASS=${{ secrets.DB_PASS }}" >> .env
+            echo "PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}" >> .env
+            echo "RERANKER_URL=http://reranker:8000" >> .env
             echo ".env written ($(wc -l < .env) lines)"
 
             # Build images (cache-aware)
