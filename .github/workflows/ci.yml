@@ -234,7 +234,8 @@ jobs:
             cd "$REPO"
             git stash --include-untracked || true
             git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
-            git pull origin main
+            BRANCH=$(git rev-parse --abbrev-ref HEAD)
+            git pull origin "$BRANCH"
             echo "Repo updated to $(git rev-parse --short HEAD)"
             echo "LLM_PROVIDER=${{ secrets.LLM_PROVIDER || 'deepseek' }}" > .env
             echo "LLM_API_KEY=${{ secrets.LLM_API_KEY }}" >> .env
