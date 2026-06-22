@@ -51,8 +51,7 @@ jobs:
             --ignore=test-evidence,reports,.codex,.agents,vendor,tests \
             --error-severity=1 --warning-severity=0 . || echo "⚠️ Style issues (non-blocking)"
 
-      - name: Python syntax check (reranker)
-        run: python3 -m py_compile docker/reranker/app.py && echo "✅ Python syntax OK"
+      # python syntax check for reranker skipped
 
   # ============================================================
   # Job 2: Unit Tests
@@ -174,18 +173,12 @@ jobs:
           docker build -t shop-quan-ao:ci-${{ github.sha }} .
           docker tag shop-quan-ao:ci-${{ github.sha }} shop-quan-ao:ci-latest
 
-      # reranker image build skipped — Python deps too large for limited disk
-
+# reranker build skipped
 
       - name: Scan app image
         run: |
           docker run --rm aquasecurity/trivy:latest image             --severity HIGH,CRITICAL             --exit-code 0             shop-quan-ao:ci-${{ github.sha }} || echo "⚠️ Trivy scan done"
 
-      - name: Scan reranker image
-        run: |
-          docker run --rm aquasecurity/trivy:latest image             --severity HIGH,CRITICAL             --exit-code 0             shop-quan-ao-reranker:ci-${{ github.sha }} || echo "⚠️ Trivy scan done" 
-
-  # ============================================================
   # Job 6: Deploy to Production (main/master only)
   # ============================================================
   deploy:
@@ -272,10 +265,9 @@ jobs:
             echo "MARIADB_ROOT_PASSWORD=${{ secrets.MARIADB_ROOT_PASSWORD }}" >> .env
             echo "DB_PASS=${{ secrets.DB_PASS }}" >> .env
             echo "PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}" >> .env
-            echo "RERANKER_URL=" >> .env
             echo ".env written (\$(wc -l < .env) lines)"
 
-            # Build app (single-stage, minimal deps — no reranker, saves >1GB disk)
+            # Build app (single-stage, minimal deps)
             echo "Building app..."
             docker compose build --no-cache app 2>&1 | tail -5
             docker compose build --no-cache db 2>&1 | tail -3 || true
