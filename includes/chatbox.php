@@ -220,6 +220,15 @@ const CHAT_USER_TOKEN = '<?= addslashes($userToken) ?>';
 const CHAT_IS_LOGGED_IN = <?= $isLoggedIn ? 'true' : 'false' ?>;
 let isLoading = false;
 
+function sanitizeAssistantText(text) {
+    return String(text || '')
+        .replace(/https?:\/\/\S*\/product\.php\?id=\d+/gi, '')
+        .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
 function toggleChat() {
     const box = document.getElementById('chatbot-box');
     const btn = document.getElementById('chatbot-toggle');
@@ -236,7 +245,7 @@ function addMessage(role, text) {
     const container = document.getElementById('chat-messages');
     const msg = document.createElement('div');
     msg.className = 'chat-msg ' + role;
-    msg.textContent = text;
+    msg.textContent = (role === 'bot' || role === 'system') ? sanitizeAssistantText(text) : text;
     container.appendChild(msg);
     container.scrollTop = container.scrollHeight;
 }
@@ -348,11 +357,16 @@ async function sendMessage() {
         let data;
         try { data = JSON.parse(raw); } catch (e) { data = { error: true, message: raw.substring(0, 500) }; }
         if (data.error) {
-            addMessage('system', '⚠️ ' + data.message);
+            addMessage('system', data.message);
         } else {
             addMessage('bot', data.message);
             if (data.products && data.products.length > 0) {
                 renderProductCards(data.products);
+            }
+            if (data.redirect_url) {
+                setTimeout(() => {
+                    window.location.href = data.redirect_url;
+                }, 900);
             }
             // Sync session token for continuity
             if (data.session_token && data.session_token !== chatSessionToken) {
@@ -361,7 +375,7 @@ async function sendMessage() {
         }
     } catch (e) {
         hideTyping();
-        addMessage('system', '⚠️ Lỗi kết nối. Vui lòng thử lại sau.');
+        addMessage('system', 'Lỗi kết nối. Vui lòng thử lại sau.');
     }
 
     isLoading = false;

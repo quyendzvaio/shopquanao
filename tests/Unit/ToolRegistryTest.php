@@ -1,6 +1,5 @@
 <?php
 /**
- * @covers ToolRegistry
  * Tests for tool execution + reranker integration.
  * Uses SQLite in-memory for test isolation.
  * Reranker calls are mocked (no Python sidecar needed).
@@ -35,6 +34,13 @@ class ToolRegistryTest extends \PHPUnit\Framework\TestCase
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL
         )");
+        $this->pdo->exec("CREATE TABLE cart (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            product_id INTEGER NOT NULL,
+            quantity INTEGER DEFAULT 1,
+            size TEXT DEFAULT 'S'
+        )");
     }
 
     private function seedData(): void
@@ -66,6 +72,14 @@ class ToolRegistryTest extends \PHPUnit\Framework\TestCase
         $this->assertGreaterThanOrEqual(5, count($result['products']));
     }
 
+    public function testSearchBomberFindsBomberJacket(): void
+    {
+        $result = $this->registry->execute('search_products', ['search' => 'áo bomber']);
+        $this->assertArrayHasKey('products', $result);
+        $ids = array_map(fn($p) => (int)$p['id'], $result['products']);
+        $this->assertContains(52, $ids);
+    }
+
     public function testExecuteUnknownToolThrows(): void
     {
         $this->expectException(\RuntimeException::class);
@@ -90,5 +104,31 @@ class ToolRegistryTest extends \PHPUnit\Framework\TestCase
             $this->assertGreaterThanOrEqual(300000, $p['price']);
             $this->assertLessThanOrEqual(500000, $p['price']);
         }
+    }
+
+    public function testPrepareCheckoutRequiresLogin(): void
+    {
+        $result = $this->registry->execute('prepare_checkout', ['product_ids' => [50]]);
+        $this->assertTrue($result['requires_login']);
+    }
+
+    public function testPrepareCheckoutAddsProductsToCart(): void
+    {
+        $registry = new ToolRegistry($this->pdo, 123);
+        $result = $registry->execute('prepare_checkout', [
+            'product_ids' => [50],
+            'quantity' => 2,
+            'size' => 'M',
+        ]);
+
+        $this->assertTrue($result['success']);
+        $this->assertArrayHasKey('redirect_url', $result);
+
+        $stmt = $this->pdo->prepare("SELECT product_id, quantity, size FROM cart WHERE user_id = ?");
+        $stmt->execute([123]);
+        $cartItem = $stmt->fetch(PDO::FETCH_ASSOC);
+        $this->assertEquals(50, (int)$cartItem['product_id']);
+        $this->assertEquals(2, (int)$cartItem['quantity']);
+        $this->assertEquals('M', $cartItem['size']);
     }
 }

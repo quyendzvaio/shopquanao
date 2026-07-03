@@ -77,12 +77,14 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
 
     public function testOrchestratorWithUserId(): void
     {
+        $userId = $this->createUser();
+
         // Create session with user ID
         $stmt = $this->pdo->prepare("INSERT INTO chat_sessions (user_id, session_token) VALUES (?, ?)");
-        $stmt->execute([1, 'test_user_session_' . uniqid()]);
+        $stmt->execute([$userId, 'test_user_session_' . uniqid()]);
         $sessionId = (int)$this->pdo->lastInsertId();
 
-        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, 1);
+        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, $userId);
         $result = $orchestrator->respond('tìm quần tây');
 
         $this->assertNotEmpty($result['message']);
@@ -112,6 +114,8 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
         $sessionId = $this->createSession();
         $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
         $result = $orchestrator->respond('tìm áo khoác dưới 500k');
+
+        $this->assertIsArray($result['products']);
 
         // All áo khoác products are >500K, so should return 0 products
         // But some might be found by fuzzy matching
@@ -173,6 +177,14 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
         $token = 'test_session_' . uniqid();
         $stmt = $this->pdo->prepare("INSERT INTO chat_sessions (session_token) VALUES (?)");
         $stmt->execute([$token]);
+        return (int)$this->pdo->lastInsertId();
+    }
+
+    private function createUser(): int
+    {
+        $suffix = uniqid();
+        $stmt = $this->pdo->prepare("INSERT INTO users (username, email, password, role, status) VALUES (?, ?, ?, 'user', 1)");
+        $stmt->execute(["test_$suffix", "test_$suffix@example.com", password_hash('secret', PASSWORD_DEFAULT)]);
         return (int)$this->pdo->lastInsertId();
     }
 }

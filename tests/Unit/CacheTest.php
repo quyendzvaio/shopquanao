@@ -1,6 +1,5 @@
 <?php
 /**
- * @covers Cache
  */
 class CacheTest extends \PHPUnit\Framework\TestCase
 {

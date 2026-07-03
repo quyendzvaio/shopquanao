@@ -1,6 +1,7 @@
 {
     "name": "shop-quan-ao/chatbot",
     "description": "Fashion Shop - Agentic RAG Chatbot (PHP + DeepSeek)",
+    "license": "proprietary",
     "type": "project",
     "require": {
         "php": ">=8.2",

@@ -10,6 +10,12 @@ define('ROOT_DIR', dirname(__DIR__));
 // Autoload helpers
 require_once ROOT_DIR . '/api/cache/Cache.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/engine.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMProvider.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMResponse.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/ChatbotMemory.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/ToolRegistry.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMFactory.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/AgenticOrchestrator.php';
 
 /**
  * Load a config-like PDO for testing (no global $pdo dependency).
@@ -96,6 +102,23 @@ function initSQLiteSchema(PDO $pdo): void {
         duration_ms INTEGER,
         success INTEGER DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS chat_session_memory (
+        session_id INTEGER PRIMARY KEY,
+        summary TEXT,
+        slots TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS user_long_term_memory (
+        user_id INTEGER PRIMARY KEY,
+        preferences TEXT,
+        stable_facts TEXT,
+        important_events TEXT,
+        feedback TEXT,
+        purchase_history TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )");
     seedTestData($pdo);
 }

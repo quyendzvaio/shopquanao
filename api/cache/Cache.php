@@ -6,6 +6,8 @@
  */
 class Cache {
     private static string $dir = '';
+    private static mixed $redis = null;
+    private static bool $redisChecked = false;
 
     private static function init(): void {
         if (self::$dir !== '') return;
@@ -13,6 +15,31 @@ class Cache {
         if (!is_dir(self::$dir)) {
             @mkdir(self::$dir, 0755, true);
         }
+    }
+
+    private static function redis(): mixed {
+        if (self::$redisChecked) return self::$redis;
+        self::$redisChecked = true;
+
+        if (!class_exists('Redis')) return null;
+
+        $host = getenv('REDIS_HOST') ?: ($_ENV['REDIS_HOST'] ?? 'redis');
+        $port = (int)(getenv('REDIS_PORT') ?: ($_ENV['REDIS_PORT'] ?? 6379));
+        $timeout = (float)(getenv('REDIS_TIMEOUT') ?: ($_ENV['REDIS_TIMEOUT'] ?? 0.15));
+
+        try {
+            $redis = new Redis();
+            if (!@$redis->connect($host, $port, $timeout)) return null;
+            $password = getenv('REDIS_PASSWORD') ?: ($_ENV['REDIS_PASSWORD'] ?? '');
+            if ($password !== '' && !@$redis->auth($password)) return null;
+            $redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_PHP);
+            $redis->setOption(Redis::OPT_PREFIX, getenv('REDIS_PREFIX') ?: 'shop:');
+            self::$redis = $redis;
+        } catch (Throwable $e) {
+            self::$redis = null;
+        }
+
+        return self::$redis;
     }
 
     /**
@@ -34,6 +61,16 @@ class Cache {
      * Get from cache. Returns null if miss or expired.
      */
     public static function get(string $key): mixed {
+        $redis = self::redis();
+        if ($redis !== null) {
+            try {
+                $value = $redis->get($key);
+                if ($value !== false || $redis->exists($key)) return $value;
+            } catch (Throwable $e) {
+                self::$redis = null;
+            }
+        }
+
         $path = self::path($key);
         if (!file_exists($path)) return null;
 
@@ -60,6 +97,16 @@ class Cache {
      * @param int $ttl Seconds until expiry (default 300 = 5 min)
      */
     public static function set(string $key, mixed $data, int $ttl = 300): void {
+        $redis = self::redis();
+        if ($redis !== null) {
+            try {
+                $redis->setex($key, max(1, $ttl), $data);
+                return;
+            } catch (Throwable $e) {
+                self::$redis = null;
+            }
+        }
+
         $path = self::path($key);
         $payload = serialize([
             'expires' => time() + $ttl,
@@ -79,6 +126,15 @@ class Cache {
      * Delete specific cache entry.
      */
     public static function delete(string $key): void {
+        $redis = self::redis();
+        if ($redis !== null) {
+            try {
+                $redis->del($key);
+            } catch (Throwable $e) {
+                self::$redis = null;
+            }
+        }
+
         $path = self::path($key);
         if (file_exists($path)) {
             @unlink($path);
@@ -89,6 +145,15 @@ class Cache {
      * Clear all cache (for admin maintenance).
      */
     public static function flush(): void {
+        $redis = self::redis();
+        if ($redis !== null) {
+            try {
+                $redis->flushDB();
+            } catch (Throwable $e) {
+                self::$redis = null;
+            }
+        }
+
         self::init();
         $files = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator(self::$dir, RecursiveDirectoryIterator::SKIP_DOTS),
@@ -170,5 +235,13 @@ class Cache {
     /** Shortcut: set outfit cache (TTL 10 min) */
     public static function setOutfit(array $params, array $result): void {
         self::set(self::buildKey('of', $params), $result, 600);
+    }
+
+    public static function getLlmResponse(array $payload): ?array {
+        return self::get('llm|' . hash('sha256', json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)));
+    }
+
+    public static function setLlmResponse(array $payload, array $result): void {
+        self::set('llm|' . hash('sha256', json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)), $result, 180);
     }
 }

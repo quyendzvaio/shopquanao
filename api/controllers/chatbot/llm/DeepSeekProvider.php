@@ -6,6 +6,7 @@
  */
 require_once __DIR__ . '/LLMProvider.php';
 require_once __DIR__ . '/LLMResponse.php';
+require_once __DIR__ . '/../../../cache/Cache.php';
 
 class DeepSeekProvider implements LLMProvider {
     private string $apiKey;
@@ -34,6 +35,11 @@ class DeepSeekProvider implements LLMProvider {
         if (!empty($tools)) {
             $body['tools'] = $tools;
             $body['tool_choice'] = $toolChoice;
+        }
+
+        $cached = Cache::getLlmResponse($body);
+        if (is_array($cached)) {
+            return $this->responseFromArray($cached);
         }
 
         $url = $this->baseUrl . '/v1/chat/completions';
@@ -82,11 +88,43 @@ class DeepSeekProvider implements LLMProvider {
             );
         }
 
-        return new LLMResponse(
+        $llmResponse = new LLMResponse(
             content: $message['content'] ?? '',
             finishReason: $finishReason,
             toolCalls: $toolCalls,
             usage: $data['usage'] ?? null
+        );
+        Cache::setLlmResponse($body, $this->responseToArray($llmResponse));
+        return $llmResponse;
+    }
+
+    private function responseToArray(LLMResponse $response): array {
+        return [
+            'content' => $response->content,
+            'finish_reason' => $response->finishReason,
+            'tool_calls' => array_map(fn($tc) => [
+                'id' => $tc->id,
+                'name' => $tc->name,
+                'arguments' => $tc->arguments,
+            ], $response->toolCalls),
+            'usage' => $response->usage,
+        ];
+    }
+
+    private function responseFromArray(array $data): LLMResponse {
+        $toolCalls = [];
+        foreach ($data['tool_calls'] ?? [] as $tc) {
+            $toolCalls[] = new ToolCall(
+                $tc['id'] ?? 'cached_' . uniqid(),
+                $tc['name'] ?? '',
+                is_array($tc['arguments'] ?? null) ? $tc['arguments'] : []
+            );
+        }
+        return new LLMResponse(
+            content: (string)($data['content'] ?? ''),
+            finishReason: (string)($data['finish_reason'] ?? 'stop'),
+            toolCalls: $toolCalls,
+            usage: is_array($data['usage'] ?? null) ? $data['usage'] : null
         );
     }
 }

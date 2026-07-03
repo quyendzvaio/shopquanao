@@ -1,6 +1,5 @@
 <?php
 /**
- * @covers ChatbotEngine
  * Tests for the rule-based fallback engine.
  * Uses SQLite in-memory for test isolation.
  */
@@ -48,6 +47,17 @@ class ChatbotEngineTest extends \PHPUnit\Framework\TestCase
             category TEXT DEFAULT 'general',
             priority INTEGER DEFAULT 0
         )");
+        $this->pdo->exec("CREATE TABLE size_guides (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER,
+            category_id INTEGER,
+            size_name TEXT NOT NULL,
+            height_from INTEGER,
+            height_to INTEGER,
+            weight_from INTEGER,
+            weight_to INTEGER,
+            description TEXT
+        )");
         $this->pdo->exec("CREATE TABLE chat_sessions (
             id INTEGER PRIMARY KEY,
             user_id INTEGER,
@@ -82,6 +92,11 @@ class ChatbotEngineTest extends \PHPUnit\Framework\TestCase
         $this->pdo->exec("INSERT INTO faqs VALUES
             (1, 'Thời gian giao hàng?', '2-5 ngày làm việc', 'shipping', 1),
             (2, 'Có đổi trả được không?', 'Đổi trả trong 7 ngày', 'return', 1)
+        ");
+        $this->pdo->exec("INSERT INTO size_guides (category_id, size_name, height_from, height_to, weight_from, weight_to, description) VALUES
+            (1, 'S', 150, 160, 40, 50, 'Form nhỏ'),
+            (1, 'M', 160, 170, 50, 65, 'Form vừa'),
+            (1, 'L', 170, 180, 65, 80, 'Form lớn')
         ");
     }
 
@@ -121,13 +136,21 @@ class ChatbotEngineTest extends \PHPUnit\Framework\TestCase
         $this->assertNotEmpty($this->engine->lastProducts);
     }
 
+    public function testSearchBomberAlias(): void
+    {
+        $response = $this->engine->respond('mình muốn tìm áo bomber');
+        $this->assertStringContainsString('Áo Khoác Bomber', $response);
+        $ids = array_map(fn($p) => (int)$p['id'], $this->engine->lastProducts);
+        $this->assertContains(52, $ids);
+    }
+
     public function testSearchWithMaxPrice(): void
     {
         $response = $this->engine->respond('tìm áo thun dưới 500k');
         $this->assertNotEmpty($this->engine->lastProducts);
         foreach ($this->engine->lastProducts as $p) {
             $this->assertLessThanOrEqual(500000, $p['price']);
-            $this->assertStringContainsString('áo thun', strtolower($p['name']));
+            $this->assertStringContainsString('áo thun', mb_strtolower($p['name']));
         }
     }
 

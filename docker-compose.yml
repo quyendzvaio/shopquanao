@@ -19,8 +19,13 @@ services:
       LLM_MODEL: deepseek-chat
       LLM_TIMEOUT: 60
       RERANKER_URL: http://reranker:8000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PREFIX: "shop:"
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       reranker:
         condition: service_started
@@ -37,10 +42,10 @@ services:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 15s
       timeout: 5s
-      start_period: 120s
+      start_period: 10s
       retries: 12
-    # No env needed — model is baked into image (~450MB)
-    # No GPU needed — CPU inference only
+    # No model warmup needed — lightweight TF-IDF sidecar.
+    # No GPU needed — CPU inference only.
 
   db:
     image: mariadb:10.11
@@ -64,6 +69,20 @@ services:
       timeout: 3s
       retries: 30
       start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    container_name: shop_quan_ao_redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
 
   phpmyadmin:
     image: phpmyadmin:5.2

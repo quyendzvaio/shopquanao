@@ -83,6 +83,7 @@ $result = $orchestrator->respond($message);
 
 $responseText = $result['message'];
 $products = $result['products'] ?? [];
+$redirectUrl = $result['redirect_url'] ?? null;
 
 // Update session timestamp
 $pdo->prepare("UPDATE chat_sessions SET updated_at = NOW(), user_id = COALESCE(?, user_id) WHERE id = ?")
@@ -91,6 +92,7 @@ $pdo->prepare("UPDATE chat_sessions SET updated_at = NOW(), user_id = COALESCE(?
 jsonResponse([
     'message' => $responseText,
     'products' => $products,
+    'redirect_url' => $redirectUrl,
     'session_token' => $sessionToken,
     'session_id' => $sessionId,
 ]);

@@ -3,7 +3,6 @@
  * Chatbot intent classifier + knowledge retrieval
  * Uses keyword matching + DB queries (no external AI API).
  */
-require_once __DIR__ . '/../../config.php';
 
 class ChatbotEngine {
     private $pdo;
@@ -35,6 +34,7 @@ class ChatbotEngine {
     const SEARCH_KEYWORDS = [
         'áo sơ mi caro' => 'áo sơ mi',
         'áo sơ mi' => 'áo sơ mi',
+        'áo bomber' => 'áo khoác bomber',
         'áo khoác da' => 'áo khoác',
         'áo khoác bomber' => 'áo khoác',
         'áo khoác nỉ' => 'áo khoác',
@@ -74,7 +74,7 @@ class ChatbotEngine {
     ];
 
     const CATEGORY_MAP = [
-        'áo' => 1, 'áo khoác' => 1, 'áo thun' => 1, 'áo len' => 1, 'áo sơ mi' => 1,
+        'áo' => 1, 'áo bomber' => 1, 'áo khoác' => 1, 'áo thun' => 1, 'áo len' => 1, 'áo sơ mi' => 1,
         'áo hoodie' => 1, 'áo gile' => 1, 'áo vest' => 1, 'áo polo' => 1, 'áo phông' => 1,
         'áo dài tay' => 1, 'quần' => 2, 'quần jean' => 2, 'quần tây' => 2, 'quần short' => 2,
         'quần kaki' => 2, 'quần baggy' => 2, 'quần jogger' => 2, 'quần bò' => 2,
@@ -127,17 +127,17 @@ class ChatbotEngine {
     }
 
     private function handleGreeting($msg) {
-        return '👋 Chào bạn! Mình là trợ lý Fashion Shop. Cần tư vấn gì hôm nay? Gõ "giúp" xem mình làm được gì nhé!';
+        return 'Chào bạn, mình là trợ lý tư vấn của Fashion Shop. Hôm nay bạn muốn tìm sản phẩm nào?';
     }
 
     private function handleHelp($msg) {
-        return "🤖 **Mình có thể giúp gì?**\n\n"
-            . "🔍 **Tìm sản phẩm:** \"áo khoác dưới 500k\"\n"
-            . "📏 **Tư vấn size:** \"cao 1m7 nặng 65kg\"\n"
-            . "👔 **Phối đồ:** \"áo thun trắng mặc với quần gì\"\n"
-            . "📦 **Tra đơn:** \"đơn hàng của tôi\"\n"
-            . "❓ **FAQ:** \"chính sách đổi trả?\"\n\n"
-            . "Bạn muốn hỏi gì?";
+        return "Mình có thể hỗ trợ bạn các nội dung sau:\n\n"
+            . "- Tìm sản phẩm, ví dụ: \"áo khoác dưới 500k\"\n"
+            . "- Tư vấn size, ví dụ: \"cao 1m7 nặng 65kg\"\n"
+            . "- Gợi ý phối đồ, ví dụ: \"áo thun trắng mặc với quần gì\"\n"
+            . "- Tra cứu đơn hàng, ví dụ: \"đơn hàng của tôi\"\n"
+            . "- Giải đáp chính sách đổi trả, giao hàng hoặc thanh toán\n\n"
+            . "Bạn muốn mình hỗ trợ phần nào? Khi cần xem lại danh sách này, bạn có thể gõ \"giúp\".";
     }
 
     private function handleProductSearch($msg) {
@@ -162,12 +162,25 @@ class ChatbotEngine {
             }
         }
 
+        $slots = $this->context['slots'] ?? [];
+        if (!$matchedName && !$matchedCatId && !empty($slots['product_type'])) {
+            $productType = mb_strtolower((string)$slots['product_type']);
+            $matchedKeyword = $productType;
+            $matchedName = self::SEARCH_KEYWORDS[$productType] ?? $productType;
+            $matchedCatId = $slots['category_id'] ?? (self::CATEGORY_MAP[$productType] ?? null);
+            if (in_array($productType, ['áo', 'quần', 'váy', 'phụ kiện'], true)) {
+                $matchedName = null;
+            }
+        }
+
         // 2. Xây SQL
         $sql = "SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE 1=1";
         $params = [];
 
+        $isSqlite = $this->isSqlite();
+
         // 3. Filter theo loại sản phẩm
-        if ($matchedName) {
+        if ($matchedName && !$isSqlite) {
             $sql .= " AND p.name LIKE ?";
             $params[] = "%$matchedName%";
         } elseif ($matchedCatId) {
@@ -175,9 +188,17 @@ class ChatbotEngine {
             $params[] = $matchedCatId;
         }
 
+        if (!$isSqlite && !empty($slots['color']) && mb_strpos($msgLower, mb_strtolower((string)$slots['color'])) !== false) {
+            $sql .= " AND p.name LIKE ?";
+            $params[] = "%" . $slots['color'] . "%";
+        }
+
         // 4. Price filter
         $priceMin = null; $priceMax = null;
-        if (preg_match('/(dưới|du?o[ỉ]?i|nhỏ hơn|<|<=)\s*(\d+)\s*k?/ui', $msg, $m)) {
+        if (preg_match('/(\d+)\s*(k|nghìn|ngàn)\s*(đến|->|tới|toi|-)\s*(\d+)\s*k?/ui', $msg, $m)) {
+            $priceMin = (float)$m[1] * 1000;
+            $priceMax = (float)$m[4] * 1000;
+        } elseif (preg_match('/(dưới|du?o[ỉ]?i|nhỏ hơn|<|<=)\s*(\d+)\s*k?/ui', $msg, $m)) {
             $multiplier = (mb_strpos($msg, $m[2].'k') !== false || mb_strpos($msg, $m[2].'K') !== false) ? 1000 : 1;
             // Nếu số <= 1000 thì coi là nghìn
             $val = (float)$m[2];
@@ -186,9 +207,13 @@ class ChatbotEngine {
             $multiplier = (mb_strpos($msg, $m[2].'k') !== false) ? 1000 : 1;
             $val = (float)$m[2];
             $priceMin = $val * (($val < 1000 && $multiplier == 1) ? 1000 : $multiplier);
-        } elseif (preg_match('/(\d+)\s*(k|nghìn|ngàn)\s*(đến|->|tới|tới)\s*(\d+)\s*k?/ui', $msg, $m)) {
-            $priceMin = (float)$m[1] * 1000;
-            $priceMax = (float)$m[4] * 1000;
+        }
+
+        if ($priceMin === null && !empty($slots['min_price']) && !preg_match('/(trên|tren|lớn hơn|lon hon|>|>=|từ)\s*\d+/ui', $msg)) {
+            $priceMin = (float)$slots['min_price'];
+        }
+        if ($priceMax === null && !empty($slots['max_price']) && !preg_match('/(dưới|du?o[ỉ]?i|nhỏ hơn|<|<=)\s*\d+/ui', $msg)) {
+            $priceMax = (float)$slots['max_price'];
         }
 
         if ($priceMin !== null) { $sql .= " AND p.price >= ?"; $params[] = $priceMin; }
@@ -204,20 +229,38 @@ class ChatbotEngine {
         $stmt->execute($params);
         $products = $stmt->fetchAll();
 
+        if ($isSqlite) {
+            $products = array_values(array_filter($products, function($p) use ($matchedName, $slots, $msgLower) {
+                $nameLower = mb_strtolower($p['name'] ?? '');
+                if ($matchedName && mb_strpos($nameLower, mb_strtolower($matchedName)) === false) {
+                    return false;
+                }
+                if (!empty($slots['color']) && mb_strpos($msgLower, mb_strtolower((string)$slots['color'])) !== false
+                    && mb_strpos($nameLower, mb_strtolower((string)$slots['color'])) === false) {
+                    return false;
+                }
+                return true;
+            }));
+        }
+
         if (!$products) {
-            return "😅 Rất tiếc, không tìm thấy sản phẩm phù hợp với yêu cầu của bạn. Bạn thử tìm với từ khóa khác nhé!\n\n"
-                . "VD: \"áo khoác dưới 500k\", \"áo thun\", \"quần jeans\", \"váy maxi\"";
+            return "Hiện mình không tìm thấy sản phẩm phù hợp với yêu cầu của bạn. Bạn có thể thử từ khóa khác như \"áo khoác dưới 500k\", \"áo thun\", \"quần jeans\" hoặc \"váy maxi\".";
         }
 
         $base = getBaseUrl();
         $count = count($products);
-        $response = "**Tìm thấy $count sản phẩm phù hợp:**\n\n";
+        $productNames = array_map(fn($p) => (string)$p['name'], array_slice($products, 0, 3));
+        $response = "Mình tìm thấy $count sản phẩm phù hợp";
+        if (!empty($productNames)) {
+            $response .= ": " . implode(', ', $productNames);
+            if ($count > 3) {
+                $response .= " và một số sản phẩm khác";
+            }
+        }
+        $response .= ". Bạn có thể bấm vào thẻ sản phẩm bên dưới để xem chi tiết.";
 
         foreach ($products as $p) {
             $url = "$base/product.php?id={$p['id']}";
-            $response .= "🖼️ **{$p['name']}** — 💰 " . number_format($p['price']) . "đ\n";
-            $response .= "  📦 Còn {$p['stock']} | 🔗 $url\n\n";
-
             $this->lastProducts[] = [
                 'id' => (int)$p['id'],
                 'name' => $p['name'],
@@ -235,12 +278,12 @@ class ChatbotEngine {
     private function handleProductDetail($msg) {
         $id = null;
         if (preg_match('/\b(\d+)\b/', $msg, $m)) $id = (int)$m[0];
-        if (!$id) return 'Bạn muốn xem sản phẩm nào? Gõ "sp 50" nhé!';
+        if (!$id) return 'Bạn muốn xem chi tiết sản phẩm nào? Bạn có thể gửi mã sản phẩm để mình kiểm tra.';
 
         $stmt = $this->pdo->prepare("SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.id = ?");
         $stmt->execute([$id]);
         $p = $stmt->fetch();
-        if (!$p) return "Không tìm thấy sản phẩm #$id";
+        if (!$p) return "Mình chưa tìm thấy sản phẩm #$id.";
 
         $base = getBaseUrl();
         $this->lastProducts[] = [
@@ -258,16 +301,16 @@ class ChatbotEngine {
         $stmt->execute([$id]);
         $rating = $stmt->fetch();
 
-        $stockText = ($p['stock'] ?? 0) > 0 ? "✅ Còn {$p['stock']}" : "❌ Hết hàng";
+        $stockText = ($p['stock'] ?? 0) > 0 ? "Còn {$p['stock']}" : "Hết hàng";
         $sizeText = $sizes ? implode(', ', $sizes) : 'Freesize';
-        $ratingText = $rating['total'] > 0 ? "⭐ " . round($rating['avg_rating'], 1) . "/5" : "⭐ Chưa có đánh giá";
+        $ratingText = $rating['total'] > 0 ? round($rating['avg_rating'], 1) . "/5" : "Chưa có đánh giá";
 
-        return "**{$p['name']}**\n"
-            . "💰 Giá: " . number_format($p['price']) . "đ\n"
-            . "📦 $stockText | 📏 Size: $sizeText\n"
-            . "$ratingText\n"
-            . "📝 {$p['description']}\n"
-            . "🔗 $base/product.php?id={$p['id']}";
+        return "{$p['name']}\n"
+            . "Giá: " . number_format($p['price']) . "đ\n"
+            . "Tình trạng: $stockText\n"
+            . "Size: $sizeText\n"
+            . "Đánh giá: $ratingText\n"
+            . "Mô tả: {$p['description']}";
     }
 
     private function handleSizeAdvice($msg) {
@@ -280,8 +323,7 @@ class ChatbotEngine {
         elseif (preg_match('/(\d+)\s*kg/i', $msg, $m)) { $weight = (int)$m[1]; }
 
         if (!$height || !$weight) {
-            return "📏 Để tư vấn size, bạn cho mình biết chiều cao (cm) và cân nặng (kg) nhé!\n"
-                . 'VD: "cao 1m7 nặng 65kg"';
+            return "Để tư vấn size chính xác hơn, bạn cho mình biết chiều cao và cân nặng nhé. Ví dụ: \"cao 1m7 nặng 65kg\".";
         }
 
         $catId = null;
@@ -289,14 +331,17 @@ class ChatbotEngine {
             if (mb_strpos($msg, $k) !== false) { $catId = $v; break; }
         }
 
-        $sql = "SELECT * FROM size_guides " . ($catId ? "WHERE category_id = ? " : "") . "ORDER BY FIELD(size_name, 'S','M','L','XL')";
+        $orderBy = $this->isSqlite()
+            ? "ORDER BY CASE size_name WHEN 'S' THEN 1 WHEN 'M' THEN 2 WHEN 'L' THEN 3 WHEN 'XL' THEN 4 ELSE 5 END"
+            : "ORDER BY FIELD(size_name, 'S','M','L','XL')";
+        $sql = "SELECT * FROM size_guides " . ($catId ? "WHERE category_id = ? " : "") . $orderBy;
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($catId ? [$catId] : []);
         $sizes = $stmt->fetchAll();
 
         if (!$sizes) return "Chưa có bảng size cho danh mục này.";
 
-        $response = "📏 **Tư vấn size** (Cao {$height}cm, Nặng {$weight}kg)\n\n";
+        $response = "Tư vấn size cho chiều cao {$height}cm và cân nặng {$weight}kg:\n\n";
         $recommended = null;
         foreach ($sizes as $s) {
             $hOk = (!$s['height_from'] || $height >= (int)$s['height_from']) && (!$s['height_to'] || $height <= (int)$s['height_to']);
@@ -305,18 +350,18 @@ class ChatbotEngine {
         }
 
         if ($recommended) {
-            $response .= "✅ **Size phù hợp: " . strtoupper($recommended['size_name']) . "**\n  {$recommended['description']}\n\n";
+            $response .= "Size phù hợp: " . strtoupper($recommended['size_name']) . "\n{$recommended['description']}\n\n";
         } else {
-            $response .= "⚠️ Bạn nằm ngoài bảng size. Chọn size lớn nếu thích rộng, nhỏ nếu thích ôm.\n\n";
+            $response .= "Bạn đang nằm ngoài bảng size tham khảo. Nếu thích mặc rộng, bạn nên chọn size lớn hơn; nếu thích ôm vừa, chọn size nhỏ hơn.\n\n";
         }
 
-        $response .= "**Bảng size tham khảo:**\n";
+        $response .= "Bảng size tham khảo:\n";
         foreach ($sizes as $s) {
             $isRec = $recommended && $s['size_name'] === $recommended['size_name'];
-            $response .= ($isRec ? "👉 **" : "  ") . strtoupper($s['size_name']) . ": ";
+            $response .= ($isRec ? "Khuyến nghị - " : "") . strtoupper($s['size_name']) . ": ";
             $response .= "Cao " . ($s['height_from'] ?? '?') . "-" . ($s['height_to'] ?? '?') . "cm, ";
             $response .= "Nặng " . ($s['weight_from'] ?? '?') . "-" . ($s['weight_to'] ?? '?') . "kg";
-            $response .= ($isRec ? "** ✅" : "") . "\n";
+            $response .= "\n";
         }
         return $response;
     }
@@ -338,15 +383,15 @@ class ChatbotEngine {
             }
         }
         if (!$matched) $matched = $outfits;
-        $response = "👔 **Gợi ý phối đồ:**\n\n";
+        $response = "Gợi ý phối đồ:\n\n";
         foreach ($matched as $o) {
-            $response .= "• **{$o['product_name']}** → **{$o['paired_name']}**\n  💡 {$o['note']}\n\n";
+            $response .= "- {$o['product_name']} phối với {$o['paired_name']}\n  {$o['note']}\n\n";
         }
         return $response;
     }
 
     private function handleOrderStatus($msg) {
-        if (!$this->userId) return "🔒 Vui lòng đăng nhập để tra cứu đơn hàng.";
+        if (!$this->userId) return "Bạn vui lòng đăng nhập để tra cứu đơn hàng.";
         $orderId = null;
         if (preg_match('/#?\s*(\d+)/', $msg, $m)) $orderId = (int)$m[1];
 
@@ -355,18 +400,18 @@ class ChatbotEngine {
             $stmt->execute([$orderId, $this->userId]);
             $order = $stmt->fetch();
             if (!$order) return "Không tìm thấy đơn hàng #$orderId.";
-            $e = ['Chờ xử lý' => '⏳', 'Đang giao' => '🚚', 'Đã hoàn thành' => '✅', 'Đã hủy' => '❌'];
-            return ($e[$order['status']] ?? '📦') . " **Đơn hàng #{$order['id']}**\n"
-                . "  💰 " . number_format($order['total_price']) . "đ\n  📌 **{$order['status']}**\n  📅 {$order['created_at']}";
+            return "Đơn hàng #{$order['id']}\n"
+                . "Tổng tiền: " . number_format($order['total_price']) . "đ\n"
+                . "Trạng thái: {$order['status']}\n"
+                . "Ngày tạo: {$order['created_at']}";
         } else {
             $stmt = $this->pdo->prepare("SELECT id, total_price, status, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 5");
             $stmt->execute([$this->userId]);
             $orders = $stmt->fetchAll();
             if (!$orders) return "Bạn chưa có đơn hàng nào.";
-            $response = "📦 **Đơn hàng của bạn:**\n\n";
+            $response = "Các đơn hàng gần đây của bạn:\n\n";
             foreach ($orders as $o) {
-                $e = ['Chờ xử lý' => '⏳', 'Đang giao' => '🚚', 'Đã hoàn thành' => '✅', 'Đã hủy' => '❌'];
-                $response .= ($e[$o['status']] ?? '📦') . " #{$o['id']} — " . number_format($o['total_price']) . "đ — **{$o['status']}**\n   {$o['created_at']}\n";
+                $response .= "#{$o['id']} - " . number_format($o['total_price']) . "đ - {$o['status']}\n{$o['created_at']}\n";
             }
             return $response . "\nGõ \"đơn #\" + số để xem chi tiết.";
         }
@@ -382,35 +427,34 @@ class ChatbotEngine {
         $stmt = $this->pdo->prepare("SELECT question, answer FROM faqs WHERE category = ? ORDER BY priority LIMIT 3");
         $stmt->execute([$category]);
         $faqs = $stmt->fetchAll();
-        if (!$faqs) return "❓ Bạn tham khảo FAQ trên website hoặc hỏi chi tiết hơn!";
-        $response = "❓ **FAQ — " . ['shipping'=>'Vận chuyển','return'=>'Đổi trả','payment'=>'Thanh toán','warranty'=>'Bảo hành','wholesale'=>'Bán sỉ'][$category] . "**\n\n";
-        foreach ($faqs as $f) $response .= "**Q:** {$f['question']}\n**A:** {$f['answer']}\n\n";
+        if (!$faqs) return "Bạn có thể tham khảo FAQ trên website hoặc hỏi mình chi tiết hơn.";
+        $response = "Thông tin " . ['shipping'=>'vận chuyển','return'=>'đổi trả','payment'=>'thanh toán','warranty'=>'bảo hành','wholesale'=>'bán sỉ'][$category] . ":\n\n";
+        foreach ($faqs as $f) $response .= "Hỏi: {$f['question']}\nTrả lời: {$f['answer']}\n\n";
         return $response . "Còn thắc mắc gì bạn cứ hỏi nhé!";
     }
 
     private function handleCart($msg) {
-        if (!$this->userId) return "🔒 Vui lòng đăng nhập để xem giỏ hàng.";
+        if (!$this->userId) return "Bạn vui lòng đăng nhập để xem giỏ hàng.";
         $stmt = $this->pdo->prepare("SELECT c.id, p.name, p.price, c.quantity, c.size FROM cart c JOIN products p ON c.product_id = p.id WHERE c.user_id = ?");
         $stmt->execute([$this->userId]);
         $items = $stmt->fetchAll();
-        if (!$items) return "🛒 Giỏ hàng trống. Bạn muốn mua gì hôm nay?";
-        $total = 0; $response = "🛒 **Giỏ hàng của bạn:**\n\n";
-        foreach ($items as $i) { $sub = (float)$i['price'] * (int)$i['quantity']; $total += $sub; $response .= "• {$i['name']} x{$i['quantity']}: " . number_format($sub) . "đ\n"; }
-        $response .= "\n**Tổng: " . number_format($total) . "đ**\n🔗 " . getBaseUrl() . "/cart.php";
+        if (!$items) return "Giỏ hàng của bạn đang trống. Bạn muốn mình gợi ý sản phẩm nào không?";
+        $total = 0; $response = "Giỏ hàng của bạn:\n\n";
+        foreach ($items as $i) { $sub = (float)$i['price'] * (int)$i['quantity']; $total += $sub; $response .= "- {$i['name']} x{$i['quantity']}: " . number_format($sub) . "đ\n"; }
+        $response .= "\nTổng: " . number_format($total) . "đ";
         return $response;
     }
 
     private function handleBye($msg) {
-        return ['Cảm ơn bạn! Chúc bạn một ngày tốt lành 🌟', 'Hẹn gặp lại! 😊', 'Cảm ơn đã ghé shop! 💙'][array_rand([0,1,2])];
+        return ['Cảm ơn bạn. Chúc bạn một ngày tốt lành.', 'Hẹn gặp lại bạn.', 'Cảm ơn bạn đã ghé Fashion Shop.'][array_rand([0,1,2])];
     }
 
     private function handleUnknown($msg) {
-        return "🤔 Mình chưa hiểu ý bạn lắm.\n\n"
-            . "Bạn thử gõ **\"giúp\"** để xem mình làm được gì nhé!\n\n"
-            . "Hoặc hỏi trực tiếp:\n"
-            . "• \"tìm áo khoác dưới 500k\"\n"
-            . "• \"chọn size cho 1m7 65kg\"\n"
-            . "• \"phối đồ với áo thun trắng\"";
+        return "Mình chưa hiểu rõ yêu cầu của bạn.\n\n"
+            . "Bạn có thể gõ \"giúp\" để xem các nội dung mình hỗ trợ, hoặc hỏi trực tiếp:\n"
+            . "- \"tìm áo khoác dưới 500k\"\n"
+            . "- \"chọn size cho 1m7 65kg\"\n"
+            . "- \"phối đồ với áo thun trắng\"";
     }
 
     private function saveContext($intent, $message, $response) {
@@ -420,6 +464,14 @@ class ChatbotEngine {
         $stmt = $this->pdo->prepare("INSERT INTO chat_messages (session_id, role, message, metadata) VALUES (?, 'bot', ?, ?)");
         $stmt->execute([$this->sessionId, $response, $meta]);
         $this->pdo->prepare("UPDATE chat_sessions SET updated_at = NOW() WHERE id = ?")->execute([$this->sessionId]);
+    }
+
+    private function isSqlite(): bool {
+        try {
+            return $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
+        } catch (Throwable $e) {
+            return false;
+        }
     }
 }
 

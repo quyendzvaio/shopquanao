@@ -9,6 +9,7 @@ require_once __DIR__ . '/../../cache/Cache.php';
 
 class ToolRegistry {
     private PDO $pdo;
+    private ?int $userId;
     private array $tools = [];
 
     /** Tối thiểu bao nhiêu kết quả thì kích hoạt rerank */
@@ -18,9 +19,11 @@ class ToolRegistry {
     private const RERANK_TIMEOUT_MS = 2000;
     /** Tối đa bao nhiêu items gửi xuống reranker (phần còn lại giữ nguyên thứ tự) */
     private const RERANK_MAX_ITEMS = 20;
+    private const SEARCH_CACHE_VERSION = 2;
 
-    public function __construct(PDO $pdo) {
+    public function __construct(PDO $pdo, ?int $userId = null) {
         $this->pdo = $pdo;
+        $this->userId = $userId;
         $this->registerAll();
     }
 
@@ -45,6 +48,7 @@ class ToolRegistry {
 BẮT BUỘC dùng tool này MỖI KHI user hỏi về sản phẩm, kể cả khi câu trả lời đã có trong lịch sử.
 CÁCH DÙNG: Trích xuất CHÍNH XÁC cụm từ sản phẩm từ câu hỏi, KHÔNG được rút gọn.
 - "áo khoác dưới 500k" → search="áo khoác", max_price=500000
+- "áo bomber" → search="áo khoác bomber"
 - "áo thun trắng" → search="áo thun" 
 - "áo gile lông cừu" → search="áo gile"
 - "áo polo thể thao" → search="áo polo"
@@ -157,14 +161,49 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
                 ],
             ],
         ];
+
+        $this->tools['prepare_checkout'] = [
+            'type' => 'function',
+            'function' => [
+                'name' => 'prepare_checkout',
+                'description' => 'Chuẩn bị giỏ hàng và chuyển người dùng đã đăng nhập tới trang thanh toán khi user nói muốn mua hoặc thanh toán sản phẩm cụ thể. Nếu chưa rõ sản phẩm nào, không gọi tool mà hỏi lại user cho rõ.',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'product_ids' => [
+                            'type' => 'array',
+                            'items' => ['type' => 'integer'],
+                            'description' => 'ID sản phẩm muốn thanh toán. Ưu tiên dùng ID nếu user đã chọn hoặc bot vừa đưa link sản phẩm.',
+                        ],
+                        'product_names' => [
+                            'type' => 'array',
+                            'items' => ['type' => 'string'],
+                            'description' => 'Tên hoặc cụm tên sản phẩm user muốn mua nếu không có ID.',
+                        ],
+                        'quantity' => ['type' => 'integer', 'description' => 'Số lượng mỗi sản phẩm, mặc định 1'],
+                        'size' => ['type' => 'string', 'description' => 'Size muốn mua nếu user có nói, mặc định S'],
+                        'replace_cart' => [
+                            'type' => 'boolean',
+                            'description' => 'true để checkout đúng các sản phẩm chỉ định bằng cách thay giỏ hàng hiện tại. Mặc định true.',
+                        ],
+                    ],
+                ],
+            ],
+        ];
     }
 
     // ---- Handlers ----
 
     private function executeSearchProducts(array $args): array {
+        $args = $this->normalizeSearchArgs($args);
+        if ($this->isSqlite()) {
+            return $this->executeSearchProductsDirect($args);
+        }
+
         $queryParams = [
             'search' => $args['search'] ?? '',
             'sort' => 'price_asc',
+            '_v' => self::SEARCH_CACHE_VERSION,
         ];
         if (!empty($args['category_id'])) $queryParams['category'] = $args['category_id'];
         if (!empty($args['min_price'])) $queryParams['min_price'] = $args['min_price'];
@@ -238,12 +277,21 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
     }
 
     private function executeGetFaq(array $args): array {
-        $params = http_build_query(array_filter([
+        $queryParams = array_filter([
             'category' => $args['category'] ?? '',
             'search' => $args['search'] ?? '',
-        ]));
+        ]);
+
+        $cached = Cache::getFaqResult($queryParams);
+        if ($cached !== null) return $cached;
+
+        $params = http_build_query($queryParams);
         $url = getInternalApiUrl() . "/api/faq?$params";
-        return $this->fetchJson($url);
+        $result = $this->fetchJson($url);
+        if (!isset($result['error'])) {
+            Cache::setFaqResult($queryParams, $result);
+        }
+        return $result;
     }
 
     private function executeGetOutfit(array $args): array {
@@ -269,6 +317,11 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
     }
 
     private function executeGetCategories(array $args): array {
+        if ($this->isSqlite()) {
+            $stmt = $this->pdo->query("SELECT id, name FROM categories ORDER BY id");
+            return ['categories' => $stmt->fetchAll(PDO::FETCH_ASSOC)];
+        }
+
         // Check cache
         $cached = Cache::getCategories();
         if ($cached !== null) {
@@ -283,6 +336,198 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         }
 
         return $result;
+    }
+
+    private function executePrepareCheckout(array $args): array {
+        if ($this->userId === null) {
+            return [
+                'requires_login' => true,
+                'message' => 'Bạn cần đăng nhập để mình chuẩn bị thanh toán.',
+                'login_url' => $this->absoluteUrl('/login.php'),
+            ];
+        }
+
+        $productIds = array_values(array_unique(array_filter(array_map('intval', $args['product_ids'] ?? []))));
+        foreach (($args['product_names'] ?? []) as $name) {
+            $found = $this->findProductByName((string)$name);
+            if ($found !== null) $productIds[] = $found;
+        }
+        $productIds = array_values(array_unique(array_filter($productIds)));
+
+        if (empty($productIds)) {
+            return [
+                'needs_clarification' => true,
+                'message' => 'Bạn muốn thanh toán sản phẩm nào? Bạn gửi tên hoặc mã sản phẩm giúp mình nhé.',
+            ];
+        }
+
+        $quantity = max(1, (int)($args['quantity'] ?? 1));
+        $size = trim((string)($args['size'] ?? 'S')) ?: 'S';
+        $replaceCart = array_key_exists('replace_cart', $args) ? (bool)$args['replace_cart'] : true;
+
+        $products = [];
+        foreach ($productIds as $productId) {
+            $stmt = $this->pdo->prepare("SELECT id, name, price, stock, image FROM products WHERE id = ?");
+            $stmt->execute([$productId]);
+            $product = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$product || (int)($product['stock'] ?? 0) <= 0) continue;
+            $products[] = $product;
+        }
+
+        if (empty($products)) {
+            return [
+                'needs_clarification' => true,
+                'message' => 'Mình chưa tìm thấy sản phẩm còn hàng để thanh toán. Bạn gửi lại tên hoặc mã sản phẩm nhé.',
+            ];
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            if ($replaceCart) {
+                $stmt = $this->pdo->prepare("DELETE FROM cart WHERE user_id = ?");
+                $stmt->execute([$this->userId]);
+            }
+
+            foreach ($products as $product) {
+                $productId = (int)$product['id'];
+                $stmt = $this->pdo->prepare("SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ?");
+                $stmt->execute([$this->userId, $productId]);
+                $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($existing) {
+                    $newQty = (int)$existing['quantity'] + $quantity;
+                    $stmt = $this->pdo->prepare("UPDATE cart SET quantity = ?, size = ? WHERE id = ?");
+                    $stmt->execute([$newQty, $size, $existing['id']]);
+                } else {
+                    $stmt = $this->pdo->prepare("INSERT INTO cart (user_id, product_id, quantity, size) VALUES (?, ?, ?, ?)");
+                    $stmt->execute([$this->userId, $productId, $quantity, $size]);
+                }
+            }
+
+            $this->pdo->commit();
+        } catch (Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+
+        return [
+            'success' => true,
+            'message' => 'Mình đã chuẩn bị giỏ hàng với sản phẩm bạn chọn.',
+            'redirect_url' => $this->absoluteUrl('/checkout.php'),
+            'products' => array_map(fn($p) => [
+                'id' => (int)$p['id'],
+                'name' => $p['name'],
+                'price' => (float)$p['price'],
+                'stock' => (int)$p['stock'],
+                'image' => $p['image'] ?? '',
+            ], $products),
+        ];
+    }
+
+    private function executeSearchProductsDirect(array $args): array {
+        $args = $this->normalizeSearchArgs($args);
+        $sql = "SELECT p.id, p.category_id, p.name, p.price, p.stock, p.image, c.name as category_name
+                FROM products p
+                LEFT JOIN categories c ON p.category_id = c.id
+                WHERE 1=1";
+        $params = [];
+
+        if (!empty($args['category_id'])) {
+            $sql .= " AND p.category_id = ?";
+            $params[] = (int)$args['category_id'];
+        }
+        if (!empty($args['min_price'])) {
+            $sql .= " AND p.price >= ?";
+            $params[] = (float)$args['min_price'];
+        }
+        if (!empty($args['max_price'])) {
+            $sql .= " AND p.price <= ?";
+            $params[] = (float)$args['max_price'];
+        }
+
+        $sql .= " ORDER BY p.price ASC";
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $search = mb_strtolower(trim((string)($args['search'] ?? '')));
+        if ($search !== '') {
+            $words = array_values(array_filter(preg_split('/\s+/u', $search) ?: [], fn($w) => mb_strlen($w) >= 2));
+            $products = array_values(array_filter($products, function($p) use ($search) {
+                return mb_strpos(mb_strtolower($p['name'] ?? ''), $search) !== false;
+            }));
+            if (empty($products) && count($words) > 1) {
+                $stmt = $this->pdo->prepare($sql);
+                $stmt->execute($params);
+                $allProducts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                $products = array_values(array_filter($allProducts, function($p) use ($words) {
+                    $name = mb_strtolower($p['name'] ?? '');
+                    foreach ($words as $word) {
+                        if (mb_strpos($name, $word) === false) return false;
+                    }
+                    return true;
+                }));
+            }
+        }
+
+        foreach ($products as &$p) {
+            $p['id'] = (int)$p['id'];
+            $p['category_id'] = $p['category_id'] !== null ? (int)$p['category_id'] : null;
+            $p['price'] = (float)$p['price'];
+            $p['stock'] = (int)($p['stock'] ?? 0);
+        }
+        unset($p);
+
+        return [
+            'products' => $products,
+            'pagination' => [
+                'page' => 1,
+                'limit' => null,
+                'total' => count($products),
+                'total_pages' => 1,
+            ],
+        ];
+    }
+
+    private function normalizeSearchArgs(array $args): array {
+        $search = mb_strtolower(trim((string)($args['search'] ?? '')));
+        if ($search === '') return $args;
+
+        $aliases = [
+            'áo bomber' => 'áo khoác bomber',
+            'ao bomber' => 'áo khoác bomber',
+            'bomber' => 'áo khoác bomber',
+            'áo blazer' => 'áo vest',
+            'ao blazer' => 'áo vest',
+            'quần jean' => 'quần jeans',
+            'quan jean' => 'quần jeans',
+        ];
+
+        foreach ($aliases as $needle => $normalized) {
+            if (mb_strpos($search, $needle) !== false) {
+                $args['search'] = $normalized;
+                if (empty($args['category_id']) && str_starts_with($normalized, 'áo')) $args['category_id'] = 1;
+                if (empty($args['category_id']) && str_starts_with($normalized, 'quần')) $args['category_id'] = 2;
+                return $args;
+            }
+        }
+
+        return $args;
+    }
+
+    private function findProductByName(string $name): ?int {
+        $name = trim($name);
+        if ($name === '') return null;
+
+        $stmt = $this->pdo->prepare("SELECT id FROM products WHERE name LIKE ? AND stock > 0 ORDER BY price ASC LIMIT 1");
+        $stmt->execute(['%' . $name . '%']);
+        $id = $stmt->fetchColumn();
+        return $id ? (int)$id : null;
+    }
+
+    private function absoluteUrl(string $path): string {
+        if (function_exists('getBaseUrl')) return rtrim(getBaseUrl(), '/') . $path;
+        return $path;
     }
 
     // ---- Reranking ----
@@ -391,6 +636,14 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         }
         // Mặc định dùng Docker service name
         return 'http://reranker:8000/rerank';
+    }
+
+    private function isSqlite(): bool {
+        try {
+            return $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
+        } catch (Throwable $e) {
+            return false;
+        }
     }
 
     private function fetchJson(string $url): array {

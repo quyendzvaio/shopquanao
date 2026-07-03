@@ -28,6 +28,7 @@ if ($search !== '') {
     $clean = preg_replace('/[^\p{L}\p{N}\s]/u', '', $search);
     $words = preg_split('/\s+/u', $clean);
     $words = array_filter($words, fn($w) => mb_strlen($w) >= 2);
+    $searchParts = [];
 
     // FULLTEXT words (≥ 3 chars, indexed)
     $ftsWords = array_values(array_filter($words, fn($w) => mb_strlen($w) >= 3));
@@ -37,14 +38,25 @@ if ($search !== '') {
         $ftsQuery = '+' . implode(' +', array_map(function($w) {
             return str_replace(['\\', "'"], ['\\\\', "\\'"], $w) . '*';
         }, $ftsWords));
-        $where[] = "MATCH(p.name) AGAINST(? IN BOOLEAN MODE)";
+        $searchParts[] = "MATCH(p.name) AGAINST(? IN BOOLEAN MODE)";
         $params[] = $ftsQuery;
     }
 
-    // Always use LIKE for the full search string (catches short words too)
-    // This ensures "áo" or "áo khoác" still finds results
-    $where[] = "p.name LIKE ?";
+    // Full phrase match catches exact product type queries.
+    $searchParts[] = "p.name LIKE ?";
     $params[] = "%$search%";
+
+    // Token AND match catches natural queries like "áo bomber" vs "Áo Khoác Bomber".
+    if (count($words) > 1) {
+        $tokenParts = [];
+        foreach ($words as $word) {
+            $tokenParts[] = "p.name LIKE ?";
+            $params[] = "%$word%";
+        }
+        $searchParts[] = '(' . implode(' AND ', $tokenParts) . ')';
+    }
+
+    $where[] = '(' . implode(' OR ', $searchParts) . ')';
 }
 
 if ($category !== '') {

@@ -503,6 +503,37 @@ CREATE TABLE `chat_messages` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `chat_session_memory`
+--
+
+CREATE TABLE `chat_session_memory` (
+  `session_id` int(11) NOT NULL,
+  `summary` text DEFAULT NULL,
+  `slots` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `user_long_term_memory`
+--
+
+CREATE TABLE `user_long_term_memory` (
+  `user_id` int(11) NOT NULL,
+  `preferences` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
+  `stable_facts` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
+  `important_events` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
+  `feedback` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
+  `purchase_history` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 --
 -- Indexes for dumped tables
 --
@@ -594,6 +625,18 @@ ALTER TABLE `chat_sessions`
 ALTER TABLE `chat_messages`
   ADD PRIMARY KEY (`id`),
   ADD KEY `session_id` (`session_id`);
+
+--
+-- Indexes for table `chat_session_memory`
+--
+ALTER TABLE `chat_session_memory`
+  ADD PRIMARY KEY (`session_id`);
+
+--
+-- Indexes for table `user_long_term_memory`
+--
+ALTER TABLE `user_long_term_memory`
+  ADD PRIMARY KEY (`user_id`);
 
 --
 -- Indexes for table `users`
@@ -752,6 +795,18 @@ ALTER TABLE `chat_sessions`
 --
 ALTER TABLE `chat_messages`
   ADD CONSTRAINT `chat_messages_ibfk_1` FOREIGN KEY (`session_id`) REFERENCES `chat_sessions` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `chat_session_memory`
+--
+ALTER TABLE `chat_session_memory`
+  ADD CONSTRAINT `chat_session_memory_ibfk_1` FOREIGN KEY (`session_id`) REFERENCES `chat_sessions` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `user_long_term_memory`
+--
+ALTER TABLE `user_long_term_memory`
+  ADD CONSTRAINT `user_long_term_memory_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 -- --------------------------------------------------------
 

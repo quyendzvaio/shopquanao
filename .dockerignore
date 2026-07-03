@@ -6,6 +6,7 @@
 .git
 .gitignore
 .gitattributes
+.codegraph
 
 # IDE & editors
 .agents
@@ -28,13 +29,18 @@ DOCKER.md
 CLAUDE.md
 
 # Test & reports (heavy, production-irrelevant)
+tests/
 test-evidence/
 reports/
 postman/
+.phpunit.cache/
 
 # Scripts (dev only)
 scripts/
 node_modules/
+vendor/
+composer.phar
+composer.lock
 
 # Docker files (not needed inside app image)
 docker-compose.yml
@@ -52,3 +58,9 @@ docker-compose*.yml
 # Python cache
 __pycache__/
 *.pyc
+
+# Backups and local dumps
+backups/
+*.tar
+*.tar.gz
+*.zip

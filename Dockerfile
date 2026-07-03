@@ -9,6 +9,8 @@ FROM php:8.2-apache
 RUN apt-get update -qq \
     && apt-get install -y -qq --no-install-recommends curl ca-certificates \
     && docker-php-ext-install -j$(nproc) pdo_mysql mysqli opcache 2>&1 | tail -3 \
+    && pecl install redis >/dev/null \
+    && docker-php-ext-enable redis \
     && a2enmod rewrite \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/*
@@ -32,7 +34,6 @@ COPY config/ config/
 COPY includes/ includes/
 COPY css/ css/
 COPY sql/ sql/
-COPY docker/ docker/
 COPY knowledge/ knowledge/
 COPY images/ images/
 COPY *.php ./
