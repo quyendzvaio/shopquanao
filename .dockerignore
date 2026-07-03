@@ -11,8 +11,10 @@
 # IDE & editors
 .agents
 .codex
+.claude
 .vscode
 .idea
+.specify
 *.swp
 *.swo
 *~
@@ -32,6 +34,7 @@ CLAUDE.md
 tests/
 test-evidence/
 reports/
+report/
 postman/
 .phpunit.cache/
 

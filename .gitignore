@@ -8,12 +8,17 @@ Thumbs.db
 # IDE
 .agents
 .codex
+.claude/
+.codegraph/
+.specify/
 .vscode
 .idea
 
 # PHP
 vendor/
 composer.lock
+composer.phar
+.phpunit.cache/
 
 # Env
 .env
@@ -22,10 +27,19 @@ composer.lock
 
 # Logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Reports
+# Local agent/spec artifacts
+CLAUDE.md
+DOCKER.md
+
+# Reports and generated evidence
 reports/
+report/
 test-evidence/
+postman/
 
 # Python
 __pycache__/
@@ -39,3 +53,17 @@ venv/
 
 # Cache (runtime)
 /tmp/shop_cache/
+
+# Local debug/maintenance scripts
+chat-debug.php
+fix-db.php
+scripts/generate_postman_evidence.js
+scripts/generate_test_report_doc.js
+
+# Backups and local dumps
+backups/
+*.sql.gz
+*.dump
+*.tar
+*.tar.gz
+*.zip
