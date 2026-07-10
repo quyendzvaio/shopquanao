@@ -23,7 +23,9 @@ Chatbot không hỗ trợ:
 
 ```text
 Browser
-  -> PHP API
+  -> Nginx API Gateway
+      -> /api/*, web routes, static assets
+      -> PHP app
       -> /api/chatbot
       -> AgenticOrchestrator
           -> LLM provider: DeepSeek-compatible API
@@ -42,10 +44,11 @@ Docker services:
 
 | Service | Purpose | Default port |
 |---|---|---|
-| `app` | PHP 8.2 Apache web/API app | `8090:80` |
+| `nginx` | Public API Gateway, reverse proxy, basic chatbot rate limit | `8090:80` |
+| `app` | PHP 8.2 Apache web/API app, internal only | `80` internal |
 | `db` | MariaDB 10.11 | `3308:3306` |
 | `redis` | Optional cache service; app falls back to file cache if `ext-redis` is absent | `6379` |
-| `qdrant` | Optional VectorDB for knowledge index | `6333` |
+| `qdrant` | Optional VectorDB for knowledge index, internal only | `6333` internal |
 | `reranker` | Lightweight search reranker sidecar for product search | `8001` |
 | `phpmyadmin` | Optional DB admin profile | `8091` |
 
@@ -91,7 +94,17 @@ query
   -> agent tổng hợp câu trả lời dựa trên results
 ```
 
-Ghi chú production: hybrid search keyword + vector, cross-encoder rerank và embedding model thật là bước tiếp theo. Eval harness hiện đã sẵn sàng để đo lại khi phần này được triển khai.
+Production target cho RAG:
+
+```text
+query
+  -> hybrid search: keyword + vector
+  -> cross-encoder rerank
+  -> lấy top_k = 5 chunks
+  -> agent tổng hợp câu trả lời từ context đã rerank
+```
+
+Ghi chú: hiện tại chatbot đã có RAG endpoint, ingest Qdrant, fallback Markdown/DB và eval harness. Phần hybrid search + embedding model thật + rerank cho knowledge chunks là hạng mục còn lại để đạt target production RAG ở trên.
 
 ## Quick Start
 
@@ -136,6 +149,18 @@ Nếu không ingest hoặc Qdrant chưa sẵn sàng, chatbot vẫn fallback về
 | `RERANKER_URL` | No | `http://reranker:8000` | Product reranker URL |
 
 Không commit `.env`. Dùng `.env.example` để mô tả cấu hình mẫu.
+
+## API Gateway
+
+Nginx là entrypoint public của Docker stack:
+
+- Public port: `http://localhost:8090`
+- Upstream nội bộ: `app:80`
+- `/api/chatbot` có basic rate limit bằng `limit_req`
+- Các route web, API và static assets được reverse proxy về PHP app
+- Chặn truy cập file nhạy cảm như `.env`, `.git`, `composer.*`, `phpunit.xml`
+
+PHP `app` không expose port trực tiếp ra host trong Docker Compose mặc định.
 
 ## API Chính
 
@@ -256,7 +281,7 @@ LANGSMITH_PROJECT="fashion-shop-chatbot-eval" \
 
 ## Kết Quả Kiểm Thử Gần Nhất
 
-Target: `http://localhost:8092` (`shop_quan_ao_eval_app`, source bind-mounted)
+Target eval gần nhất: `http://localhost:8092` (`shop_quan_ao_eval_app`, source bind-mounted). Khi chạy qua production-like stack mới, dùng gateway URL `http://localhost:8090`.
 
 | Check | Result |
 |---|---:|
@@ -342,7 +367,7 @@ Nhận xét hiện tại:
 - Unit/integration/PHPStan đã ổn sau khi fix cache TTL và PHPUnit cache directory.
 - `composer.lock` nên được commit để CI dùng dependency reproducible.
 - PHPCS đang non-blocking vì code legacy còn nhiều lỗi PSR-12. Muốn production gate nghiêm hơn thì cần format/refactor theo từng module trước khi bỏ `|| echo`.
-- RAGAS/LangSmith không nên chạy bắt buộc trong CI public nếu không có secret evaluator; nên để manual hoặc scheduled workflow riêng.
+- RAGAS/LangSmith hiện là manual evaluation evidence đã chạy một lần và lưu kết quả trong report/README. Không chạy bắt buộc trong CI public vì cần secret evaluator và phát sinh chi phí; nếu cần regression eval, thêm workflow `workflow_dispatch` hoặc scheduled workflow riêng.
 
 ## Ignore Policy
 
@@ -384,8 +409,7 @@ tests/                         PHPUnit unit/integration tests
 
 ## Production Gaps Còn Lại
 
-- Chưa có API Gateway/Nginx riêng trước app.
-- Chưa có rate limiting production-grade tại gateway/app.
+- Nginx API Gateway đã có basic `limit_req`; chưa có distributed rate limit/Redis-backed rate limit cho nhiều instance.
 - Retrieval chưa phải hybrid search + cross-encoder rerank đúng yêu cầu production RAG.
 - Embedding hiện tại vẫn là `local_hash`; cần thay bằng Vietnamese embedding model thật và reindex Qdrant.
 - PHPCS chưa thể bật blocking do style debt legacy.
