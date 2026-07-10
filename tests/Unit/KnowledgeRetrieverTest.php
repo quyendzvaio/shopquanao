@@ -53,6 +53,27 @@ class KnowledgeRetrieverTest extends \PHPUnit\Framework\TestCase
         $this->assertStringContainsString('7 ngày', $joined);
     }
 
+    public function testQueryRewriteExpandsNoAccentShippingQuestion(): void
+    {
+        $result = $this->retriever->search('don 300k ngoai tinh ship bn tien', null, 3);
+
+        $this->assertSame('don 300k ngoai tinh ship bn tien', $result['original_query']);
+        $this->assertArrayHasKey('rewritten_query', $result);
+        $this->assertStringContainsString('phí ship', $result['rewritten_query']);
+        $this->assertStringContainsString('ngoại tỉnh', $result['rewritten_query']);
+        $this->assertNotEmpty($result['results']);
+    }
+
+    public function testQueryRewriteAddsCategorySynonyms(): void
+    {
+        $result = $this->retriever->search('khong vua size thi sao', 'return', 3);
+
+        $this->assertArrayHasKey('query_rewrites', $result);
+        $this->assertContains('đổi size', $result['query_rewrites']);
+        $this->assertContains('phí vận chuyển hai chiều', $result['query_rewrites']);
+        $this->assertStringContainsString('đổi size', $result['rewritten_query']);
+    }
+
     public function testEmbeddingHasStableVectorSize(): void
     {
         $a = $this->retriever->embed('đổi trả sản phẩm');

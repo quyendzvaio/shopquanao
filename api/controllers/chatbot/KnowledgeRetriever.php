@@ -28,27 +28,34 @@ class KnowledgeRetriever {
             return ['results' => [], 'source' => 'none'];
         }
 
+        $rewrite = $this->rewriteQuery($query, $category);
+        $searchQuery = $rewrite['query'];
+
         $cacheKey = Cache::buildKey('kr', [
-            'query' => mb_strtolower($query),
+            'query' => mb_strtolower($searchQuery),
+            'original_query' => mb_strtolower($query),
             'category' => (string)$category,
             'limit' => $limit,
-            'v' => 1,
+            'v' => 2,
         ]);
         $cached = Cache::get($cacheKey);
         if (is_array($cached)) return $cached;
 
         $result = null;
         if ($this->qdrantUrl !== null) {
-            $result = $this->searchQdrant($query, $category, $limit);
+            $result = $this->searchQdrant($searchQuery, $category, $limit);
         }
 
         if ($result === null || empty($result['results'])) {
             $result = [
-                'results' => $this->searchLocal($query, $category, $limit),
+                'results' => $this->searchLocal($searchQuery, $category, $limit),
                 'source' => 'local_fallback',
             ];
         }
 
+        $result['original_query'] = $query;
+        $result['rewritten_query'] = $searchQuery;
+        $result['query_rewrites'] = $rewrite['terms'];
         Cache::set($cacheKey, $result, 600);
         return $result;
     }
@@ -284,6 +291,68 @@ class KnowledgeRetriever {
         $text = preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $text) ?? $text;
         $raw = preg_split('/\s+/u', $text) ?: [];
         return array_values(array_filter($raw, fn($t) => mb_strlen($t) >= 2));
+    }
+
+    private function rewriteQuery(string $query, ?string $category): array {
+        $normalized = $this->normalizeVietnameseQuery($query);
+        $terms = [];
+
+        $synonyms = [
+            'return' => ['đổi trả', 'đổi size', 'đổi màu', 'hoàn tiền', 'trả hàng', 'tem mác', 'chưa qua sử dụng', 'sale trên 50%', 'phí vận chuyển hai chiều'],
+            'shipping' => ['giao hàng', 'phí ship', 'vận chuyển', 'nội thành', 'ngoại tỉnh', 'miễn phí ship', 'đơn từ 500000'],
+            'payment' => ['thanh toán', 'cod', 'chuyển khoản', 'momo', 'vnpay'],
+            'warranty' => ['bảo hành', 'sản phẩm lỗi', 'lỗi đường may', 'giao sai mẫu', 'giao sai size'],
+            'wholesale' => ['bán sỉ', 'bán buôn', 'đơn số lượng lớn'],
+            'order' => ['đơn hàng', 'trạng thái đơn', 'theo dõi đơn hàng'],
+            'size' => ['bảng size', 'chiều cao', 'cân nặng', 'chọn size', 'kích cỡ'],
+            'shop_info' => ['thông tin shop', 'địa chỉ', 'hotline', 'giờ mở cửa'],
+        ];
+
+        $intentMap = [
+            'return' => ['đổi', 'doi', 'trả', 'tra', 'hoàn', 'hoan', 'refund', 'return', 'sale', 'không vừa', 'khong vua', 'lỗi', 'loi'],
+            'shipping' => ['ship', 'giao', 'vận chuyển', 'van chuyen', 'nội thành', 'ngoại tỉnh', 'mien phi', 'free ship'],
+            'payment' => ['thanh toán', 'thanh toan', 'cod', 'momo', 'vnpay', 'chuyển khoản', 'chuyen khoan'],
+            'warranty' => ['bảo hành', 'bao hanh', 'lỗi', 'loi', 'đường may', 'duong may', 'rách', 'rach'],
+            'wholesale' => ['bán sỉ', 'ban si', 'bán buôn', 'ban buon', 'sỉ', 'si'],
+            'order' => ['đơn hàng', 'don hang', 'trạng thái', 'trang thai', 'theo dõi', 'tracking'],
+            'size' => ['size', 'kích cỡ', 'kich co', 'cao', 'nặng', 'kg', 'cm'],
+            'shop_info' => ['địa chỉ', 'dia chi', 'hotline', 'cửa hàng', 'shop', 'giờ mở cửa'],
+        ];
+
+        if ($category !== null && isset($synonyms[$category])) {
+            $terms = array_merge($terms, $synonyms[$category]);
+        }
+
+        foreach ($intentMap as $intent => $needles) {
+            foreach ($needles as $needle) {
+                if (mb_strpos($normalized, $needle) !== false && isset($synonyms[$intent])) {
+                    $terms = array_merge($terms, $synonyms[$intent]);
+                    break;
+                }
+            }
+        }
+
+        $terms = array_values(array_unique(array_filter($terms)));
+        $rewritten = trim($query . ' ' . implode(' ', $terms));
+
+        return [
+            'query' => $rewritten !== '' ? $rewritten : $query,
+            'terms' => $terms,
+        ];
+    }
+
+    private function normalizeVietnameseQuery(string $query): string {
+        $text = mb_strtolower($query);
+        $map = [
+            'đ' => 'd',
+            'à' => 'a', 'á' => 'a', 'ạ' => 'a', 'ả' => 'a', 'ã' => 'a', 'â' => 'a', 'ầ' => 'a', 'ấ' => 'a', 'ậ' => 'a', 'ẩ' => 'a', 'ẫ' => 'a', 'ă' => 'a', 'ằ' => 'a', 'ắ' => 'a', 'ặ' => 'a', 'ẳ' => 'a', 'ẵ' => 'a',
+            'è' => 'e', 'é' => 'e', 'ẹ' => 'e', 'ẻ' => 'e', 'ẽ' => 'e', 'ê' => 'e', 'ề' => 'e', 'ế' => 'e', 'ệ' => 'e', 'ể' => 'e', 'ễ' => 'e',
+            'ì' => 'i', 'í' => 'i', 'ị' => 'i', 'ỉ' => 'i', 'ĩ' => 'i',
+            'ò' => 'o', 'ó' => 'o', 'ọ' => 'o', 'ỏ' => 'o', 'õ' => 'o', 'ô' => 'o', 'ồ' => 'o', 'ố' => 'o', 'ộ' => 'o', 'ổ' => 'o', 'ỗ' => 'o', 'ơ' => 'o', 'ờ' => 'o', 'ớ' => 'o', 'ợ' => 'o', 'ở' => 'o', 'ỡ' => 'o',
+            'ù' => 'u', 'ú' => 'u', 'ụ' => 'u', 'ủ' => 'u', 'ũ' => 'u', 'ư' => 'u', 'ừ' => 'u', 'ứ' => 'u', 'ự' => 'u', 'ử' => 'u', 'ữ' => 'u',
+            'ỳ' => 'y', 'ý' => 'y', 'ỵ' => 'y', 'ỷ' => 'y', 'ỹ' => 'y',
+        ];
+        return strtr($text, $map);
     }
 
     private function hasIntentOverlap(string $query, array $doc): bool {

@@ -85,6 +85,7 @@ Luồng hiện tại:
 
 ```text
 query
+  -> query rewriting: chuẩn hóa câu hỏi, mở rộng synonym/domain terms
   -> KnowledgeRetriever.search(query, category, limit=5)
   -> nếu Qdrant configured và có dữ liệu:
        vector search bằng embedding local-hash hiện tại
@@ -98,6 +99,7 @@ Production target cho RAG:
 
 ```text
 query
+  -> query rewriting
   -> hybrid search: keyword + vector
   -> cross-encoder rerank
   -> lấy top_k = 5 chunks
