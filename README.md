@@ -44,7 +44,7 @@ Docker services:
 |---|---|---|
 | `app` | PHP 8.2 Apache web/API app | `8090:80` |
 | `db` | MariaDB 10.11 | `3308:3306` |
-| `redis` | Runtime cache | `6379` |
+| `redis` | Optional cache service; app falls back to file cache if `ext-redis` is absent | `6379` |
 | `qdrant` | Optional VectorDB for knowledge index | `6333` |
 | `reranker` | Lightweight search reranker sidecar for product search | `8001` |
 | `phpmyadmin` | Optional DB admin profile | `8091` |
@@ -129,7 +129,7 @@ Nếu không ingest hoặc Qdrant chưa sẵn sàng, chatbot vẫn fallback về
 | `DB_NAME` | No | `shop_db` | Database name |
 | `DB_USER` | No | `shop_user` | Database user |
 | `DB_PASS` | Yes | `shop_pass` | Database password |
-| `REDIS_HOST` | No | `redis` | Redis cache host |
+| `REDIS_HOST` | No | `redis` | Optional Redis cache host; current production image can run without `ext-redis` |
 | `QDRANT_URL` | No | `http://qdrant:6333` | Qdrant endpoint |
 | `EMBEDDING_PROVIDER` | No | `local_hash` | Current embedding provider |
 | `EMBEDDING_MODEL` | No | `local-hash-256` | Current embedding model |
@@ -369,7 +369,7 @@ Lý do: source eval/test/script cần version control; report output và runtime
 
 ```text
 api/
-  cache/                      File/Redis cache
+  cache/                      File cache with optional Redis backend
   controllers/chatbot/         Agent, tools, memory, LLM provider, fallback engine
   controllers/knowledge/       Knowledge search endpoint
   controllers/products/        Product APIs

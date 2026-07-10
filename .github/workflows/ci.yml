@@ -329,14 +329,25 @@ jobs:
             echo "RERANKER_URL=http://reranker:8000" >> .env
             echo ".env written ($(wc -l < .env) lines)"
 
+            FREE_MB=$(df -Pm / | awk 'NR==2 {print $4}')
+            if [ "${FREE_MB:-0}" -lt 1200 ]; then
+              echo "⚠️ Low disk (${FREE_MB}MB free). Stopping current stack before image prune."
+              docker compose down --remove-orphans 2>/dev/null || true
+              docker image prune -af 2>/dev/null || true
+              docker builder prune -af 2>/dev/null || true
+              echo "=== Disk after low-space cleanup ==="
+              df -h / | tail -1
+              docker system df || true
+            fi
+
             # Build images (cache-aware)
             echo "Building images..."
-            docker compose build reranker 2>&1 | tail -5
-            docker compose build app 2>&1 | tail -5
+            docker compose build reranker
+            docker compose build app
 
             # Deploy
             echo "Starting containers..."
-            docker compose up -d --remove-orphans 2>&1 | tail -5
+            docker compose up -d --remove-orphans
 
             # Healthcheck with extended timeout for reranker cold start
             echo "Waiting for app (up to 120s)..."

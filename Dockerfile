@@ -4,13 +4,12 @@
 # ============================================================
 FROM php:8.2-apache
 
-# Install PHP extensions (runtime only — no dev headers needed)
-# Combine all apt + docker-php-ext into ONE RUN to minimize layer size
+# Install only required runtime extensions.
+# Redis is optional in the app: Cache falls back to file storage when ext-redis
+# is not installed. Avoiding PECL here keeps builds reliable on small VPS disks.
 RUN apt-get update -qq \
     && apt-get install -y -qq --no-install-recommends curl ca-certificates \
-    && docker-php-ext-install -j$(nproc) pdo_mysql mysqli opcache 2>&1 | tail -3 \
-    && pecl install redis >/dev/null \
-    && docker-php-ext-enable redis \
+    && docker-php-ext-install -j1 pdo_mysql mysqli opcache \
     && a2enmod rewrite \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/*
