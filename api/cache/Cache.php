@@ -97,10 +97,15 @@ class Cache {
      * @param int $ttl Seconds until expiry (default 300 = 5 min)
      */
     public static function set(string $key, mixed $data, int $ttl = 300): void {
+        if ($ttl <= 0) {
+            self::delete($key);
+            return;
+        }
+
         $redis = self::redis();
         if ($redis !== null) {
             try {
-                $redis->setex($key, max(1, $ttl), $data);
+                $redis->setex($key, $ttl, $data);
                 return;
             } catch (Throwable $e) {
                 self::$redis = null;

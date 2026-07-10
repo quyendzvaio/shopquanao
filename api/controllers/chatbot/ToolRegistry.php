@@ -6,11 +6,13 @@
  */
 
 require_once __DIR__ . '/../../cache/Cache.php';
+require_once __DIR__ . '/KnowledgeRetriever.php';
 
 class ToolRegistry {
     private PDO $pdo;
     private ?int $userId;
     private array $tools = [];
+    private KnowledgeRetriever $knowledgeRetriever;
 
     /** Tối thiểu bao nhiêu kết quả thì kích hoạt rerank */
     private const RERANK_MIN_RESULTS = 5;
@@ -24,6 +26,7 @@ class ToolRegistry {
     public function __construct(PDO $pdo, ?int $userId = null) {
         $this->pdo = $pdo;
         $this->userId = $userId;
+        $this->knowledgeRetriever = new KnowledgeRetriever($pdo);
         $this->registerAll();
     }
 
@@ -116,36 +119,29 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
             ],
         ];
 
-        $this->tools['get_faq'] = [
+        $this->tools['retrieve_knowledge'] = [
             'type' => 'function',
             'function' => [
-                'name' => 'get_faq',
-                'description' => 'Tra cứu FAQ (chính sách mua hàng, đổi trả, vận chuyển, thanh toán, bảo hành). Dùng khi người dùng hỏi về chính sách shop.',
+                'name' => 'retrieve_knowledge',
+                'description' => 'Truy xuất tri thức thật của shop từ RAG/VectorDB và fallback Markdown/FAQ DB. BẮT BUỘC dùng khi user hỏi chính sách, đổi trả, hoàn tiền, giao hàng, phí ship, thanh toán, bảo hành, bán sỉ, thông tin shop, hoặc hướng dẫn CSKH. Có thể dùng cùng search_products/get_product_detail cho câu hỏi vừa có sản phẩm vừa có chính sách.',
                 'parameters' => [
                     'type' => 'object',
                     'properties' => [
+                        'query' => [
+                            'type' => 'string',
+                            'description' => 'Câu hỏi hoặc từ khóa cần tra cứu theo đúng ý user.',
+                        ],
                         'category' => [
                             'type' => 'string',
-                            'enum' => ['shipping', 'return', 'payment', 'warranty', 'wholesale', 'general', 'order', 'size'],
-                            'description' => 'Danh mục câu hỏi',
+                            'enum' => ['shipping', 'return', 'payment', 'warranty', 'wholesale', 'general', 'order', 'size', 'shop_info', 'policy'],
+                            'description' => 'Nhóm tri thức nếu xác định được. Để trống nếu câu hỏi rộng hoặc mixed intent.',
                         ],
-                        'search' => ['type' => 'string', 'description' => 'Từ khóa tìm kiếm trong FAQ'],
+                        'limit' => [
+                            'type' => 'integer',
+                            'description' => 'Số đoạn tri thức tối đa cần lấy, mặc định 5.',
+                        ],
                     ],
-                ],
-            ],
-        ];
-
-        $this->tools['get_outfit'] = [
-            'type' => 'function',
-            'function' => [
-                'name' => 'get_outfit',
-                'description' => 'Gợi ý phối đồ dựa trên sản phẩm đang xem. Dùng khi người dùng hỏi phối đồ, mặc với gì, kết hợp với gì.',
-                'parameters' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'product_id' => ['type' => 'integer', 'description' => 'ID sản phẩm cần phối đồ'],
-                        'search' => ['type' => 'string', 'description' => 'Tên sản phẩm cần phối đồ'],
-                    ],
+                    'required' => ['query'],
                 ],
             ],
         ];
@@ -162,30 +158,15 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
             ],
         ];
 
-        $this->tools['prepare_checkout'] = [
+        $this->tools['get_order_status'] = [
             'type' => 'function',
             'function' => [
-                'name' => 'prepare_checkout',
-                'description' => 'Chuẩn bị giỏ hàng và chuyển người dùng đã đăng nhập tới trang thanh toán khi user nói muốn mua hoặc thanh toán sản phẩm cụ thể. Nếu chưa rõ sản phẩm nào, không gọi tool mà hỏi lại user cho rõ.',
+                'name' => 'get_order_status',
+                'description' => 'Tra cứu trạng thái đơn hàng của user đã đăng nhập. Dùng khi user hỏi đơn hàng của tôi, trạng thái đơn, đơn đã giao chưa. Nếu chưa đăng nhập, tool sẽ yêu cầu đăng nhập.',
                 'parameters' => [
                     'type' => 'object',
                     'properties' => [
-                        'product_ids' => [
-                            'type' => 'array',
-                            'items' => ['type' => 'integer'],
-                            'description' => 'ID sản phẩm muốn thanh toán. Ưu tiên dùng ID nếu user đã chọn hoặc bot vừa đưa link sản phẩm.',
-                        ],
-                        'product_names' => [
-                            'type' => 'array',
-                            'items' => ['type' => 'string'],
-                            'description' => 'Tên hoặc cụm tên sản phẩm user muốn mua nếu không có ID.',
-                        ],
-                        'quantity' => ['type' => 'integer', 'description' => 'Số lượng mỗi sản phẩm, mặc định 1'],
-                        'size' => ['type' => 'string', 'description' => 'Size muốn mua nếu user có nói, mặc định S'],
-                        'replace_cart' => [
-                            'type' => 'boolean',
-                            'description' => 'true để checkout đúng các sản phẩm chỉ định bằng cách thay giỏ hàng hiện tại. Mặc định true.',
-                        ],
+                        'order_id' => ['type' => 'integer', 'description' => 'Mã đơn hàng nếu user cung cấp. Bỏ trống để lấy các đơn gần nhất.'],
                     ],
                 ],
             ],
@@ -276,44 +257,43 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         return $result;
     }
 
-    private function executeGetFaq(array $args): array {
-        $queryParams = array_filter([
-            'category' => $args['category'] ?? '',
-            'search' => $args['search'] ?? '',
-        ]);
-
-        $cached = Cache::getFaqResult($queryParams);
-        if ($cached !== null) return $cached;
-
-        $params = http_build_query($queryParams);
-        $url = getInternalApiUrl() . "/api/faq?$params";
-        $result = $this->fetchJson($url);
-        if (!isset($result['error'])) {
-            Cache::setFaqResult($queryParams, $result);
-        }
+    private function executeRetrieveKnowledge(array $args): array {
+        $query = trim((string)($args['query'] ?? ''));
+        if ($query === '') return ['results' => [], 'message' => 'Query is required'];
+        $category = isset($args['category']) && $args['category'] !== '' ? (string)$args['category'] : null;
+        $limit = isset($args['limit']) ? (int)$args['limit'] : 5;
+        $result = $this->knowledgeRetriever->search($query, $category, $limit);
+        $result['guidance'] = 'Chỉ trả lời dựa trên results. Nếu results rỗng hoặc chưa đủ, hãy nói chưa có đủ thông tin trong dữ liệu shop và hỏi thêm.';
         return $result;
     }
 
-    private function executeGetOutfit(array $args): array {
-        $filtered = array_filter([
-            'product_id' => $args['product_id'] ?? '',
-            'search' => $args['search'] ?? '',
-        ]);
-
-        // Check cache
-        $cached = Cache::getOutfit($filtered);
-        if ($cached !== null) {
-            if (isset($cached['error'])) return ['outfits' => []];
-            return $cached;
+    private function executeGetOrderStatus(array $args): array {
+        if ($this->userId === null) {
+            return [
+                'requires_login' => true,
+                'message' => 'Bạn cần đăng nhập để mình kiểm tra đơn hàng.',
+                'login_url' => $this->absoluteUrl('/login.php'),
+            ];
         }
 
-        $params = http_build_query($filtered);
-        $url = getInternalApiUrl() . "/api/outfit?$params";
-        $result = $this->fetchJson($url);
-        if (isset($result['error'])) $result = ['outfits' => []];
+        $orderId = isset($args['order_id']) ? (int)$args['order_id'] : 0;
+        if ($orderId > 0) {
+            $stmt = $this->pdo->prepare("SELECT id, total_price, status, created_at FROM orders WHERE id = ? AND user_id = ?");
+            $stmt->execute([$orderId, $this->userId]);
+            $order = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$order) {
+                return ['orders' => [], 'message' => 'Không tìm thấy đơn hàng này trong tài khoản của bạn.'];
+            }
+            return ['orders' => [$this->castOrder($order)]];
+        }
 
-        Cache::setOutfit($filtered, $result);
-        return $result;
+        $stmt = $this->pdo->prepare("SELECT id, total_price, status, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 5");
+        $stmt->execute([$this->userId]);
+        $orders = array_map(fn($o) => $this->castOrder($o), $stmt->fetchAll(PDO::FETCH_ASSOC));
+        return [
+            'orders' => $orders,
+            'message' => empty($orders) ? 'Bạn chưa có đơn hàng nào.' : 'Đây là các đơn hàng gần nhất của bạn.',
+        ];
     }
 
     private function executeGetCategories(array $args): array {
@@ -336,92 +316,6 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         }
 
         return $result;
-    }
-
-    private function executePrepareCheckout(array $args): array {
-        if ($this->userId === null) {
-            return [
-                'requires_login' => true,
-                'message' => 'Bạn cần đăng nhập để mình chuẩn bị thanh toán.',
-                'login_url' => $this->absoluteUrl('/login.php'),
-            ];
-        }
-
-        $productIds = array_values(array_unique(array_filter(array_map('intval', $args['product_ids'] ?? []))));
-        foreach (($args['product_names'] ?? []) as $name) {
-            $found = $this->findProductByName((string)$name);
-            if ($found !== null) $productIds[] = $found;
-        }
-        $productIds = array_values(array_unique(array_filter($productIds)));
-
-        if (empty($productIds)) {
-            return [
-                'needs_clarification' => true,
-                'message' => 'Bạn muốn thanh toán sản phẩm nào? Bạn gửi tên hoặc mã sản phẩm giúp mình nhé.',
-            ];
-        }
-
-        $quantity = max(1, (int)($args['quantity'] ?? 1));
-        $size = trim((string)($args['size'] ?? 'S')) ?: 'S';
-        $replaceCart = array_key_exists('replace_cart', $args) ? (bool)$args['replace_cart'] : true;
-
-        $products = [];
-        foreach ($productIds as $productId) {
-            $stmt = $this->pdo->prepare("SELECT id, name, price, stock, image FROM products WHERE id = ?");
-            $stmt->execute([$productId]);
-            $product = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$product || (int)($product['stock'] ?? 0) <= 0) continue;
-            $products[] = $product;
-        }
-
-        if (empty($products)) {
-            return [
-                'needs_clarification' => true,
-                'message' => 'Mình chưa tìm thấy sản phẩm còn hàng để thanh toán. Bạn gửi lại tên hoặc mã sản phẩm nhé.',
-            ];
-        }
-
-        $this->pdo->beginTransaction();
-        try {
-            if ($replaceCart) {
-                $stmt = $this->pdo->prepare("DELETE FROM cart WHERE user_id = ?");
-                $stmt->execute([$this->userId]);
-            }
-
-            foreach ($products as $product) {
-                $productId = (int)$product['id'];
-                $stmt = $this->pdo->prepare("SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ?");
-                $stmt->execute([$this->userId, $productId]);
-                $existing = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                if ($existing) {
-                    $newQty = (int)$existing['quantity'] + $quantity;
-                    $stmt = $this->pdo->prepare("UPDATE cart SET quantity = ?, size = ? WHERE id = ?");
-                    $stmt->execute([$newQty, $size, $existing['id']]);
-                } else {
-                    $stmt = $this->pdo->prepare("INSERT INTO cart (user_id, product_id, quantity, size) VALUES (?, ?, ?, ?)");
-                    $stmt->execute([$this->userId, $productId, $quantity, $size]);
-                }
-            }
-
-            $this->pdo->commit();
-        } catch (Throwable $e) {
-            $this->pdo->rollBack();
-            throw $e;
-        }
-
-        return [
-            'success' => true,
-            'message' => 'Mình đã chuẩn bị giỏ hàng với sản phẩm bạn chọn.',
-            'redirect_url' => $this->absoluteUrl('/checkout.php'),
-            'products' => array_map(fn($p) => [
-                'id' => (int)$p['id'],
-                'name' => $p['name'],
-                'price' => (float)$p['price'],
-                'stock' => (int)$p['stock'],
-                'image' => $p['image'] ?? '',
-            ], $products),
-        ];
     }
 
     private function executeSearchProductsDirect(array $args): array {
@@ -515,19 +409,18 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         return $args;
     }
 
-    private function findProductByName(string $name): ?int {
-        $name = trim($name);
-        if ($name === '') return null;
-
-        $stmt = $this->pdo->prepare("SELECT id FROM products WHERE name LIKE ? AND stock > 0 ORDER BY price ASC LIMIT 1");
-        $stmt->execute(['%' . $name . '%']);
-        $id = $stmt->fetchColumn();
-        return $id ? (int)$id : null;
-    }
-
     private function absoluteUrl(string $path): string {
         if (function_exists('getBaseUrl')) return rtrim(getBaseUrl(), '/') . $path;
         return $path;
+    }
+
+    private function castOrder(array $order): array {
+        return [
+            'id' => (int)$order['id'],
+            'total_price' => (float)($order['total_price'] ?? 0),
+            'status' => (string)($order['status'] ?? ''),
+            'created_at' => (string)($order['created_at'] ?? ''),
+        ];
     }
 
     // ---- Reranking ----
@@ -609,7 +502,8 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         curl_close($ch);
 
         if ($raw === false || $raw === '' || $httpCode !== 200) {
-            error_log("Reranker HTTP $httpCode, body=" . substr($raw ?? '', 0, 200));
+            $body = $raw === false ? '' : $raw;
+            error_log("Reranker HTTP $httpCode, body=" . substr($body, 0, 200));
             return null;
         }
 

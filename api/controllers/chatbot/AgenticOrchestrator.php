@@ -24,7 +24,7 @@ class AgenticOrchestrator {
     private array $messages = [];
     private int $maxTurns = 3;
     private array $collectedProducts = [];
-    private ?string $redirectUrl = null;
+    private array $collectedKnowledgeSources = [];
 
     private const SYSTEM_PROMPT = <<<'PROMPT'
 Bạn là nhân viên tư vấn bán hàng của Fashion Shop - cửa hàng thời trang online bán áo, quần, váy đầm, phụ kiện.
@@ -55,24 +55,26 @@ QUY TẮC TƯ VẤN - TUÂN THỦ NGHIÊM NGẶT:
 
 4. Khi user hỏi size → dùng suggest_size. Nếu thiếu chiều cao/cân nặng → hỏi luôn
 
-5. Khi user hỏi phối đồ → dùng get_outfit
+5. Hiện chatbot KHÔNG hỗ trợ tư vấn phối đồ/outfit. Nếu user hỏi phối đồ, hãy nói ngắn gọn rằng hiện mình chỉ hỗ trợ tìm sản phẩm, xem chi tiết sản phẩm, tư vấn size và chính sách shop.
 
-6. Khi user hỏi chính sách → dùng get_faq
+6. Khi user hỏi CSKH/chính sách/tri thức shop (đổi trả, hoàn tiền, phí ship, giao hàng, bảo hành, thanh toán, bán sỉ, thông tin cửa hàng, điều kiện áp dụng) → BẮT BUỘC dùng retrieve_knowledge trước khi trả lời. Chỉ trả lời dựa trên đoạn tri thức tool trả về. Nếu dữ liệu chưa đủ, nói rõ là hiện chưa có đủ thông tin trong dữ liệu shop và hỏi thêm.
+
+6b. Với câu hỏi mixed intent vừa có sản phẩm vừa có chính sách, ví dụ "áo bomber này đổi size được không" → có thể gọi cả search_products/get_product_detail và retrieve_knowledge, rồi tổng hợp ngắn gọn.
 
 7. Khi user hỏi sản phẩm: LUÔN gọi search_products, KHÔNG dùng lại kết quả từ lịch sử trò chuyện. Mỗi câu hỏi là một yêu cầu mới.
    Được dùng Slot Memory để bổ sung phần còn thiếu trong câu hiện tại, ví dụ user nói "dưới 300k" sau khi đã nói "áo thun" thì search="áo thun", max_price=300000.
 
 8. Khi user hỏi đơn hàng → hướng dẫn vào Đơn hàng của tôi trong trang cá nhân
 
-9. Khi user nói muốn mua hoặc thanh toán sản phẩm cụ thể → dùng prepare_checkout.
-   - Chỉ gọi prepare_checkout khi đã rõ sản phẩm nào (ID hoặc tên cụ thể).
-   - Nếu user nói chung chung "mình muốn mua", "thanh toán đi" mà chưa rõ sản phẩm nào → hỏi lại sản phẩm nào.
-   - Nếu tool báo requires_login → yêu cầu user đăng nhập.
-   - Nếu tool thành công → nói ngắn gọn rằng mình đã chuẩn bị giỏ hàng và sẽ chuyển sang trang thanh toán.
+8b. Khi user hỏi trạng thái đơn hàng cá nhân hoặc "đơn của tôi" → dùng get_order_status. Nếu tool yêu cầu đăng nhập thì yêu cầu user đăng nhập.
+
+9. Chatbot KHÔNG thêm giỏ hàng, KHÔNG chuẩn bị checkout, KHÔNG chuyển trang thanh toán. Khi user muốn mua/thanh toán, hãy hướng dẫn họ bấm vào thẻ sản phẩm hoặc vào trang chi tiết sản phẩm để tự thêm giỏ hàng/thanh toán.
 
 10. Nếu không hiểu câu hỏi → hỏi lại lịch sự
 
 11. Tuyệt đối không đưa link localhost, URL raw hoặc emoji vào câu trả lời.
+
+12. Không hiển thị chain-of-thought hoặc các bước suy nghĩ nội bộ. Bạn có thể dùng tool theo mô hình ReAct, nhưng người dùng chỉ thấy câu trả lời cuối cùng.
 PROMPT;
 
     public function __construct(PDO $pdo, int $sessionId, ?int $userId) {
@@ -88,13 +90,14 @@ PROMPT;
 
     public function respond(string $message): array {
         $this->collectedProducts = [];
-        $this->redirectUrl = null;
+        $this->collectedKnowledgeSources = [];
         $memoryContext = $this->memory->rememberUserMessage($message);
 
         if ($this->llm === null) {
             $this->fallbackEngine = new ChatbotEngine($this->pdo, $this->sessionId, $this->userId, $this->memory->getContextForEngine($memoryContext));
             $text = $this->fallbackEngine->respond($message);
             $this->collectedProducts = $this->fallbackEngine->lastProducts ?? [];
+            $this->collectedKnowledgeSources = $this->fallbackEngine->lastKnowledgeSources ?? [];
             $this->saveMessages($message, $text, $this->collectedProducts);
             $this->memory->refreshSummary($message, $text);
             return $this->buildResponse($text);
@@ -110,6 +113,7 @@ PROMPT;
             $this->fallbackEngine = new ChatbotEngine($this->pdo, $this->sessionId, $this->userId, $this->memory->getContextForEngine($memoryContext));
             $text = $this->fallbackEngine->respond($message);
             $this->collectedProducts = $this->fallbackEngine->lastProducts ?? [];
+            $this->collectedKnowledgeSources = $this->fallbackEngine->lastKnowledgeSources ?? [];
             $this->saveMessages($message, $text, $this->collectedProducts);
             $this->memory->refreshSummary($message, $text);
             return $this->buildResponse($text);
@@ -153,7 +157,7 @@ PROMPT;
 
             $metaData = [];
             if (!empty($products)) $metaData['products'] = $products;
-            if ($this->redirectUrl !== null) $metaData['redirect_url'] = $this->redirectUrl;
+            if (!empty($this->collectedKnowledgeSources)) $metaData['knowledge_sources'] = $this->collectedKnowledgeSources;
             $meta = !empty($metaData) ? json_encode($metaData, JSON_UNESCAPED_UNICODE) : null;
             $stmt = $this->pdo->prepare("INSERT INTO chat_messages (session_id, role, message, metadata) VALUES (?, 'bot', ?, ?)");
             $stmt->execute([$this->sessionId, $botMsg, $meta]);
@@ -208,7 +212,7 @@ PROMPT;
                     $result = $this->toolRegistry->execute($tc->name, $tc->arguments);
                     $resultStr = json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
                     $this->harvestProducts($tc->name, $result);
-                    $this->harvestRedirect($result);
+                    $this->harvestKnowledgeSources($tc->name, $result);
                 } catch (Throwable $e) {
                     $ok = false;
                     $resultStr = json_encode(['error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
@@ -266,10 +270,22 @@ PROMPT;
         }
     }
 
-    private function harvestRedirect(array $result): void {
-        if (!empty($result['redirect_url'])) {
-            $this->redirectUrl = (string)$result['redirect_url'];
+    private function harvestKnowledgeSources(string $toolName, array $result): void {
+        if ($toolName !== 'retrieve_knowledge' || empty($result['results']) || !is_array($result['results'])) {
+            return;
         }
+
+        foreach ($result['results'] as $item) {
+            $source = [
+                'source' => (string)($item['source'] ?? ''),
+                'title' => (string)($item['title'] ?? ''),
+                'category' => (string)($item['category'] ?? ''),
+                'score' => isset($item['score']) ? (float)$item['score'] : null,
+            ];
+            $key = md5(json_encode($source, JSON_UNESCAPED_UNICODE));
+            $this->collectedKnowledgeSources[$key] = $source;
+        }
+        $this->collectedKnowledgeSources = array_values($this->collectedKnowledgeSources);
     }
 
     private function buildResponse(string $text): array {
@@ -299,8 +315,8 @@ PROMPT;
             }
         }
         $response = ['message' => $text, 'products' => $products];
-        if ($this->redirectUrl !== null) {
-            $response['redirect_url'] = $this->redirectUrl;
+        if (!empty($this->collectedKnowledgeSources)) {
+            $response['knowledge_sources'] = $this->collectedKnowledgeSources;
         }
         return $response;
     }

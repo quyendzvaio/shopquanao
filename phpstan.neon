@@ -3,9 +3,10 @@ parameters:
     paths:
         - api/
         - config/
+    scanFiles:
+        - sql/migrations/001_init.php
     excludePaths:
         - test-evidence/*
         - reports/*
         - .codex/*
         - .agents/*
-    checkMissingIterableValueType: false

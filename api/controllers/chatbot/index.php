@@ -13,6 +13,8 @@ require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/engine.php';
 require_once __DIR__ . '/AgenticOrchestrator.php';
 
+/** @var PDO $pdo */
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     errorResponse('Method not allowed', 405);
 }
@@ -83,7 +85,7 @@ $result = $orchestrator->respond($message);
 
 $responseText = $result['message'];
 $products = $result['products'] ?? [];
-$redirectUrl = $result['redirect_url'] ?? null;
+$knowledgeSources = $result['knowledge_sources'] ?? [];
 
 // Update session timestamp
 $pdo->prepare("UPDATE chat_sessions SET updated_at = NOW(), user_id = COALESCE(?, user_id) WHERE id = ?")
@@ -92,7 +94,7 @@ $pdo->prepare("UPDATE chat_sessions SET updated_at = NOW(), user_id = COALESCE(?
 jsonResponse([
     'message' => $responseText,
     'products' => $products,
-    'redirect_url' => $redirectUrl,
+    'knowledge_sources' => $knowledgeSources,
     'session_token' => $sessionToken,
     'session_id' => $sessionId,
 ]);

@@ -16,7 +16,6 @@ Thumbs.db
 
 # PHP
 vendor/
-composer.lock
 composer.phar
 .phpunit.cache/
 
@@ -47,6 +46,11 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # Docker
 .docker/

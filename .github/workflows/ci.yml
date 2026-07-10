@@ -51,9 +51,12 @@ jobs:
             --ignore=test-evidence,reports,.codex,.agents,vendor,tests \
             --error-severity=1 --warning-severity=0 . || echo "⚠️ Style issues (non-blocking)"
 
+      - name: PHPStan
+        run: vendor/bin/phpstan analyse --level=1 api/ config/ --no-progress
+
       - name: Python lint (reranker)
         run: |
-          python3 -m py_compile docker/reranker/app.py && echo "✅ app.py syntax OK"
+          python3 -m py_compile docker/reranker/app.py eval/run_chatbot_eval.py scripts/eval_rag_chatbot.py && echo "✅ Python syntax OK"
 
   # ============================================================
   # Job 2: Unit Tests
@@ -147,9 +150,10 @@ jobs:
           echo "🔍 Scanning for real secrets (API keys, tokens, private keys)..."
           # Only flag actual secret STRINGS — NOT PHP variable names
           #   sk-[a-z0-9]{20,}     → API keys
+          #   lsv2_...              → LangSmith keys
           #   -----BEGIN           → private keys
           #   ghp_xxx / github_pat → GitHub tokens
-          SECRETS=$(grep -rnP '(?<![-\$>])sk-[a-z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9]{85}|-----BEGIN\s+(RSA|OPENSSH|EC|DSA)\s+PRIVATE\s+KEY-----' \
+          SECRETS=$(grep -rnP '(?<![-\$>])sk-[A-Za-z0-9_-]{20,}|lsv2_[A-Za-z0-9_=-]{20,}|ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9]{85}|-----BEGIN\s+(RSA|OPENSSH|EC|DSA)\s+PRIVATE\s+KEY-----' \
             --include='*.php' --include='*.py' --include='*.yml' --include='*.yaml' --include='*.sh' --include='*.json' --include='*.md' \
             . 2>/dev/null | grep -v '.git/' | grep -v 'vendor/' || true)
           if [ -n "$SECRETS" ]; then

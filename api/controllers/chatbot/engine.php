@@ -3,6 +3,7 @@
  * Chatbot intent classifier + knowledge retrieval
  * Uses keyword matching + DB queries (no external AI API).
  */
+require_once __DIR__ . '/KnowledgeRetriever.php';
 
 class ChatbotEngine {
     private $pdo;
@@ -10,6 +11,7 @@ class ChatbotEngine {
     private $userId;
     private $context = [];
     public $lastProducts = [];
+    public $lastKnowledgeSources = [];
 
     const INTENTS = [
         'greeting'       => ['chào', 'hello', 'hi', 'xin chào', 'hey', 'helo', 'hí', 'chao'],
@@ -17,13 +19,11 @@ class ChatbotEngine {
         'product_detail' => ['chi tiết', 'thông tin', 'mô tả', 'hình ảnh', 'size', 'kích thước', 'chất liệu'],
         'size_advice'    => ['size', 'mặc size', 'chọn size', 'cao', 'nặng', 'cân nặng', 'chiều cao', 'kg', 'mặc vừa'],
         'order_status'   => ['đơn hàng', 'đơn', 'order', 'tra cứu', 'trạng thái đơn', 'đang giao', 'chờ xử lý'],
-        'outfit'         => ['phối đồ', 'kết hợp', 'mặc với', 'set đồ', 'outfit', 'phong cách', 'mặc chung'],
         'faq_shipping'   => ['giao hàng', 'vận chuyển', 'ship', 'phí ship', 'giao', 'nhận hàng', 'bao lâu'],
         'faq_return'     => ['đổi trả', 'trả hàng', 'đổi hàng', 'hoàn tiền', 'trả lại'],
         'faq_payment'    => ['thanh toán', 'chuyển khoản', 'momo', 'vnpay', 'cod', 'trả tiền', 'atm', 'visa'],
         'faq_warranty'   => ['bảo hành', 'bảo vệ', 'lỗi', 'hỏng'],
         'faq_wholesale'  => ['bán sỉ', 'buôn', 'sỉ', 'số lượng lớn'],
-        'cart'           => ['giỏ hàng', 'cart', 'thêm vào giỏ', 'xóa giỏ', 'sửa giỏ', 'giỏ'],
         'help'           => ['giúp', 'hỗ trợ', 'có thể', 'làm gì', 'tính năng', 'tư vấn', 'hướng dẫn'],
         'bye'            => ['tạm biệt', 'bye', 'cảm ơn', 'thank', 'goodbye', 'bái bai'],
         'unknown'        => [],
@@ -91,6 +91,21 @@ class ChatbotEngine {
 
     public function respond($message) {
         $this->lastProducts = [];
+        $this->lastKnowledgeSources = [];
+        if ($this->isOutfitRequest($message)) {
+            return "Hiện mình không hỗ trợ tư vấn phối đồ. Mình có thể hỗ trợ bạn tìm sản phẩm, xem chi tiết sản phẩm, tư vấn size và chính sách shop.";
+        }
+        if ($this->isPurchaseAction($message)) {
+            return "Mình không thể thêm giỏ hàng hoặc thanh toán thay bạn. Bạn vui lòng bấm vào thẻ sản phẩm hoặc trang chi tiết sản phẩm để tự thêm giỏ hàng và thanh toán nhé.";
+        }
+        if ($this->isProductPolicyRequest($message)) {
+            $productPart = $this->handleProductSearch($message);
+            $policyPart = $this->handlePolicyKnowledge($message);
+            return trim($productPart . "\n\n" . $policyPart);
+        }
+        if ($this->isPolicyRequest($message)) {
+            return $this->handlePolicyKnowledge($message);
+        }
         $intent = $this->classify($message);
         $response = $this->execute($intent, $message);
         return $response;
@@ -134,7 +149,6 @@ class ChatbotEngine {
         return "Mình có thể hỗ trợ bạn các nội dung sau:\n\n"
             . "- Tìm sản phẩm, ví dụ: \"áo khoác dưới 500k\"\n"
             . "- Tư vấn size, ví dụ: \"cao 1m7 nặng 65kg\"\n"
-            . "- Gợi ý phối đồ, ví dụ: \"áo thun trắng mặc với quần gì\"\n"
             . "- Tra cứu đơn hàng, ví dụ: \"đơn hàng của tôi\"\n"
             . "- Giải đáp chính sách đổi trả, giao hàng hoặc thanh toán\n\n"
             . "Bạn muốn mình hỗ trợ phần nào? Khi cần xem lại danh sách này, bạn có thể gõ \"giúp\".";
@@ -366,30 +380,6 @@ class ChatbotEngine {
         return $response;
     }
 
-    private function handleOutfit($msg) {
-        $stmt = $this->pdo->query("
-            SELECT o.*, p1.name as product_name, p2.name as paired_name, p2.price as paired_price, p2.image as paired_image
-            FROM outfit_suggestions o
-            JOIN products p1 ON o.product_id = p1.id
-            JOIN products p2 ON o.paired_product_id = p2.id
-            ORDER BY o.id
-        ");
-        $outfits = $stmt->fetchAll();
-        $matched = [];
-        foreach ($outfits as $o) {
-            if (mb_strpos($o['product_name'], $msg) !== false || mb_strpos($o['paired_name'], $msg) !== false
-                || preg_match('/\b(' . $o['product_id'] . '|' . $o['paired_product_id'] . ')\b/', $msg)) {
-                $matched[] = $o;
-            }
-        }
-        if (!$matched) $matched = $outfits;
-        $response = "Gợi ý phối đồ:\n\n";
-        foreach ($matched as $o) {
-            $response .= "- {$o['product_name']} phối với {$o['paired_name']}\n  {$o['note']}\n\n";
-        }
-        return $response;
-    }
-
     private function handleOrderStatus($msg) {
         if (!$this->userId) return "Bạn vui lòng đăng nhập để tra cứu đơn hàng.";
         $orderId = null;
@@ -424,25 +414,7 @@ class ChatbotEngine {
     private function handleFaqWholesale($msg) { return $this->queryFaq('wholesale'); }
 
     private function queryFaq($category) {
-        $stmt = $this->pdo->prepare("SELECT question, answer FROM faqs WHERE category = ? ORDER BY priority LIMIT 3");
-        $stmt->execute([$category]);
-        $faqs = $stmt->fetchAll();
-        if (!$faqs) return "Bạn có thể tham khảo FAQ trên website hoặc hỏi mình chi tiết hơn.";
-        $response = "Thông tin " . ['shipping'=>'vận chuyển','return'=>'đổi trả','payment'=>'thanh toán','warranty'=>'bảo hành','wholesale'=>'bán sỉ'][$category] . ":\n\n";
-        foreach ($faqs as $f) $response .= "Hỏi: {$f['question']}\nTrả lời: {$f['answer']}\n\n";
-        return $response . "Còn thắc mắc gì bạn cứ hỏi nhé!";
-    }
-
-    private function handleCart($msg) {
-        if (!$this->userId) return "Bạn vui lòng đăng nhập để xem giỏ hàng.";
-        $stmt = $this->pdo->prepare("SELECT c.id, p.name, p.price, c.quantity, c.size FROM cart c JOIN products p ON c.product_id = p.id WHERE c.user_id = ?");
-        $stmt->execute([$this->userId]);
-        $items = $stmt->fetchAll();
-        if (!$items) return "Giỏ hàng của bạn đang trống. Bạn muốn mình gợi ý sản phẩm nào không?";
-        $total = 0; $response = "Giỏ hàng của bạn:\n\n";
-        foreach ($items as $i) { $sub = (float)$i['price'] * (int)$i['quantity']; $total += $sub; $response .= "- {$i['name']} x{$i['quantity']}: " . number_format($sub) . "đ\n"; }
-        $response .= "\nTổng: " . number_format($total) . "đ";
-        return $response;
+        return $this->handlePolicyKnowledge($category);
     }
 
     private function handleBye($msg) {
@@ -454,7 +426,94 @@ class ChatbotEngine {
             . "Bạn có thể gõ \"giúp\" để xem các nội dung mình hỗ trợ, hoặc hỏi trực tiếp:\n"
             . "- \"tìm áo khoác dưới 500k\"\n"
             . "- \"chọn size cho 1m7 65kg\"\n"
-            . "- \"phối đồ với áo thun trắng\"";
+            . "- \"shop đổi trả trong bao lâu\"";
+    }
+
+    private function isOutfitRequest(string $message): bool {
+        return (bool)preg_match('/phối đồ|mặc với|kết hợp|set đồ|outfit|phối với/ui', $message);
+    }
+
+    private function isPurchaseAction(string $message): bool {
+        return (bool)preg_match('/thêm vào giỏ|thêm giỏ|checkout|thanh toán giúp|mua .*giúp|đặt hàng giúp|chốt đơn/ui', $message);
+    }
+
+    private function isPolicyRequest(string $message): bool {
+        return (bool)preg_match('/đổi trả|trả hàng|đổi hàng|\bđổi\b|không vừa|hoàn tiền|giao hàng|phí ship|ship|vận chuyển|bảo hành|thanh toán|cod|momo|vnpay|bán sỉ|hàng sale|sale|lỗi đường may|lỗi sản phẩm/ui', $message);
+    }
+
+    private function isProductPolicyRequest(string $message): bool {
+        return $this->isPolicyRequest($message)
+            && (bool)preg_match('/bomber|hoodie|polo|jeans|sơ mi|áo thun|áo khoác|váy maxi|chân váy|quần tây|quần short|mã\s*\d+|sản phẩm này/ui', $message);
+    }
+
+    private function handlePolicyKnowledge(string $message): string {
+        $retriever = new KnowledgeRetriever($this->pdo);
+        $category = $this->inferPolicyCategory($message);
+        $result = $retriever->search($message, $category, 5);
+        $rows = $result['results'] ?? [];
+        $this->lastKnowledgeSources = array_map(fn($item) => [
+            'source' => (string)($item['source'] ?? ''),
+            'title' => (string)($item['title'] ?? ''),
+            'category' => (string)($item['category'] ?? ''),
+            'score' => isset($item['score']) ? (float)$item['score'] : null,
+        ], $rows);
+
+        if (!$rows) {
+            return "Hiện mình chưa có đủ thông tin trong dữ liệu chính sách shop. Bạn mô tả rõ hơn giúp mình nhé.";
+        }
+
+        $facts = $this->extractPolicyFacts($message, $rows);
+        if ($facts !== '') return $facts;
+
+        $response = "Theo chính sách shop:\n";
+        foreach (array_slice($rows, 0, 2) as $row) {
+            $content = trim(strip_tags((string)($row['content'] ?? '')));
+            $content = preg_replace('/\s+/u', ' ', $content);
+            if (mb_strlen($content) > 260) $content = mb_substr($content, 0, 260) . '...';
+            $response .= "- " . $content . "\n";
+        }
+        return trim($response);
+    }
+
+    private function inferPolicyCategory(string $message): ?string {
+        $msg = mb_strtolower($message);
+        if (preg_match('/đổi|trả|hoàn tiền|sale|size/ui', $msg)) return 'return';
+        if (preg_match('/ship|giao|vận chuyển/ui', $msg)) return 'shipping';
+        if (preg_match('/bảo hành|lỗi/ui', $msg)) return 'warranty';
+        if (preg_match('/thanh toán|cod|momo|vnpay/ui', $msg)) return 'payment';
+        if (preg_match('/bán sỉ|sỉ/ui', $msg)) return 'wholesale';
+        return null;
+    }
+
+    private function extractPolicyFacts(string $message, array $rows): string {
+        $text = mb_strtolower($message);
+        $corpus = implode("\n", array_map(fn($r) => (string)($r['content'] ?? ''), $rows));
+        $lines = preg_split('/\R/u', $corpus) ?: [];
+        $matched = [];
+
+        foreach ($lines as $line) {
+            $clean = trim(preg_replace('/^[\-\*\d\.\s]+/u', '', strip_tags($line)) ?? '');
+            if ($clean === '') continue;
+            $cleanLower = mb_strtolower($clean);
+            if (mb_strpos($text, 'sale') !== false && (mb_strpos($cleanLower, 'sale') !== false || mb_strpos($cleanLower, '50') !== false)) $matched[] = $clean;
+            if ((mb_strpos($text, 'đổi') !== false || mb_strpos($text, 'trả') !== false) && preg_match('/7 ngày|tem mác|chưa qua sử dụng|mã đơn hàng|lý do đổi trả|đổi size|size\/màu/ui', $clean)) $matched[] = $clean;
+            if ((mb_strpos($text, 'lỗi') !== false || mb_strpos($text, 'ship') !== false) && preg_match('/shop chịu|khách thanh toán|1-3 ngày|vận chuyển/ui', $clean)) $matched[] = $clean;
+            if ((mb_strpos($text, 'ship') !== false || mb_strpos($text, '300') !== false || mb_strpos($text, '500') !== false) && preg_match('/500|30,000|50,000|miễn phí ship/ui', $clean)) $matched[] = $clean;
+            if (mb_strpos($text, 'hoàn tiền') !== false && preg_match('/hoàn tiền|3-7 ngày/ui', $clean)) $matched[] = $clean;
+        }
+
+        $matched = array_values(array_unique($matched));
+        if (!$matched) return '';
+        usort($matched, function($a, $b) use ($text) {
+            $scoreA = (preg_match('/shop chịu|đổi size|khách thanh toán|vận chuyển hai chiều/ui', $a) ? 5 : 0)
+                + (preg_match('/1-3 ngày|3-7 ngày/ui', $a) ? 3 : 0)
+                + (mb_strpos($text, 'mấy ngày') !== false && preg_match('/ngày/ui', $a) ? 2 : 0);
+            $scoreB = (preg_match('/shop chịu|đổi size|khách thanh toán|vận chuyển hai chiều/ui', $b) ? 5 : 0)
+                + (preg_match('/1-3 ngày|3-7 ngày/ui', $b) ? 3 : 0)
+                + (mb_strpos($text, 'mấy ngày') !== false && preg_match('/ngày/ui', $b) ? 2 : 0);
+            return $scoreB <=> $scoreA;
+        });
+        return "Theo chính sách shop:\n- " . implode("\n- ", array_slice($matched, 0, 6));
     }
 
     private function saveContext($intent, $message, $response) {

@@ -1,0 +1,74 @@
+[
+  {
+    "id": "policy_return_window",
+    "type": "policy",
+    "question": "Shop đổi trả trong bao lâu?",
+    "category": "return",
+    "reference": "Shop cho đổi trả trong 7 ngày kể từ khi nhận hàng, với điều kiện sản phẩm còn nguyên tem mác và chưa qua sử dụng.",
+    "reference_context_keywords": ["7 ngày", "nguyên tem", "chưa qua sử dụng"],
+    "expected_answer_keywords": ["7 ngày", "tem", "chưa qua sử dụng"]
+  },
+  {
+    "id": "policy_sale_return",
+    "type": "multi_step_policy",
+    "question": "Tôi mua sản phẩm sale 60% nhưng không vừa size thì có đổi được không?",
+    "category": "return",
+    "reference": "Không áp dụng đổi trả cho sản phẩm sale trên 50%. Vì sản phẩm sale 60%, shop không hỗ trợ đổi size theo chính sách hiện tại.",
+    "reference_context_keywords": ["sale > 50%", "không áp dụng", "đổi trả"],
+    "expected_answer_keywords": ["sale", "50", "không"]
+  },
+  {
+    "id": "policy_shipping_fee_return",
+    "type": "multi_step_policy",
+    "question": "Nếu shop giao sai size thì phí vận chuyển đổi trả ai chịu?",
+    "category": "return",
+    "reference": "Nếu shop giao sai size, sai mẫu, sai màu hoặc sản phẩm lỗi từ shop, shop chịu phí vận chuyển đổi trả.",
+    "reference_context_keywords": ["giao sai", "shop chịu phí vận chuyển", "size"],
+    "expected_answer_keywords": ["shop", "chịu", "phí vận chuyển"]
+  },
+  {
+    "id": "policy_refund_time",
+    "type": "policy",
+    "question": "Hoàn tiền mất mấy ngày làm việc?",
+    "category": "return",
+    "reference": "Thời gian hoàn tiền dự kiến là 3-7 ngày làm việc sau khi shop xác nhận sản phẩm đủ điều kiện.",
+    "reference_context_keywords": ["3-7 ngày", "hoàn tiền", "đủ điều kiện"],
+    "expected_answer_keywords": ["3", "7", "ngày"]
+  },
+  {
+    "id": "policy_shipping_fee_order",
+    "type": "multi_step_policy",
+    "question": "Đơn 300k giao ngoại tỉnh thì phí ship bao nhiêu?",
+    "category": "shipping",
+    "reference": "Đơn dưới 500,000đ không được miễn phí ship. Phí ship ngoại tỉnh là 50,000đ.",
+    "reference_context_keywords": ["500,000", "50,000", "ngoại tỉnh"],
+    "expected_answer_keywords": ["50", "000", "ngoại tỉnh"]
+  },
+  {
+    "id": "product_basic_search",
+    "type": "product",
+    "question": "Có áo khoác dưới 600k không?",
+    "category": null,
+    "reference": "Chatbot nên tìm sản phẩm áo khoác dưới 600k và trả product cards nếu có.",
+    "reference_context_keywords": ["Áo Khoác", "600"],
+    "expected_answer_keywords": ["sản phẩm"]
+  },
+  {
+    "id": "product_policy_mixed",
+    "type": "multi_step_mixed",
+    "question": "Áo bomber nếu nhận hàng bị giao sai size thì đổi thế nào?",
+    "category": "return",
+    "reference": "Chatbot cần hiểu sản phẩm áo bomber và dùng chính sách đổi trả: nếu shop giao sai size thì shop chịu phí vận chuyển đổi trả, khách cung cấp mã đơn, hình ảnh và lý do đổi trả.",
+    "reference_context_keywords": ["giao sai", "size", "shop chịu phí vận chuyển", "mã đơn", "hình ảnh"],
+    "expected_answer_keywords": ["sai size", "shop", "phí", "mã đơn"]
+  },
+  {
+    "id": "unsupported_outfit",
+    "type": "unsupported",
+    "question": "Áo thun trắng phối với quần gì đẹp?",
+    "category": null,
+    "reference": "Chatbot phải nói hiện không hỗ trợ tư vấn phối đồ, chỉ hỗ trợ tìm sản phẩm, chi tiết sản phẩm, tư vấn size và chính sách shop.",
+    "reference_context_keywords": [],
+    "expected_answer_keywords": ["không hỗ trợ", "phối đồ"]
+  }
+]

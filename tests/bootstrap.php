@@ -13,6 +13,7 @@ require_once ROOT_DIR . '/api/controllers/chatbot/engine.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMProvider.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMResponse.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/ChatbotMemory.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/KnowledgeRetriever.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/ToolRegistry.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMFactory.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/AgenticOrchestrator.php';
@@ -101,6 +102,23 @@ function initSQLiteSchema(PDO $pdo): void {
         result TEXT,
         duration_ms INTEGER,
         success INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL,
+        api_token TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        role TEXT DEFAULT 'user',
+        status INTEGER DEFAULT 1
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        total_price REAL,
+        status TEXT DEFAULT 'Pending',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )");
     $pdo->exec("CREATE TABLE IF NOT EXISTS chat_session_memory (

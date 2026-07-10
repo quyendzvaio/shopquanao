@@ -5,6 +5,7 @@ $user = getenv('DB_USER') ?: 'root';
 $pass = getenv('DB_PASS') !== false ? getenv('DB_PASS') : '';
 $retries = (int) (getenv('DB_CONNECT_RETRIES') ?: 1);
 $attempt = 0;
+$pdo = null;
 
 do {
     try {
@@ -19,6 +20,10 @@ do {
         usleep(250000);
     }
 } while (true);
+
+if (!$pdo instanceof PDO) {
+    die("Lỗi kết nối database: không thể khởi tạo PDO");
+}
 
 // Auto-create tables if missing
 try {

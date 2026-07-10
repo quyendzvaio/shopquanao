@@ -363,11 +363,6 @@ async function sendMessage() {
             if (data.products && data.products.length > 0) {
                 renderProductCards(data.products);
             }
-            if (data.redirect_url) {
-                setTimeout(() => {
-                    window.location.href = data.redirect_url;
-                }, 900);
-            }
             // Sync session token for continuity
             if (data.session_token && data.session_token !== chatSessionToken) {
                 chatSessionToken = data.session_token;

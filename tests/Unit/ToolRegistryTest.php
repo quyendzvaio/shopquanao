@@ -41,6 +41,31 @@ class ToolRegistryTest extends \PHPUnit\Framework\TestCase
             quantity INTEGER DEFAULT 1,
             size TEXT DEFAULT 'S'
         )");
+        $this->pdo->exec("CREATE TABLE faqs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            question TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            category TEXT DEFAULT 'general',
+            priority INTEGER DEFAULT 0
+        )");
+        $this->pdo->exec("CREATE TABLE size_guides (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER,
+            category_id INTEGER,
+            size_name TEXT NOT NULL,
+            height_from INTEGER,
+            height_to INTEGER,
+            weight_from INTEGER,
+            weight_to INTEGER,
+            description TEXT
+        )");
+        $this->pdo->exec("CREATE TABLE orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            total_price REAL,
+            status TEXT DEFAULT 'Pending',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )");
     }
 
     private function seedData(): void
@@ -56,6 +81,13 @@ class ToolRegistryTest extends \PHPUnit\Framework\TestCase
             (65, 2, 'Quần Jeans Slimfit Xanh', 690000, 5, 'Jeans', 'qj_01.jpg'),
             (75, 3, 'Váy Maxi Voan Hồng', 850000, 6, 'Maxi', 'vm_01.jpg')
         ");
+        $this->pdo->exec("INSERT INTO faqs (question, answer, category, priority) VALUES
+            ('Có đổi trả được không?', 'Đổi trả trong 7 ngày nếu sản phẩm còn nguyên tem mác.', 'return', 1),
+            ('Phí ship thế nào?', 'Miễn phí ship đơn từ 500,000đ.', 'shipping', 1)
+        ");
+        $this->pdo->exec("INSERT INTO orders (id, user_id, total_price, status, created_at) VALUES
+            (1, 123, 180000, 'Đang giao', '2026-07-01 10:00:00')
+        ");
     }
 
     public function testGetDefinitionsReturnsArray(): void
@@ -63,6 +95,20 @@ class ToolRegistryTest extends \PHPUnit\Framework\TestCase
         $defs = $this->registry->getDefinitions();
         $this->assertIsArray($defs);
         $this->assertGreaterThanOrEqual(3, count($defs));
+    }
+
+    public function testRemovedSalesToolsAreNotExposed(): void
+    {
+        $names = array_map(fn($tool) => $tool['function']['name'], $this->registry->getDefinitions());
+
+        $this->assertNotContains('get_outfit', $names);
+        $this->assertNotContains('prepare_checkout', $names);
+        $this->assertNotContains('get_faq', $names);
+        $this->assertContains('retrieve_knowledge', $names);
+        $this->assertContains('search_products', $names);
+        $this->assertContains('get_product_detail', $names);
+        $this->assertContains('suggest_size', $names);
+        $this->assertContains('get_order_status', $names);
     }
 
     public function testExecuteSearchProductsWithSearchReturnsProducts(): void
@@ -106,29 +152,43 @@ class ToolRegistryTest extends \PHPUnit\Framework\TestCase
         }
     }
 
-    public function testPrepareCheckoutRequiresLogin(): void
+    public function testRemovedSalesToolsThrowUnknownTool(): void
     {
-        $result = $this->registry->execute('prepare_checkout', ['product_ids' => [50]]);
+        foreach (['get_outfit', 'prepare_checkout', 'get_faq'] as $toolName) {
+            try {
+                $this->registry->execute($toolName, []);
+                $this->fail("$toolName should not be executable");
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString('Unknown tool', $e->getMessage());
+            }
+        }
+    }
+
+    public function testRetrieveKnowledgeFindsPolicy(): void
+    {
+        $result = $this->registry->execute('retrieve_knowledge', [
+            'query' => 'đổi trả trong bao lâu',
+            'category' => 'return',
+        ]);
+
+        $this->assertArrayHasKey('results', $result);
+        $this->assertNotEmpty($result['results']);
+        $joined = mb_strtolower(implode(' ', array_map(fn($r) => $r['content'], $result['results'])));
+        $this->assertStringContainsString('7 ngày', $joined);
+    }
+
+    public function testGetOrderStatusRequiresLogin(): void
+    {
+        $result = $this->registry->execute('get_order_status', []);
         $this->assertTrue($result['requires_login']);
     }
 
-    public function testPrepareCheckoutAddsProductsToCart(): void
+    public function testGetOrderStatusReturnsRecentOrders(): void
     {
         $registry = new ToolRegistry($this->pdo, 123);
-        $result = $registry->execute('prepare_checkout', [
-            'product_ids' => [50],
-            'quantity' => 2,
-            'size' => 'M',
-        ]);
-
-        $this->assertTrue($result['success']);
-        $this->assertArrayHasKey('redirect_url', $result);
-
-        $stmt = $this->pdo->prepare("SELECT product_id, quantity, size FROM cart WHERE user_id = ?");
-        $stmt->execute([123]);
-        $cartItem = $stmt->fetch(PDO::FETCH_ASSOC);
-        $this->assertEquals(50, (int)$cartItem['product_id']);
-        $this->assertEquals(2, (int)$cartItem['quantity']);
-        $this->assertEquals('M', $cartItem['size']);
+        $result = $registry->execute('get_order_status', []);
+        $this->assertArrayHasKey('orders', $result);
+        $this->assertSame(1, (int)$result['orders'][0]['id']);
+        $this->assertSame('Đang giao', $result['orders'][0]['status']);
     }
 }

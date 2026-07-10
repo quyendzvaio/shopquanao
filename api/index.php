@@ -61,6 +61,7 @@ $routes = [
     'GET  /size-guide'        => 'size-guide/index.php',
     'GET  /faq'               => 'faq/index.php',
     'GET  /outfit'            => 'outfit/index.php',
+    'GET  /knowledge/search'  => 'knowledge/search.php',
 
     // Admin
     'GET  /admin/dashboard'   => 'admin/dashboard.php',
