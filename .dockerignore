@@ -32,6 +32,7 @@ CLAUDE.md
 
 # Test & reports (heavy, production-irrelevant)
 tests/
+eval/
 test-evidence/
 reports/
 report/
@@ -61,6 +62,10 @@ docker-compose*.yml
 # Python cache
 __pycache__/
 *.pyc
+.cache/
+.huggingface/
+hf_cache/
+models/
 
 # Backups and local dumps
 backups/

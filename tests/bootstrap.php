@@ -16,6 +16,7 @@ require_once ROOT_DIR . '/api/controllers/chatbot/ChatbotMemory.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/KnowledgeRetriever.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/ToolRegistry.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMFactory.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/evaluator/AgentEvaluator.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/AgenticOrchestrator.php';
 
 /**

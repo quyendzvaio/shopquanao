@@ -12,6 +12,7 @@ require_once __DIR__ . '/ToolRegistry.php';
 require_once __DIR__ . '/llm/LLMFactory.php';
 require_once __DIR__ . '/engine.php';
 require_once __DIR__ . '/ChatbotMemory.php';
+require_once __DIR__ . '/evaluator/AgentEvaluator.php';
 
 class AgenticOrchestrator {
     private PDO $pdo;
@@ -25,6 +26,8 @@ class AgenticOrchestrator {
     private int $maxTurns = 3;
     private array $collectedProducts = [];
     private array $collectedKnowledgeSources = [];
+    private array $toolAttempts = [];
+    private array $evaluationMetadata = [];
 
     private const SYSTEM_PROMPT = <<<'PROMPT'
 Bạn là nhân viên tư vấn bán hàng của Fashion Shop - cửa hàng thời trang online bán áo, quần, váy đầm, phụ kiện.
@@ -91,6 +94,8 @@ PROMPT;
     public function respond(string $message): array {
         $this->collectedProducts = [];
         $this->collectedKnowledgeSources = [];
+        $this->toolAttempts = [];
+        $this->evaluationMetadata = [];
         $memoryContext = $this->memory->rememberUserMessage($message);
 
         if ($this->llm === null) {
@@ -158,6 +163,7 @@ PROMPT;
             $metaData = [];
             if (!empty($products)) $metaData['products'] = $products;
             if (!empty($this->collectedKnowledgeSources)) $metaData['knowledge_sources'] = $this->collectedKnowledgeSources;
+            if (!empty($this->evaluationMetadata)) $metaData['evaluation'] = $this->evaluationMetadata;
             $meta = !empty($metaData) ? json_encode($metaData, JSON_UNESCAPED_UNICODE) : null;
             $stmt = $this->pdo->prepare("INSERT INTO chat_messages (session_id, role, message, metadata) VALUES (?, 'bot', ?, ?)");
             $stmt->execute([$this->sessionId, $botMsg, $meta]);
@@ -200,7 +206,8 @@ PROMPT;
             $this->messages[] = $assistantMsg;
 
             if (!$response->hasToolCalls()) {
-                return $this->buildResponse($response->content);
+                $finalText = $this->evaluateAndRepair($message, $response->content);
+                return $this->buildResponse($finalText);
             }
 
             foreach ($response->toolCalls as $tc) {
@@ -219,6 +226,13 @@ PROMPT;
                 }
 
                 $this->logToolExecution($tc->name, $tc->arguments, $result, (int)((microtime(true) - $start) * 1000), $ok);
+                $this->toolAttempts[] = [
+                    'tool_name' => $tc->name,
+                    'tool_arguments' => $tc->arguments,
+                    'tool_result' => $result,
+                    'tool_latency_ms' => (int)((microtime(true) - $start) * 1000),
+                    'success' => $ok,
+                ];
 
                 // Trim tool result if too long to avoid context overflow
                 if (mb_strlen($resultStr) > 10000) {
@@ -235,6 +249,217 @@ PROMPT;
         return $this->buildResponse("Xin lỗi, mình cần thêm thông tin. Bạn nói rõ hơn được không ạ?");
     }
 
+    private function evaluateAndRepair(string $userMessage, string $draftAnswer): string {
+        $attempt = $this->latestEvaluableAttempt();
+        if ($attempt === null) {
+            return $draftAnswer;
+        }
+
+        $taskType = AgentEvaluator::taskTypeForTool($attempt['tool_name']);
+        if ($taskType === null) {
+            return $draftAnswer;
+        }
+
+        $evaluator = new AgentEvaluator($this->llm);
+        $retryState = [
+            'total_steps' => 0,
+            'tool_retries' => 0,
+            'answer_revisions' => 0,
+            'query_rewrites' => 0,
+        ];
+        $evaluation = $this->runEvaluation($evaluator, $taskType, $userMessage, $draftAnswer, $attempt, $retryState);
+
+        if ($evaluation->nextAction === 'return' && $evaluation->passed) {
+            return $draftAnswer;
+        }
+        if ($evaluation->nextAction === 'ask_user' && $evaluation->questionForUser) {
+            return $evaluation->questionForUser;
+        }
+        if ($evaluation->nextAction === 'deny' && $evaluation->safeFallbackMessage) {
+            return $evaluation->safeFallbackMessage;
+        }
+
+        if ($evaluation->nextAction === 'retry_tool' && empty($attempt['success'])) {
+            $retryState['total_steps']++;
+            $retryState['tool_retries']++;
+            $retryAttempt = $this->retryToolAttempt($attempt);
+            if ($retryAttempt !== null && $retryAttempt['success']) {
+                $retryDraft = $this->generateAnswerFromRetry($userMessage, $retryAttempt);
+                $retryEvaluation = $this->runEvaluation($evaluator, $taskType, $userMessage, $retryDraft, $retryAttempt, $retryState);
+                if ($retryEvaluation->nextAction === 'return' && $retryEvaluation->passed) {
+                    return $retryDraft;
+                }
+                return $retryEvaluation->safeFallbackMessage ?: $this->fallbackMessageForTask($taskType);
+            }
+        }
+
+        if ($evaluation->nextAction === 'revise_answer') {
+            $retryState['total_steps']++;
+            $retryState['answer_revisions']++;
+            $revised = $this->reviseDraftAnswer($userMessage, $draftAnswer, $attempt, $evaluation);
+            if ($revised !== '') {
+                $recheck = $this->runEvaluation($evaluator, $taskType, $userMessage, $revised, $attempt, $retryState);
+                if ($recheck->nextAction === 'return' && $recheck->passed) {
+                    return $revised;
+                }
+                return $recheck->safeFallbackMessage ?: $this->fallbackMessageForTask($taskType);
+            }
+        }
+
+        return $evaluation->safeFallbackMessage ?: $this->fallbackMessageForTask($taskType);
+    }
+
+    private function latestEvaluableAttempt(): ?array {
+        for ($i = count($this->toolAttempts) - 1; $i >= 0; $i--) {
+            $attempt = $this->toolAttempts[$i];
+            if (AgentEvaluator::taskTypeForTool((string)($attempt['tool_name'] ?? '')) !== null) {
+                return $attempt;
+            }
+        }
+        return null;
+    }
+
+    private function runEvaluation(
+        AgentEvaluator $evaluator,
+        string $taskType,
+        string $userMessage,
+        string $draftAnswer,
+        array $attempt,
+        array $retryState
+    ): AgentEvaluationResult {
+        $start = microtime(true);
+        $evaluation = $evaluator->evaluate([
+            'task_type' => $taskType,
+            'user_query' => $userMessage,
+            'extracted_requirements' => $attempt['tool_arguments'] ?? [],
+            'tool_name' => $attempt['tool_name'] ?? '',
+            'tool_arguments' => $attempt['tool_arguments'] ?? [],
+            'tool_result' => $attempt['tool_result'] ?? [],
+            'draft_answer' => $draftAnswer,
+            'runtime_context' => [
+                'authenticated' => $this->userId !== null,
+                'user_id' => $this->userId,
+            ],
+            'retry_state' => $retryState,
+        ]);
+        $metadata = $evaluation->toArray();
+        $metadata['trace_id'] = bin2hex(random_bytes(8));
+        $metadata['attempt'] = ($retryState['total_steps'] ?? 0) + 1;
+        $metadata['tool_name'] = $attempt['tool_name'] ?? '';
+        $metadata['tool_latency_ms'] = (int)($attempt['tool_latency_ms'] ?? 0);
+        $metadata['evaluation_latency_ms'] = (int)((microtime(true) - $start) * 1000);
+        $this->evaluationMetadata[] = $metadata;
+        $this->logEvaluation($metadata);
+        return $evaluation;
+    }
+
+    private function retryToolAttempt(array $attempt): ?array {
+        $toolName = (string)($attempt['tool_name'] ?? '');
+        if ($toolName === '') {
+            return null;
+        }
+
+        $start = microtime(true);
+        $result = [];
+        $ok = true;
+        try {
+            $result = $this->toolRegistry->execute($toolName, $attempt['tool_arguments'] ?? []);
+            $this->harvestProducts($toolName, $result);
+            $this->harvestKnowledgeSources($toolName, $result);
+        } catch (Throwable $e) {
+            $ok = false;
+            $result = ['error' => $e->getMessage()];
+        }
+
+        $duration = (int)((microtime(true) - $start) * 1000);
+        $this->logToolExecution($toolName, $attempt['tool_arguments'] ?? [], $result, $duration, $ok);
+        $retryAttempt = [
+            'tool_name' => $toolName,
+            'tool_arguments' => $attempt['tool_arguments'] ?? [],
+            'tool_result' => $result,
+            'tool_latency_ms' => $duration,
+            'success' => $ok,
+        ];
+        $this->toolAttempts[] = $retryAttempt;
+        return $retryAttempt;
+    }
+
+    private function generateAnswerFromRetry(string $userMessage, array $attempt): string {
+        $result = json_encode($attempt['tool_result'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($result === false) {
+            $result = '{}';
+        }
+        if (mb_strlen($result) > 8000) {
+            $result = mb_substr($result, 0, 8000) . '...[TRUNCATED]';
+        }
+
+        try {
+            $response = $this->llm?->chat([
+                [
+                    'role' => 'system',
+                    'content' => 'Bạn là nhân viên tư vấn Fashion Shop. Trả lời ngắn gọn, chỉ dựa trên tool result, không bịa dữ liệu, không chèn URL raw.',
+                ],
+                [
+                    'role' => 'user',
+                    'content' => "Câu hỏi: $userMessage\nTool: {$attempt['tool_name']}\nTool result: $result",
+                ],
+            ], [], 'none');
+            return trim($response?->content ?? '');
+        } catch (Throwable $e) {
+            error_log('Retry answer generation failed: ' . $e->getMessage());
+            return '';
+        }
+    }
+
+    private function reviseDraftAnswer(
+        string $userMessage,
+        string $draftAnswer,
+        array $attempt,
+        AgentEvaluationResult $evaluation
+    ): string {
+        $result = json_encode($attempt['tool_result'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($result === false) {
+            $result = '{}';
+        }
+        if (mb_strlen($result) > 8000) {
+            $result = mb_substr($result, 0, 8000) . '...[TRUNCATED]';
+        }
+
+        try {
+            $response = $this->llm?->chat([
+                [
+                    'role' => 'system',
+                    'content' => 'Bạn sửa câu trả lời chatbot. Chỉ trả câu trả lời cuối cho khách. Không giải thích nội bộ, không markdown, không URL raw, không bịa dữ liệu ngoài tool result.',
+                ],
+                [
+                    'role' => 'user',
+                    'content' => json_encode([
+                        'user_query' => $userMessage,
+                        'tool_name' => $attempt['tool_name'] ?? '',
+                        'tool_result' => $result,
+                        'draft_answer' => $draftAnswer,
+                        'evaluation_issues' => $evaluation->issues,
+                        'revision_instruction' => $evaluation->revisionInstruction,
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                ],
+            ], [], 'none');
+            return trim($response?->content ?? '');
+        } catch (Throwable $e) {
+            error_log('Answer revision failed: ' . $e->getMessage());
+            return '';
+        }
+    }
+
+    private function fallbackMessageForTask(string $taskType): string {
+        return match ($taskType) {
+            'product_search' => 'Mình chưa tìm thấy sản phẩm đáp ứng đầy đủ các điều kiện hiện tại. Bạn có thể mở rộng khoảng giá hoặc điều chỉnh một tiêu chí tìm kiếm.',
+            'product_detail' => 'Mình chưa lấy được đầy đủ thông tin chính xác của sản phẩm này. Vui lòng chọn lại sản phẩm hoặc thử lại sau.',
+            'size_advice' => 'Mình chưa đủ dữ liệu để tư vấn size phù hợp. Vui lòng cung cấp chiều cao, cân nặng và sản phẩm bạn đang quan tâm.',
+            'order_status' => 'Hiện mình chưa thể xác minh trạng thái đơn hàng. Bạn có thể kiểm tra trong mục Đơn hàng của tôi hoặc thử lại sau.',
+            default => 'Mình chưa đủ thông tin để trả lời chính xác. Bạn vui lòng thử lại sau.',
+        };
+    }
+
     private function harvestProducts(string $toolName, array $result): void {
         $baseUrl = getBaseUrl();
 
@@ -247,6 +472,9 @@ PROMPT;
                     'name' => $p['name'] ?? '',
                     'price' => (float)($p['price'] ?? 0),
                     'stock' => (int)($p['stock'] ?? 0),
+                    'stock_status' => ((int)($p['stock'] ?? 0) > 0) ? 'in_stock' : 'out_of_stock',
+                    'available_sizes' => [],
+                    'available_colors' => [],
                     'image' => $p['image'] ?? '',
                     'image_url' => ($p['image'] ?? '') ? $baseUrl . '/images/' . $p['image'] : '',
                     'url' => $baseUrl . '/product.php?id=' . $pId,
@@ -258,11 +486,22 @@ PROMPT;
             $p = $result['product'];
             $pId = (int)($p['id'] ?? 0);
             if ($pId === 0) return;
+            $availableSizes = [];
+            foreach ($p['sizes'] ?? [] as $size) {
+                if (is_array($size) && isset($size['size_name'])) {
+                    $availableSizes[] = (string)$size['size_name'];
+                } elseif (is_string($size)) {
+                    $availableSizes[] = $size;
+                }
+            }
             $this->collectedProducts[] = [
                 'id' => $pId,
                 'name' => $p['name'] ?? '',
                 'price' => (float)($p['price'] ?? 0),
                 'stock' => (int)($p['stock'] ?? 0),
+                'stock_status' => ((int)($p['stock'] ?? 0) > 0) ? 'in_stock' : 'out_of_stock',
+                'available_sizes' => array_values(array_unique($availableSizes)),
+                'available_colors' => [],
                 'image' => $p['image'] ?? '',
                 'image_url' => ($p['image'] ?? '') ? $baseUrl . '/images/' . $p['image'] : '',
                 'url' => $baseUrl . '/product.php?id=' . $pId,
@@ -306,6 +545,9 @@ PROMPT;
                             'name' => $p['name'],
                             'price' => (float)$p['price'],
                             'stock' => (int)($p['stock'] ?? 0),
+                            'stock_status' => ((int)($p['stock'] ?? 0) > 0) ? 'in_stock' : 'out_of_stock',
+                            'available_sizes' => [],
+                            'available_colors' => [],
                             'image' => $p['image'] ?? '',
                             'image_url' => ($p['image'] ?? '') ? $baseUrl . '/images/' . $p['image'] : '',
                             'url' => $baseUrl . '/product.php?id=' . (int)$p['id'],
@@ -330,5 +572,22 @@ PROMPT;
             $stmt->execute([$this->sessionId, $tool, json_encode($args, JSON_UNESCAPED_UNICODE),
                 is_array($result) ? json_encode($result, JSON_UNESCAPED_UNICODE) : $result, $duration, $success ? 1 : 0]);
         } catch (Throwable $e) {}
+    }
+
+    private function logEvaluation(array $metadata): void {
+        $safe = [
+            'trace_id' => $metadata['trace_id'] ?? '',
+            'task_type' => $metadata['task_type'] ?? '',
+            'attempt' => $metadata['attempt'] ?? 1,
+            'tool_name' => $metadata['tool_name'] ?? '',
+            'tool_latency_ms' => $metadata['tool_latency_ms'] ?? 0,
+            'evaluation_latency_ms' => $metadata['evaluation_latency_ms'] ?? 0,
+            'criteria_scores' => $metadata['criteria_scores'] ?? [],
+            'weighted_score' => $metadata['weighted_score'] ?? 0,
+            'hard_failures' => $metadata['hard_constraint_failures'] ?? [],
+            'next_action' => $metadata['next_action'] ?? '',
+            'failure_type' => $metadata['failure_type'] ?? '',
+        ];
+        $this->logToolExecution('agent_evaluator', [], $safe, (int)($safe['evaluation_latency_ms'] ?? 0), true);
     }
 }

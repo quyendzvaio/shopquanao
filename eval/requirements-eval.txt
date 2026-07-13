@@ -5,3 +5,4 @@ langsmith>=0.1.0
 ragas==0.1.21
 langchain-community==0.2.19
 langchain-openai>=0.1.0
+sentence-transformers>=2.7.0

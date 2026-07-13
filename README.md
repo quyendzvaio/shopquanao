@@ -253,89 +253,92 @@ docker exec shop_quan_ao_eval_app sh -lc \
 
 ### Chatbot eval, RAGAS, LangSmith
 
-Deterministic + latency eval:
+Deterministic + latency eval qua Nginx gateway:
 
 ```bash
 python3 eval/run_chatbot_eval.py \
-  --base-url http://localhost:8092 \
+  --base-url http://localhost:8090 \
   --output reports/chatbot_eval_report.json
 ```
 
-RAGAS eval:
+RAGAS eval với DeepSeek evaluator + HuggingFace local embeddings:
 
 ```bash
 set -a; . ./.env; set +a
-RAGAS_ENABLE=1 LLM_API_KEY="<deepseek-key>" \
-  /tmp/shop_ragas_venv/bin/python eval/run_chatbot_eval.py \
-  --base-url http://localhost:8092 \
-  --output reports/chatbot_eval_ragas_report.json
+RAGAS_ENABLE=1 \
+RAGAS_EMBEDDING_PROVIDER=huggingface \
+RAGAS_EMBEDDING_MODEL="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2" \
+LLM_API_KEY="<deepseek-key>" \
+python3 eval/run_chatbot_eval.py \
+  --base-url http://localhost:8090 \
+  --cases eval/chatbot_multistep_eval_cases.jsonl \
+  --output reports/chatbot_multistep_eval_20260713_ragas_langsmith.json \
+  --markdown-output reports/BAO_CAO_CHATBOT_MULTISTEP_RAGAS_LANGSMITH_20260713.md \
+  --turn-delay 5.3
 ```
 
 LangSmith trace:
 
 ```bash
 LANGSMITH_API_KEY="<langsmith-key>" \
-LANGSMITH_PROJECT="fashion-shop-chatbot-eval" \
-  /tmp/shop_ragas_venv/bin/python eval/run_chatbot_eval.py \
-  --base-url http://localhost:8092 \
-  --output reports/chatbot_eval_langsmith_report.json
+LANGSMITH_PROJECT="fashion-shop-chatbot-multistep-eval" \
+python3 eval/run_chatbot_eval.py \
+  --base-url http://localhost:8090 \
+  --cases eval/chatbot_multistep_eval_cases.jsonl \
+  --output reports/chatbot_multistep_eval_20260713_ragas_langsmith.json
 ```
 
 ## Kết Quả Kiểm Thử Gần Nhất
 
-Target eval gần nhất: `http://localhost:8092` (`shop_quan_ao_eval_app`, source bind-mounted). Khi chạy qua production-like stack mới, dùng gateway URL `http://localhost:8090`.
+Target eval gần nhất: `http://localhost:8090` qua Nginx API Gateway. Vì `/api/chatbot` có `limit_req`, multi-turn eval dùng `--turn-delay 5.3`.
 
 | Check | Result |
 |---|---:|
-| Unit tests, PHP 8.2 app container | `47 tests, 112 assertions, PASS` |
-| Integration tests, PHP 8.2 + MariaDB | `10 tests, 48 assertions, PASS` |
+| Full PHPUnit, PHP 8.2 app container | `70 tests, 201 assertions, PASS` |
+| Integration tests, PHP 8.2 + DB fallback | `10 tests, 46 assertions, PASS` |
 | PHPStan level 1 | `PASS` |
 | PHP syntax lint | `PASS` |
 | Python syntax compile | `PASS` |
 | Secret scan regex | `PASS` |
 | PHPCS PSR-12 | `FAIL legacy style debt, non-blocking in CI` |
 
-Deterministic chatbot eval:
+Multi-step chatbot eval + RAGAS + LangSmith:
 
 | Metric | Value |
 |---|---:|
-| Cases | `9` |
-| Passed | `9` |
-| Failed | `0` |
-| Latency min | `469 ms` |
-| Latency avg | `1007.44 ms` |
-| Latency p50 | `558 ms` |
-| Latency p95 | `4576 ms` |
-| Latency max | `4576 ms` |
-
-RAGAS with DeepSeek evaluator:
-
-| Metric | Value |
-|---|---:|
-| Deterministic cases | `9/9 PASS` |
-| Latency min | `443 ms` |
-| Latency avg | `537.78 ms` |
-| Latency p50 | `537 ms` |
-| Latency p95 | `676 ms` |
-| Latency max | `676 ms` |
-| Faithfulness | `0.7111` |
-| Context precision | `0.8000` |
-| Context recall | `0.6667` |
-| Answer relevancy | skipped, no embedding evaluator configured |
+| Scenarios | `5` |
+| Turns | `25` |
+| Passed | `23` |
+| Failed | `2` |
+| Latency min | `829 ms` |
+| Latency avg | `1190.16 ms` |
+| Latency p50 | `1125 ms` |
+| Latency p95 | `1779 ms` |
+| Latency max | `1872 ms` |
+| Faithfulness | `0.7284` |
+| Answer relevancy | `0.4792` |
+| Context precision | `0.7121` |
+| Context recall | `0.5455` |
+| Embedding evaluator | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, local HuggingFace |
 
 LangSmith:
 
 | Metric | Value |
 |---|---:|
-| Project | `fashion-shop-chatbot-eval` |
+| Project | `fashion-shop-chatbot-multistep-eval` |
 | Trace upload | success |
 | Successful traces seen | `call_chatbot`, `call_knowledge` |
-| Deterministic cases | `9/9 PASS` |
-| Latency min | `463 ms` |
-| Latency avg | `595.67 ms` |
-| Latency p50 | `598 ms` |
-| Latency p95 | `846 ms` |
-| Latency max | `846 ms` |
+| API key storage | env-only, not committed |
+
+Known failures in latest multi-step run:
+
+- `policy_refund_time`: retrieval/answer missed the expected `1-3 ngày` processing time.
+- `outfit_removed_2`: guardrail was bypassed when the user asked for a “set đi chơi”; chatbot searched products instead of saying outfit/set styling is out of scope.
+
+Report files:
+
+- `reports/chatbot_multistep_eval_20260713_ragas_langsmith.json`
+- `reports/BAO_CAO_CHATBOT_MULTISTEP_RAGAS_LANGSMITH_20260713.md`
 
 Eval coverage:
 
@@ -415,7 +418,7 @@ tests/                         PHPUnit unit/integration tests
 - Retrieval chưa phải hybrid search + cross-encoder rerank đúng yêu cầu production RAG.
 - Embedding hiện tại vẫn là `local_hash`; cần thay bằng Vietnamese embedding model thật và reindex Qdrant.
 - PHPCS chưa thể bật blocking do style debt legacy.
-- RAGAS `answer_relevancy` chưa có embedding evaluator nên chưa đo.
+- RAGAS `answer_relevancy` đã đo bằng HuggingFace local embedding; điểm còn thấp nên cần cải thiện quality answer/context sau khi nâng retrieval.
 
 ## License
 

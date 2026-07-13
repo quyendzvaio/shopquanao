@@ -23,6 +23,9 @@ import requests
 
 @dataclass
 class EvalRow:
+    scenario_id: str
+    turn_id: str
+    turn_index: int
     case: dict[str, Any]
     answer: str
     products: list[dict[str, Any]]
@@ -49,15 +52,41 @@ def maybe_traceable(fn):
 
 
 @maybe_traceable
-def call_chatbot(base_url: str, question: str, session_token: str | None, timeout: float) -> tuple[dict[str, Any], int]:
+def call_chatbot(
+    base_url: str,
+    question: str,
+    session_token: str | None,
+    timeout: float,
+    bearer_token: str | None = None,
+    max_retries: int = 3,
+    retry_delay: float = 5.3,
+) -> tuple[dict[str, Any], int]:
     payload: dict[str, Any] = {"message": question}
     if session_token:
         payload["session_token"] = session_token
-    started = time.perf_counter()
-    response = requests.post(f"{base_url.rstrip('/')}/api/chatbot", json=payload, timeout=timeout)
-    latency_ms = int((time.perf_counter() - started) * 1000)
-    response.raise_for_status()
-    return response.json(), latency_ms
+    headers: dict[str, str] = {}
+    if bearer_token:
+        headers["Authorization"] = f"Bearer {bearer_token}"
+
+    last_response: requests.Response | None = None
+    for attempt in range(max_retries + 1):
+        started = time.perf_counter()
+        response = requests.post(
+            f"{base_url.rstrip('/')}/api/chatbot",
+            json=payload,
+            headers=headers,
+            timeout=timeout,
+        )
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        if response.status_code != 429 or attempt >= max_retries:
+            response.raise_for_status()
+            return response.json(), latency_ms
+        last_response = response
+        time.sleep(retry_delay)
+
+    assert last_response is not None
+    last_response.raise_for_status()
+    return last_response.json(), 0
 
 
 @maybe_traceable
@@ -105,27 +134,84 @@ def deterministic_check(case: dict[str, Any], answer: str, products: list[dict[s
     return failures
 
 
-def run_cases(base_url: str, cases: list[dict[str, Any]], timeout: float) -> list[EvalRow]:
+def iter_turns(case: dict[str, Any]) -> list[dict[str, Any]]:
+    turns = case.get("turns")
+    if isinstance(turns, list) and turns:
+        normalized = []
+        for idx, turn in enumerate(turns, start=1):
+            item = dict(turn)
+            item.setdefault("id", f"{case.get('id', 'scenario')}_turn_{idx}")
+            item.setdefault("type", case.get("type"))
+            item.setdefault("scenario_id", case.get("id"))
+            normalized.append(item)
+        return normalized
+    item = dict(case)
+    item.setdefault("scenario_id", case.get("id"))
+    return [item]
+
+
+def run_cases(
+    base_url: str,
+    cases: list[dict[str, Any]],
+    timeout: float,
+    turn_delay: float = 0.0,
+    max_retries: int = 3,
+) -> list[EvalRow]:
     rows: list[EvalRow] = []
+    bearer_token = os.getenv("EVAL_BEARER_TOKEN") or None
     for case in cases:
+        scenario_id = str(case.get("id", "scenario"))
         session_token: str | None = None
-        response, latency_ms = call_chatbot(base_url, case["question"], session_token, timeout)
-        session_token = response.get("session_token")
-        answer = str(response.get("message", ""))
-        products = response.get("products") or []
-        sources = response.get("knowledge_sources") or []
-        contexts = call_knowledge(base_url, case["question"], infer_category(case), timeout) if case.get("expect_knowledge") else []
-        failures = deterministic_check(case, answer, products, sources)
-        rows.append(EvalRow(
-            case=case,
-            answer=answer,
-            products=products,
-            knowledge_sources=sources,
-            contexts=contexts,
-            latency_ms=latency_ms,
-            deterministic_pass=not failures,
-            failures=failures,
-        ))
+        turns = iter_turns(case)
+        for idx, turn in enumerate(turns, start=1):
+            if turn.get("requires_auth") and not bearer_token:
+                skipped = dict(turn)
+                skipped["question"] = str(skipped.get("question", ""))
+                rows.append(EvalRow(
+                    scenario_id=scenario_id,
+                    turn_id=str(skipped.get("id", f"{scenario_id}_turn_{idx}")),
+                    turn_index=idx,
+                    case=skipped,
+                    answer="",
+                    products=[],
+                    knowledge_sources=[],
+                    contexts=[],
+                    latency_ms=0,
+                    deterministic_pass=True,
+                    failures=["SKIPPED: EVAL_BEARER_TOKEN is not set"],
+                ))
+                continue
+
+            response, latency_ms = call_chatbot(
+                base_url,
+                turn["question"],
+                session_token,
+                timeout,
+                bearer_token=bearer_token,
+                max_retries=max_retries,
+                retry_delay=turn_delay or 5.3,
+            )
+            session_token = response.get("session_token")
+            answer = str(response.get("message", ""))
+            products = response.get("products") or []
+            sources = response.get("knowledge_sources") or []
+            contexts = call_knowledge(base_url, turn["question"], infer_category(turn), timeout) if turn.get("expect_knowledge") else []
+            failures = deterministic_check(turn, answer, products, sources)
+            rows.append(EvalRow(
+                scenario_id=scenario_id,
+                turn_id=str(turn.get("id", f"{scenario_id}_turn_{idx}")),
+                turn_index=idx,
+                case=turn,
+                answer=answer,
+                products=products,
+                knowledge_sources=sources,
+                contexts=contexts,
+                latency_ms=latency_ms,
+                deterministic_pass=not failures,
+                failures=failures,
+            ))
+            if turn_delay > 0 and idx < len(turns):
+                time.sleep(turn_delay)
     return rows
 
 
@@ -172,9 +258,15 @@ def run_ragas(rows: list[EvalRow]) -> dict[str, Any] | None:
         dataset = Dataset.from_list(rag_rows)
         metrics = [faithfulness, context_precision, context_recall]
         kwargs: dict[str, Any] = {}
+        notes: list[str] = []
 
         if os.getenv("OPENAI_API_KEY"):
-            metrics.insert(1, answer_relevancy)
+            kwargs["llm"] = ChatOpenAI(
+                api_key=os.getenv("OPENAI_API_KEY"),
+                model=os.getenv("OPENAI_EVAL_MODEL") or "gpt-4o-mini",
+                temperature=0,
+                timeout=float(os.getenv("LLM_TIMEOUT") or 60),
+            )
         elif os.getenv("LLM_API_KEY"):
             base_url = (os.getenv("LLM_BASE_URL") or "https://api.deepseek.com").rstrip("/")
             if not base_url.endswith("/v1"):
@@ -189,10 +281,38 @@ def run_ragas(rows: list[EvalRow]) -> dict[str, Any] | None:
         else:
             return {"skipped": "RAGAS needs OPENAI_API_KEY or LLM_API_KEY for evaluator LLM."}
 
+        embedding_provider = os.getenv("RAGAS_EMBEDDING_PROVIDER", "huggingface").lower()
+        if embedding_provider in {"huggingface", "hf", "local"}:
+            try:
+                from langchain_community.embeddings import HuggingFaceEmbeddings
+
+                embedding_model = os.getenv(
+                    "RAGAS_EMBEDDING_MODEL",
+                    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                )
+                kwargs["embeddings"] = HuggingFaceEmbeddings(
+                    model_name=embedding_model,
+                    model_kwargs={"device": os.getenv("RAGAS_EMBEDDING_DEVICE", "cpu")},
+                    encode_kwargs={"normalize_embeddings": True},
+                )
+                try:
+                    answer_relevancy.strictness = max(1, int(os.getenv("RAGAS_ANSWER_RELEVANCY_STRICTNESS", "1")))
+                except Exception:
+                    answer_relevancy.strictness = 1
+                metrics.insert(1, answer_relevancy)
+                notes.append(f"answer_relevancy uses local HuggingFace embeddings: {embedding_model}")
+            except Exception as exc:
+                notes.append(f"answer_relevancy skipped because HuggingFace embeddings failed: {type(exc).__name__}: {exc}")
+        elif os.getenv("OPENAI_API_KEY"):
+            metrics.insert(1, answer_relevancy)
+            notes.append("answer_relevancy uses default OpenAI-compatible embeddings.")
+        else:
+            notes.append("answer_relevancy skipped because no embedding evaluator was configured.")
+
         result = evaluate(dataset, metrics=metrics, **kwargs)
         output = dict(result)
-        if not os.getenv("OPENAI_API_KEY"):
-            output["_note"] = "answer_relevancy skipped because no OPENAI_API_KEY/embedding evaluator was configured."
+        if notes:
+            output["_notes"] = notes
         return output
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}
@@ -209,6 +329,7 @@ def write_report(rows: list[EvalRow], ragas_result: dict[str, Any] | None, outpu
         return value
 
     summary = {
+        "total_scenarios": len({r.scenario_id for r in rows}),
         "total": len(rows),
         "deterministic_passed": sum(1 for r in rows if r.deterministic_pass),
         "deterministic_failed": sum(1 for r in rows if not r.deterministic_pass),
@@ -217,6 +338,9 @@ def write_report(rows: list[EvalRow], ragas_result: dict[str, Any] | None, outpu
     }
     details = [
         {
+            "scenario_id": r.scenario_id,
+            "turn_id": r.turn_id,
+            "turn_index": r.turn_index,
             "id": r.case["id"],
             "type": r.case.get("type"),
             "question": r.case["question"],
@@ -236,12 +360,90 @@ def write_report(rows: list[EvalRow], ragas_result: dict[str, Any] | None, outpu
     return output
 
 
+def write_markdown_report(report: dict[str, Any], output_path: Path, base_url: str, cases_path: str) -> None:
+    summary = report["summary"]
+    latency = summary.get("latency", {})
+    ragas = summary.get("ragas") or {}
+    details = report.get("details", [])
+    lines = [
+        "# Báo Cáo Chatbot Multi-Step RAGAS + LangSmith",
+        "",
+        f"Ngày chạy: {time.strftime('%Y-%m-%d %H:%M:%S %z')}",
+        f"Target: `{base_url}`",
+        f"Case file: `{cases_path}`",
+        "",
+        "## Tóm Tắt",
+        "",
+        "| Metric | Value |",
+        "| --- | ---: |",
+        f"| Scenarios | `{summary.get('total_scenarios', 0)}` |",
+        f"| Turns | `{summary.get('total', 0)}` |",
+        f"| Deterministic passed | `{summary.get('deterministic_passed', 0)}` |",
+        f"| Deterministic failed | `{summary.get('deterministic_failed', 0)}` |",
+        f"| Latency min | `{latency.get('min_ms', 0)} ms` |",
+        f"| Latency avg | `{latency.get('avg_ms', 0)} ms` |",
+        f"| Latency p50 | `{latency.get('p50_ms', 0)} ms` |",
+        f"| Latency p95 | `{latency.get('p95_ms', 0)} ms` |",
+        f"| Latency max | `{latency.get('max_ms', 0)} ms` |",
+        "",
+        "## RAGAS",
+        "",
+        "| Metric | Value |",
+        "| --- | ---: |",
+        f"| Faithfulness | `{ragas.get('faithfulness', 'n/a')}` |",
+        f"| Answer relevancy | `{ragas.get('answer_relevancy', 'n/a')}` |",
+        f"| Context precision | `{ragas.get('context_precision', 'n/a')}` |",
+        f"| Context recall | `{ragas.get('context_recall', 'n/a')}` |",
+        "",
+        "Notes:",
+    ]
+    for note in ragas.get("_notes", []):
+        lines.append(f"- {note}")
+    if not ragas.get("_notes"):
+        lines.append("- Không có ghi chú RAGAS.")
+    lines.extend([
+        "",
+        "## LangSmith",
+        "",
+        "- Tracing bật qua biến môi trường `LANGSMITH_API_KEY`.",
+        f"- Project: `{os.getenv('LANGSMITH_PROJECT', 'fashion-shop-chatbot-eval')}`.",
+        "- API key không được ghi vào report hoặc source.",
+        "",
+        "## Chi Tiết Turn",
+        "",
+        "| Scenario | Turn | Type | Latency | Products | Knowledge | Contexts | Result | Failures |",
+        "| --- | ---: | --- | ---: | ---: | ---: | ---: | --- | --- |",
+    ])
+    for item in details:
+        status = "PASS" if item.get("deterministic_pass") else "FAIL"
+        failures = "; ".join(item.get("failures", []))
+        lines.append(
+            f"| `{item.get('scenario_id')}` | `{item.get('turn_index')}` | `{item.get('type')}` | "
+            f"`{item.get('latency_ms')} ms` | `{item.get('products_count')}` | "
+            f"`{item.get('knowledge_sources_count')}` | `{item.get('contexts_count')}` | "
+            f"`{status}` | {failures or '-'} |"
+        )
+    lines.extend([
+        "",
+        "## Bảo Mật",
+        "",
+        "- Không ghi `LANGSMITH_API_KEY`, `LLM_API_KEY`, `OPENAI_API_KEY` hoặc HuggingFace token vào file.",
+        "- HuggingFace embedding model chạy local public model; không dùng HuggingFace Inference API.",
+        "",
+    ])
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default=os.getenv("CHATBOT_BASE_URL", "http://localhost:8092"))
     parser.add_argument("--cases", default="eval/chatbot_eval_cases.jsonl")
     parser.add_argument("--output", default="reports/chatbot_eval_report.json")
+    parser.add_argument("--markdown-output", default="")
     parser.add_argument("--timeout", type=float, default=90.0)
+    parser.add_argument("--turn-delay", type=float, default=float(os.getenv("EVAL_TURN_DELAY", "0")))
+    parser.add_argument("--max-retries", type=int, default=int(os.getenv("EVAL_MAX_RETRIES", "3")))
     args = parser.parse_args()
 
     if os.getenv("LANGSMITH_API_KEY"):
@@ -249,9 +451,11 @@ def main() -> int:
         os.environ.setdefault("LANGSMITH_PROJECT", "fashion-shop-chatbot-eval")
 
     cases = load_cases(Path(args.cases))
-    rows = run_cases(args.base_url, cases, args.timeout)
+    rows = run_cases(args.base_url, cases, args.timeout, args.turn_delay, args.max_retries)
     ragas_result = run_ragas(rows)
     report = write_report(rows, ragas_result, Path(args.output))
+    if args.markdown_output:
+        write_markdown_report(report, Path(args.markdown_output), args.base_url, args.cases)
 
     print(json.dumps(report["summary"], ensure_ascii=False, indent=2))
     for item in report["details"]:

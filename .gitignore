@@ -21,6 +21,8 @@ composer.phar
 
 # Env
 .env
+.env.*
+!.env.example
 .env.local
 .env.*.local
 
@@ -44,6 +46,10 @@ postman/
 __pycache__/
 *.pyc
 *.pyo
+.cache/
+.huggingface/
+hf_cache/
+models/
 .venv/
 venv/
 .pytest_cache/
@@ -66,6 +72,9 @@ scripts/generate_test_report_doc.js
 
 # Backups and local dumps
 backups/
+*.db
+*.sqlite
+*.sqlite3
 *.sql.gz
 *.dump
 *.tar
