@@ -5,7 +5,7 @@ ENV HF_HOME=/models/huggingface \
     PYTHONUNBUFFERED=1
 
 RUN apt-get update -qq \
-    && apt-get install -y -qq --no-install-recommends tini curl ca-certificates \
+    && apt-get install -y -qq --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
@@ -14,9 +14,7 @@ RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu 
 RUN pip install --no-cache-dir \
     fastapi==0.115.6 \
     uvicorn==0.34.0 \
-    sentence-transformers==3.3.1 \
-    transformers==4.47.1 \
-    numpy==1.26.4
+    sentence-transformers==3.3.1
 
 COPY app.py /app/app.py
 WORKDIR /app
@@ -24,7 +22,6 @@ WORKDIR /app
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
-    CMD curl -sf http://localhost:8000/health >/dev/null || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5).read()"
 
-ENTRYPOINT ["tini", "--"]
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
