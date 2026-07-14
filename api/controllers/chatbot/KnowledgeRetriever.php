@@ -10,7 +10,7 @@
 class KnowledgeRetriever {
     public const COLLECTION = 'shop_knowledge_v2';
     public const VECTOR_SIZE = 768;
-    private const HYBRID_CANDIDATES = 20;
+    private const DEFAULT_HYBRID_CANDIDATES = 12;
     private const VECTOR_WEIGHT = 0.65;
     private const LEXICAL_WEIGHT = 0.35;
 
@@ -21,6 +21,7 @@ class KnowledgeRetriever {
     private string $collection;
     private string $embeddingProvider;
     private string $embeddingModel;
+    private int $hybridCandidates;
 
     public function __construct(PDO $pdo, ?string $rootDir = null, ?string $qdrantUrl = null, ?string $ragMlUrl = null) {
         $this->pdo = $pdo;
@@ -35,6 +36,8 @@ class KnowledgeRetriever {
         $this->embeddingProvider = ($envProvider !== false && $envProvider !== '') ? $envProvider : 'rag_ml';
         $envModel = getenv('EMBEDDING_MODEL');
         $this->embeddingModel = ($envModel !== false && $envModel !== '') ? $envModel : 'bkai-foundation-models/vietnamese-bi-encoder';
+        $envCandidates = getenv('KNOWLEDGE_HYBRID_CANDIDATES');
+        $this->hybridCandidates = max(5, min(20, (int)(($envCandidates !== false && $envCandidates !== '') ? $envCandidates : self::DEFAULT_HYBRID_CANDIDATES)));
     }
 
     public function search(string $query, ?string $category = null, int $limit = 5): array {
@@ -59,9 +62,9 @@ class KnowledgeRetriever {
         $cached = Cache::get($cacheKey);
         if (is_array($cached)) return $cached;
 
-        $lexical = $this->searchLocal($searchQuery, $category, self::HYBRID_CANDIDATES);
+        $lexical = $this->searchLocal($searchQuery, $category, $this->hybridCandidates);
         $vector = $this->qdrantUrl !== null
-            ? ($this->searchQdrant($searchQuery, $category, self::HYBRID_CANDIDATES) ?? [])
+            ? ($this->searchQdrant($searchQuery, $category, $this->hybridCandidates) ?? [])
             : [];
 
         if (empty($vector)) {
@@ -311,7 +314,7 @@ class KnowledgeRetriever {
 
         $candidates = array_values($merged);
         usort($candidates, fn($a, $b) => ($b['hybrid_score'] <=> $a['hybrid_score']));
-        return array_slice($candidates, 0, self::HYBRID_CANDIDATES);
+        return array_slice($candidates, 0, $this->hybridCandidates);
     }
 
     private function rerankKnowledge(string $query, array $candidates, int $limit): array {
@@ -321,7 +324,7 @@ class KnowledgeRetriever {
 
         $texts = array_map(fn($d) => trim(($d['title'] ?? '') . "\n" . ($d['content'] ?? '')), $candidates);
         $payload = ['query' => $query, 'texts' => $texts];
-        $response = $this->requestRagMl('/rerank', $payload, $this->ragMlTimeout('RAG_RERANK_TIMEOUT', 60));
+        $response = $this->requestRagMl('/rerank', $payload, $this->ragMlTimeout('RAG_RERANK_TIMEOUT', 6));
         if (!is_array($response) || !isset($response['sorted_indices']) || !is_array($response['sorted_indices'])) {
             return [
                 'results' => array_slice($this->withRetrievalMode($candidates, 'hybrid_no_rerank'), 0, $limit),
@@ -359,7 +362,7 @@ class KnowledgeRetriever {
         if ($this->ragMlUrl === null || $this->embeddingProvider === 'local_hash') {
             return null;
         }
-        $response = $this->requestRagMl('/embed', ['texts' => [$text]], $this->ragMlTimeout('RAG_EMBED_TIMEOUT', 180));
+        $response = $this->requestRagMl('/embed', ['texts' => [$text]], $this->ragMlTimeout('RAG_EMBED_TIMEOUT', 8));
         if (!is_array($response) || empty($response['embeddings'][0]) || !is_array($response['embeddings'][0])) {
             return null;
         }
