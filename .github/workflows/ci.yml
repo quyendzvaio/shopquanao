@@ -259,8 +259,10 @@ jobs:
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script_stop: true
+          timeout: 60s
           command_timeout: 60m
           envs: GITHUB_TOKEN,REPO
           script: |
@@ -334,7 +336,7 @@ jobs:
             echo "LLM_API_KEY=${{ secrets.LLM_API_KEY }}" >> .env
             echo "LLM_BASE_URL=${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}" >> .env
             echo "LLM_MODEL=${{ secrets.LLM_MODEL || 'deepseek-chat' }}" >> .env
-            echo "LLM_TIMEOUT=${{ secrets.LLM_TIMEOUT || '60' }}" >> .env
+            echo "LLM_TIMEOUT=${{ secrets.LLM_TIMEOUT || '25' }}" >> .env
             echo "MARIADB_ROOT_PASSWORD=${{ secrets.MARIADB_ROOT_PASSWORD }}" >> .env
             echo "DB_PASS=${{ secrets.DB_PASS }}" >> .env
             echo "PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}" >> .env

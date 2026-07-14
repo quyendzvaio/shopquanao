@@ -101,6 +101,9 @@ class ChatbotMemory {
                 created_at timestamp NOT NULL DEFAULT current_timestamp(),
                 updated_at timestamp NOT NULL DEFAULT current_timestamp()
             )");
+            if ($this->userId === null) {
+                return;
+            }
             $this->pdo->exec("CREATE TABLE IF NOT EXISTS user_long_term_memory (
                 user_id int NOT NULL PRIMARY KEY,
                 preferences longtext DEFAULT NULL,
@@ -120,6 +123,7 @@ class ChatbotMemory {
         $memory = $this->load();
         $slots = array_merge(self::DEFAULT_SLOTS, $memory['slots']);
         $slots = array_merge($slots, $this->extractSlots($message));
+        $memory['slots'] = $slots;
         $this->saveSessionMemory($memory['summary'], $slots);
 
         if ($this->userId !== null) {
@@ -136,6 +140,15 @@ class ChatbotMemory {
     public function refreshSummary(string $userMsg, string $botMsg): void {
         $memory = $this->load();
         $summary = $this->generateSummary($memory['summary'], $memory['slots'], $userMsg, $botMsg);
+        $this->saveSessionMemory($summary, $memory['slots']);
+    }
+
+    public function refreshSummaryWithoutLlm(string $userMsg, string $botMsg): void {
+        $memory = $this->load();
+        $llm = $this->llm;
+        $this->llm = null;
+        $summary = $this->generateSummary($memory['summary'], $memory['slots'], $userMsg, $botMsg);
+        $this->llm = $llm;
         $this->saveSessionMemory($summary, $memory['slots']);
     }
 

@@ -101,7 +101,7 @@ PROMPT;
         $preflight = $this->deterministicPreflight($message);
         if ($preflight !== null) {
             $this->saveMessages($message, $preflight, $this->collectedProducts);
-            $this->memory->refreshSummary($message, $preflight);
+            $this->memory->refreshSummaryWithoutLlm($message, $preflight);
             return $this->buildResponse($preflight);
         }
 
@@ -269,6 +269,11 @@ PROMPT;
             return 'Mình không thể tự thêm giỏ hàng hoặc thanh toán giúp bạn. Bạn vui lòng bấm vào thẻ sản phẩm hoặc vào trang chi tiết sản phẩm để tự thêm giỏ hàng và thanh toán.';
         }
 
+        $basicProductSearch = $this->answerBasicProductSearch($message);
+        if ($basicProductSearch !== null) {
+            return $basicProductSearch;
+        }
+
         $productId = $this->extractExplicitProductId($message);
         if ($productId !== null && $this->isKnowledgeIntent($message)) {
             $mixedProductDetailPolicy = $this->answerProductDetailPolicy($message, $productId);
@@ -400,6 +405,10 @@ PROMPT;
         return (bool)preg_match('/thêm vào giỏ|thêm giỏ|checkout|thanh toán giúp|thanh toán.*luôn|mua .*giúp|đặt hàng giúp|chốt đơn/ui', $message);
     }
 
+    private function isSizeIntent(string $message): bool {
+        return (bool)preg_match('/\bsize\b|kích cỡ|kich co|mặc cỡ|mac co|mặc size|cao\s*\d+|nặng\s*\d+|\d+\s*kg|\d+\s*cm/ui', $message);
+    }
+
     private function answerMixedProductPolicy(string $message): ?string {
         if (!$this->isKnowledgeIntent($message) || !preg_match('/áo|quần|váy|đầm|phụ kiện|bomber|sản phẩm/ui', $message)) {
             return null;
@@ -451,14 +460,100 @@ PROMPT;
         if (preg_match('/bomber/ui', $message)) return 'áo khoác bomber';
         if (preg_match('/áo khoác/ui', $message)) return 'áo khoác';
         if (preg_match('/áo thun/ui', $message)) return 'áo thun';
+        if (preg_match('/áo phông/ui', $message)) return 'áo phông';
+        if (preg_match('/áo sơ mi/ui', $message)) return 'áo sơ mi';
+        if (preg_match('/áo hoodie/ui', $message)) return 'áo hoodie';
         if (preg_match('/áo polo/ui', $message)) return 'áo polo';
         if (preg_match('/áo len/ui', $message)) return 'áo len';
         if (preg_match('/áo gile/ui', $message)) return 'áo gile';
+        if (preg_match('/áo vest|áo blazer/ui', $message)) return 'áo vest';
         if (preg_match('/quần jeans/ui', $message)) return 'quần jeans';
+        if (preg_match('/quần jean/ui', $message)) return 'quần jeans';
         if (preg_match('/quần tây/ui', $message)) return 'quần tây';
+        if (preg_match('/quần kaki/ui', $message)) return 'quần kaki';
+        if (preg_match('/quần short/ui', $message)) return 'quần short';
+        if (preg_match('/quần jogger/ui', $message)) return 'quần jogger';
         if (preg_match('/váy maxi/ui', $message)) return 'váy maxi';
         if (preg_match('/chân váy/ui', $message)) return 'chân váy';
+        if (preg_match('/váy đầm|đầm/ui', $message)) return 'váy đầm';
+        if (preg_match('/túi xách/ui', $message)) return 'túi xách';
+        if (preg_match('/đồng hồ/ui', $message)) return 'đồng hồ';
+        if (preg_match('/thắt lưng/ui', $message)) return 'thắt lưng';
+        if (preg_match('/kính mát/ui', $message)) return 'kính mát';
         return null;
+    }
+
+    private function answerBasicProductSearch(string $message): ?string {
+        if ($this->isKnowledgeIntent($message) || $this->isOrderIntent($message) || $this->isSizeIntent($message)) {
+            return null;
+        }
+
+        $search = $this->extractProductSearchTerm($message);
+        if ($search === null) {
+            return null;
+        }
+
+        $args = ['search' => $search];
+        $price = $this->extractPriceConstraints($message);
+        if (isset($price['min_price'])) $args['min_price'] = $price['min_price'];
+        if (isset($price['max_price'])) $args['max_price'] = $price['max_price'];
+
+        $result = $this->executePreflightTool('search_products', $args);
+        if ($result !== null) {
+            $this->harvestProducts('search_products', $result);
+        }
+
+        $products = is_array($result['products'] ?? null) ? $result['products'] : [];
+        $total = isset($result['pagination']['total']) ? (int)$result['pagination']['total'] : count($products);
+        if ($total <= 0 || empty($products)) {
+            $priceText = isset($args['max_price']) ? ' trong tầm giá này' : '';
+            return "Mình chưa tìm thấy $search$priceText. Bạn có thể thử khoảng giá rộng hơn hoặc đổi từ khóa tìm kiếm.";
+        }
+
+        $priceText = '';
+        if (isset($args['max_price'])) {
+            $priceText = ' dưới ' . number_format((float)$args['max_price'], 0, ',', '.') . 'đ';
+        } elseif (isset($args['min_price'])) {
+            $priceText = ' từ ' . number_format((float)$args['min_price'], 0, ',', '.') . 'đ';
+        }
+
+        return "Mình tìm thấy $total sản phẩm $search$priceText phù hợp. Bạn có thể bấm vào thẻ sản phẩm bên dưới để xem chi tiết.";
+    }
+
+    private function extractPriceConstraints(string $message): array {
+        $normalized = mb_strtolower($message);
+        $result = [];
+
+        if (preg_match('/(?:dưới|duoi|nhỏ hơn|nho hon|không quá|khong qua|tối đa|toi da|max)\s*(\d+(?:[.,]\d+)?)\s*(k|nghìn|ngan|triệu|trieu|m)?/ui', $normalized, $m)) {
+            $result['max_price'] = $this->parseVietnamesePrice($m[1], $m[2] ?? '');
+            return $result;
+        }
+
+        if (preg_match('/(?:trên|tren|từ|tu|thấp nhất|min)\s*(\d+(?:[.,]\d+)?)\s*(k|nghìn|ngan|triệu|trieu|m)?/ui', $normalized, $m)) {
+            $result['min_price'] = $this->parseVietnamesePrice($m[1], $m[2] ?? '');
+            return $result;
+        }
+
+        if (preg_match('/(?:giá rẻ|gia re|rẻ|re|bình dân|binh dan|tiết kiệm|tiet kiem)/ui', $normalized)) {
+            $result['max_price'] = 300000;
+        }
+
+        return $result;
+    }
+
+    private function parseVietnamesePrice(string $rawNumber, string $unit): int {
+        $number = (float)str_replace(',', '.', $rawNumber);
+        $unit = mb_strtolower(trim($unit));
+        if (in_array($unit, ['triệu', 'trieu', 'm'], true)) {
+            return (int)round($number * 1000000);
+        }
+        if (in_array($unit, ['k', 'nghìn', 'ngan'], true)) {
+            return (int)round($number * 1000);
+        }
+        if ($number > 0 && $number < 1000) {
+            return (int)round($number * 1000);
+        }
+        return (int)round($number);
     }
 
     private function executePreflightTool(string $toolName, array $args): ?array {
