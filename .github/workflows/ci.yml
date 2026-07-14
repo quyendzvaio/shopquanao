@@ -339,7 +339,7 @@ jobs:
             echo "DB_PASS=${{ secrets.DB_PASS }}" >> .env
             echo "PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}" >> .env
             echo "RERANKER_URL=http://reranker:8000" >> .env
-            echo "RAG_ML_WARMUP_ON_START=${{ secrets.RAG_ML_WARMUP_ON_START || 'true' }}" >> .env
+            echo "RAG_ML_WARMUP_ON_START=${{ secrets.RAG_ML_WARMUP_ON_START || 'false' }}" >> .env
             echo ".env written ($(wc -l < .env) lines)"
 
             echo "Stopping current stack before cleanup..."
@@ -408,7 +408,7 @@ jobs:
             curl -sf http://localhost:8001/health && echo " ✅" || echo " ⚠️ Reranker still warming up (ok)"
 
             echo "Checking rag-ml..."
-            docker compose exec -T rag-ml curl -sf http://localhost:8000/health && echo " ✅" || echo " ⚠️ rag-ml still warming up"
+            docker compose exec -T rag-ml python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5).read()" && echo " ✅" || echo " ⚠️ rag-ml health check failed"
 
             # Final cleanup
             docker image prune -f 2>/dev/null || true

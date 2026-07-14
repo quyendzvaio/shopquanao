@@ -57,7 +57,7 @@ services:
       reranker:
         condition: service_started
       rag-ml:
-        condition: service_healthy
+        condition: service_started
       qdrant:
         condition: service_started
 
@@ -88,7 +88,7 @@ services:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bkai-foundation-models/vietnamese-bi-encoder}
       KNOWLEDGE_RERANKER_MODEL: ${KNOWLEDGE_RERANKER_MODEL:-itdainb/PhoRanker}
       RAG_ML_DEVICE: ${RAG_ML_DEVICE:-cpu}
-      RAG_ML_WARMUP_ON_START: ${RAG_ML_WARMUP_ON_START:-true}
+      RAG_ML_WARMUP_ON_START: ${RAG_ML_WARMUP_ON_START:-false}
       RAG_ML_MAX_TEXTS: 64
       RAG_ML_MAX_RERANK_TEXTS: 32
       HF_HOME: /models/huggingface
