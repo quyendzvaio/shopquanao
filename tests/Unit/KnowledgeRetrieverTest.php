@@ -47,10 +47,26 @@ class KnowledgeRetrieverTest extends \PHPUnit\Framework\TestCase
     public function testLocalRetrievalFindsReturnPolicy(): void
     {
         $result = $this->retriever->search('shop đổi trả trong bao lâu', 'return', 3);
-        $this->assertSame('local_fallback', $result['source']);
+        $this->assertSame('lexical_fallback', $result['source']);
+        $this->assertSame('lexical_fallback', $result['retrieval_mode']);
         $this->assertNotEmpty($result['results']);
         $joined = mb_strtolower(implode(' ', array_map(fn($r) => $r['title'] . ' ' . $r['content'], $result['results'])));
         $this->assertStringContainsString('7 ngày', $joined);
+    }
+
+    public function testLexicalFallbackReturnsHybridScoreMetadata(): void
+    {
+        $result = $this->retriever->search('phí ship ngoại tỉnh', 'shipping', 3);
+
+        $this->assertSame('lexical_fallback', $result['retrieval_mode']);
+        $this->assertNotEmpty($result['results']);
+        $first = $result['results'][0];
+        $this->assertArrayHasKey('vector_score', $first);
+        $this->assertArrayHasKey('lexical_score', $first);
+        $this->assertArrayHasKey('hybrid_score', $first);
+        $this->assertArrayHasKey('rerank_score', $first);
+        $this->assertArrayHasKey('retrieval_mode', $first);
+        $this->assertSame('lexical_fallback', $first['retrieval_mode']);
     }
 
     public function testQueryRewriteExpandsNoAccentShippingQuestion(): void
@@ -79,6 +95,7 @@ class KnowledgeRetrieverTest extends \PHPUnit\Framework\TestCase
         $a = $this->retriever->embed('đổi trả sản phẩm');
         $b = $this->retriever->embed('đổi trả sản phẩm');
         $this->assertCount(KnowledgeRetriever::VECTOR_SIZE, $a);
+        $this->assertCount(768, $a);
         $this->assertSame($a, $b);
     }
 }

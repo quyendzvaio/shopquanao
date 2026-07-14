@@ -56,7 +56,7 @@ jobs:
 
       - name: Python lint (reranker)
         run: |
-          python3 -m py_compile docker/reranker/app.py eval/run_chatbot_eval.py scripts/eval_rag_chatbot.py && echo "✅ Python syntax OK"
+          python3 -m py_compile docker/reranker/app.py docker/rag-ml/app.py eval/run_chatbot_eval.py scripts/eval_rag_chatbot.py && echo "✅ Python syntax OK"
 
   # ============================================================
   # Job 2: Unit Tests
@@ -187,7 +187,7 @@ jobs:
             /src || echo "⚠️ Trivy scan done"
 
   # ============================================================
-  # Job 5: Docker Build (app + reranker)
+  # Job 5: Docker Build (app + reranker + rag-ml)
   # ============================================================
   docker:
     name: Docker Build
@@ -206,6 +206,11 @@ jobs:
           docker build -t shop-reranker:ci-${{ github.sha }} docker/reranker/
           docker tag shop-reranker:ci-${{ github.sha }} shop-reranker:ci-latest
 
+      - name: Build rag-ml image
+        run: |
+          docker build -t shop-rag-ml:ci-${{ github.sha }} docker/rag-ml/
+          docker tag shop-rag-ml:ci-${{ github.sha }} shop-rag-ml:ci-latest
+
       - name: Scan app image
         run: |
           docker run --rm aquasecurity/trivy:latest image \
@@ -219,6 +224,13 @@ jobs:
             --severity HIGH,CRITICAL \
             --exit-code 0 \
             shop-reranker:ci-${{ github.sha }} || echo "⚠️ Trivy scan done"
+
+      - name: Scan rag-ml image
+        run: |
+          docker run --rm aquasecurity/trivy:latest image \
+            --severity HIGH,CRITICAL \
+            --exit-code 0 \
+            shop-rag-ml:ci-${{ github.sha }} || echo "⚠️ Trivy scan done"
 
   # ============================================================
   # Job 6: Deploy to Production (main/master only)

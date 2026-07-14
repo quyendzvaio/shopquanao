@@ -2,7 +2,7 @@
 /**
  * Tool Registry + Tool Executor
  * Định nghĩa tools cho LLM function calling + execute tool gọi API nội bộ.
- * Hỗ trợ reranking qua sidecar Python (cross-encoder).
+ * Hỗ trợ reranking sản phẩm qua sidecar Python TF-IDF.
  */
 
 require_once __DIR__ . '/../../cache/Cache.php';
@@ -177,6 +177,23 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
 
     private function executeSearchProducts(array $args): array {
         $args = $this->normalizeSearchArgs($args);
+        $explicitProductId = $this->extractSearchProductId($args);
+        if ($explicitProductId !== null) {
+            $detail = $this->executeGetProductDetail(['product_id' => $explicitProductId]);
+            if (isset($detail['product']) && is_array($detail['product'])) {
+                $detail['products'] = [$this->productDetailToCard($detail['product'])];
+                $detail['pagination'] = [
+                    'page' => 1,
+                    'limit' => 1,
+                    'total' => 1,
+                    'total_pages' => 1,
+                ];
+                $detail['routed_from'] = 'search_products';
+                $detail['routed_to'] = 'get_product_detail';
+            }
+            return $detail;
+        }
+
         if ($this->isSqlite()) {
             return $this->executeSearchProductsDirect($args);
         }
@@ -211,6 +228,29 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         }
 
         return $result;
+    }
+
+    private function extractSearchProductId(array $args): ?int {
+        $search = trim((string)($args['search'] ?? ''));
+        if ($search === '') return null;
+
+        if (preg_match('/^(?:mã|ma|id|#|sản phẩm mã|san pham ma|product)?\s*#?\s*(\d+)$/ui', $search, $m)) {
+            return max(1, (int)$m[1]);
+        }
+
+        return null;
+    }
+
+    private function productDetailToCard(array $product): array {
+        return [
+            'id' => (int)($product['id'] ?? 0),
+            'category_id' => isset($product['category_id']) ? (int)$product['category_id'] : null,
+            'name' => (string)($product['name'] ?? ''),
+            'price' => (float)($product['price'] ?? 0),
+            'stock' => (int)($product['stock'] ?? 0),
+            'image' => (string)($product['image'] ?? ''),
+            'category_name' => (string)($product['category_name'] ?? ''),
+        ];
     }
 
     private function executeGetProductDetail(array $args): array {
@@ -261,6 +301,9 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         $query = trim((string)($args['query'] ?? ''));
         if ($query === '') return ['results' => [], 'message' => 'Query is required'];
         $category = isset($args['category']) && $args['category'] !== '' ? (string)$args['category'] : null;
+        if (preg_match('/hoàn tiền|refund/ui', $query)) {
+            $category = 'policy';
+        }
         $limit = isset($args['limit']) ? (int)$args['limit'] : 5;
         $result = $this->knowledgeRetriever->search($query, $category, $limit);
         $result['guidance'] = 'Chỉ trả lời dựa trên results. Nếu results rỗng hoặc chưa đủ, hãy nói chưa có đủ thông tin trong dữ liệu shop và hỏi thêm.';

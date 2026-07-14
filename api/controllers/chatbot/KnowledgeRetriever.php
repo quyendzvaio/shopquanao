@@ -2,23 +2,39 @@
 /**
  * RAG knowledge retriever for shop policies, FAQ, size guide, and styling docs.
  *
- * Uses Qdrant when available, with a deterministic local embedding fallback.
- * If Qdrant is not configured or unavailable, it falls back to Markdown + FAQ DB
- * keyword scoring so the chatbot can still answer from real shop data.
+ * Uses semantic embeddings from the rag-ml service, Qdrant vector search,
+ * lexical keyword search, hybrid score merge, and cross-encoder reranking.
+ * If Qdrant or rag-ml is unavailable, it falls back to Markdown + FAQ DB
+ * lexical scoring so the chatbot can still answer from real shop data.
  */
 class KnowledgeRetriever {
-    public const COLLECTION = 'shop_knowledge';
-    public const VECTOR_SIZE = 256;
+    public const COLLECTION = 'shop_knowledge_v2';
+    public const VECTOR_SIZE = 768;
+    private const HYBRID_CANDIDATES = 20;
+    private const VECTOR_WEIGHT = 0.65;
+    private const LEXICAL_WEIGHT = 0.35;
 
     private PDO $pdo;
     private string $rootDir;
     private ?string $qdrantUrl;
+    private ?string $ragMlUrl;
+    private string $collection;
+    private string $embeddingProvider;
+    private string $embeddingModel;
 
-    public function __construct(PDO $pdo, ?string $rootDir = null, ?string $qdrantUrl = null) {
+    public function __construct(PDO $pdo, ?string $rootDir = null, ?string $qdrantUrl = null, ?string $ragMlUrl = null) {
         $this->pdo = $pdo;
         $this->rootDir = $rootDir ?: dirname(__DIR__, 3);
         $envUrl = getenv('QDRANT_URL');
         $this->qdrantUrl = $qdrantUrl ?? (($envUrl !== false && $envUrl !== '') ? rtrim($envUrl, '/') : null);
+        $envRagMlUrl = getenv('RAG_ML_URL');
+        $this->ragMlUrl = $ragMlUrl ?? (($envRagMlUrl !== false && $envRagMlUrl !== '') ? rtrim($envRagMlUrl, '/') : null);
+        $envCollection = getenv('KNOWLEDGE_COLLECTION');
+        $this->collection = ($envCollection !== false && $envCollection !== '') ? $envCollection : self::COLLECTION;
+        $envProvider = getenv('EMBEDDING_PROVIDER');
+        $this->embeddingProvider = ($envProvider !== false && $envProvider !== '') ? $envProvider : 'rag_ml';
+        $envModel = getenv('EMBEDDING_MODEL');
+        $this->embeddingModel = ($envModel !== false && $envModel !== '') ? $envModel : 'bkai-foundation-models/vietnamese-bi-encoder';
     }
 
     public function search(string $query, ?string $category = null, int $limit = 5): array {
@@ -36,26 +52,41 @@ class KnowledgeRetriever {
             'original_query' => mb_strtolower($query),
             'category' => (string)$category,
             'limit' => $limit,
-            'v' => 2,
+            'collection' => $this->collection,
+            'embedding_model' => $this->embeddingModel,
+            'v' => 3,
         ]);
         $cached = Cache::get($cacheKey);
         if (is_array($cached)) return $cached;
 
-        $result = null;
-        if ($this->qdrantUrl !== null) {
-            $result = $this->searchQdrant($searchQuery, $category, $limit);
-        }
+        $lexical = $this->searchLocal($searchQuery, $category, self::HYBRID_CANDIDATES);
+        $vector = $this->qdrantUrl !== null
+            ? ($this->searchQdrant($searchQuery, $category, self::HYBRID_CANDIDATES) ?? [])
+            : [];
 
-        if ($result === null || empty($result['results'])) {
+        if (empty($vector)) {
+            $results = array_slice($this->withRetrievalMode($lexical, 'lexical_fallback'), 0, $limit);
             $result = [
-                'results' => $this->searchLocal($searchQuery, $category, $limit),
-                'source' => 'local_fallback',
+                'results' => $results,
+                'source' => 'lexical_fallback',
+                'retrieval_mode' => 'lexical_fallback',
+            ];
+        } else {
+            $merged = $this->mergeHybridCandidates($vector, $lexical);
+            $reranked = $this->rerankKnowledge($searchQuery, $merged, $limit);
+            $result = [
+                'results' => $reranked['results'],
+                'source' => $reranked['retrieval_mode'],
+                'retrieval_mode' => $reranked['retrieval_mode'],
+                'reranker_model' => $reranked['reranker_model'] ?? null,
             ];
         }
 
         $result['original_query'] = $query;
         $result['rewritten_query'] = $searchQuery;
         $result['query_rewrites'] = $rewrite['terms'];
+        $result['embedding_model'] = $this->embeddingModel;
+        $result['collection'] = $this->collection;
         Cache::set($cacheKey, $result, 600);
         return $result;
     }
@@ -72,7 +103,7 @@ class KnowledgeRetriever {
 
     public function ensureQdrantCollection(): bool {
         if ($this->qdrantUrl === null) return false;
-        $existing = $this->request('GET', '/collections/' . self::COLLECTION, [], 10);
+        $existing = $this->request('GET', '/collections/' . $this->collection, [], 10);
         if ($existing !== null) return true;
 
         $payload = [
@@ -81,7 +112,7 @@ class KnowledgeRetriever {
                 'distance' => 'Cosine',
             ],
         ];
-        $response = $this->request('PUT', '/collections/' . self::COLLECTION, $payload, 15);
+        $response = $this->request('PUT', '/collections/' . $this->collection, $payload, 15);
         return $response !== null;
     }
 
@@ -97,20 +128,32 @@ class KnowledgeRetriever {
         foreach ($documents as $i => $doc) {
             $text = (string)($doc['text'] ?? (($doc['title'] ?? '') . "\n" . ($doc['content'] ?? '')));
             $id = $this->stablePointId($doc, $i);
+            try {
+                $vector = $this->embed($text);
+            } catch (Throwable $e) {
+                return [
+                    'success' => false,
+                    'count' => count($points),
+                    'message' => 'Embedding failed: ' . $e->getMessage(),
+                ];
+            }
             $points[] = [
                 'id' => $id,
-                'vector' => $this->embed($text),
+                'vector' => $vector,
                 'payload' => [
+                    'doc_key' => $this->documentKey($doc),
                     'source' => $doc['source'] ?? 'unknown',
                     'title' => $doc['title'] ?? '',
                     'category' => $doc['category'] ?? 'general',
                     'content' => $doc['content'] ?? '',
+                    'text' => $text,
                     'updated_at' => $doc['updated_at'] ?? date('c'),
+                    'embedding_model' => $this->embeddingModel,
                 ],
             ];
         }
 
-        $response = $this->request('PUT', '/collections/' . self::COLLECTION . '/points?wait=true', ['points' => $points], 60);
+        $response = $this->request('PUT', '/collections/' . $this->collection . '/points?wait=true', ['points' => $points], 60);
         return [
             'success' => $response !== null,
             'count' => count($points),
@@ -119,6 +162,17 @@ class KnowledgeRetriever {
     }
 
     public function embed(string $text): array {
+        $vector = $this->embedViaRagMl($text);
+        if ($vector !== null) {
+            return $vector;
+        }
+        if ($this->ragMlUrl !== null && $this->embeddingProvider !== 'local_hash') {
+            throw new RuntimeException('rag-ml embedding service is unavailable');
+        }
+        return $this->localHashEmbedding($text);
+    }
+
+    private function localHashEmbedding(string $text): array {
         $vector = array_fill(0, self::VECTOR_SIZE, 0.0);
         $tokens = $this->tokens($text);
         foreach ($tokens as $token) {
@@ -134,8 +188,15 @@ class KnowledgeRetriever {
     }
 
     private function searchQdrant(string $query, ?string $category, int $limit): ?array {
+        try {
+            $vector = $this->embed($query);
+        } catch (Throwable $e) {
+            error_log('Knowledge vector embedding failed: ' . $e->getMessage());
+            return null;
+        }
+
         $payload = [
-            'vector' => $this->embed($query),
+            'vector' => $vector,
             'limit' => $limit,
             'with_payload' => true,
             'score_threshold' => 0.05,
@@ -149,7 +210,7 @@ class KnowledgeRetriever {
             ];
         }
 
-        $response = $this->request('POST', '/collections/' . self::COLLECTION . '/points/search', $payload, 5);
+        $response = $this->request('POST', '/collections/' . $this->collection . '/points/search', $payload, 5);
         if (!is_array($response) || !isset($response['result']) || !is_array($response['result'])) return null;
 
         $results = [];
@@ -160,12 +221,17 @@ class KnowledgeRetriever {
                 'content' => (string)($payload['content'] ?? ''),
                 'category' => (string)($payload['category'] ?? 'general'),
                 'source' => (string)($payload['source'] ?? 'qdrant'),
+                'doc_key' => (string)($payload['doc_key'] ?? ''),
                 'score' => (float)($item['score'] ?? 0),
+                'vector_score' => (float)($item['score'] ?? 0),
+                'lexical_score' => 0.0,
+                'hybrid_score' => 0.0,
+                'rerank_score' => null,
                 'updated_at' => $payload['updated_at'] ?? null,
             ];
         }
 
-        return ['results' => $results, 'source' => 'qdrant'];
+        return $results;
     }
 
     private function searchLocal(string $query, ?string $category, int $limit): array {
@@ -185,6 +251,7 @@ class KnowledgeRetriever {
             if ($score <= 0 && $this->hasIntentOverlap($query, $doc)) $score = 0.5;
             if ($score > 0) {
                 $doc['score'] = $score;
+                $doc['doc_key'] = $this->documentKey($doc);
                 $scored[] = $doc;
             }
         }
@@ -195,9 +262,141 @@ class KnowledgeRetriever {
             'content' => $d['content'],
             'category' => $d['category'],
             'source' => $d['source'],
+            'doc_key' => $d['doc_key'] ?? $this->documentKey($d),
             'score' => (float)$d['score'],
+            'vector_score' => 0.0,
+            'lexical_score' => (float)$d['score'],
+            'hybrid_score' => 0.0,
+            'rerank_score' => null,
             'updated_at' => $d['updated_at'] ?? null,
         ], array_slice($scored, 0, $limit));
+    }
+
+    private function mergeHybridCandidates(array $vector, array $lexical): array {
+        $maxVector = max(1.0, ...array_map(fn($d) => (float)($d['vector_score'] ?? $d['score'] ?? 0), $vector ?: [['score' => 0]]));
+        $maxLexical = max(1.0, ...array_map(fn($d) => (float)($d['lexical_score'] ?? $d['score'] ?? 0), $lexical ?: [['score' => 0]]));
+        $merged = [];
+
+        foreach ($vector as $doc) {
+            $key = $doc['doc_key'] ?: $this->documentKey($doc);
+            $doc['doc_key'] = $key;
+            $doc['vector_score'] = (float)($doc['vector_score'] ?? $doc['score'] ?? 0);
+            $doc['lexical_score'] = 0.0;
+            $merged[$key] = $doc;
+        }
+
+        foreach ($lexical as $doc) {
+            $key = $doc['doc_key'] ?: $this->documentKey($doc);
+            if (!isset($merged[$key])) {
+                $doc['doc_key'] = $key;
+                $doc['vector_score'] = 0.0;
+                $merged[$key] = $doc;
+            }
+            $merged[$key]['lexical_score'] = max(
+                (float)($merged[$key]['lexical_score'] ?? 0),
+                (float)($doc['lexical_score'] ?? $doc['score'] ?? 0)
+            );
+        }
+
+        foreach ($merged as &$doc) {
+            $vectorNorm = max(0.0, min(1.0, (float)($doc['vector_score'] ?? 0) / $maxVector));
+            $lexicalNorm = max(0.0, min(1.0, (float)($doc['lexical_score'] ?? 0) / $maxLexical));
+            $doc['vector_score'] = round((float)($doc['vector_score'] ?? 0), 6);
+            $doc['lexical_score'] = round((float)($doc['lexical_score'] ?? 0), 6);
+            $doc['hybrid_score'] = round((self::VECTOR_WEIGHT * $vectorNorm) + (self::LEXICAL_WEIGHT * $lexicalNorm), 6);
+            $doc['score'] = $doc['hybrid_score'];
+            $doc['rerank_score'] = null;
+        }
+        unset($doc);
+
+        $candidates = array_values($merged);
+        usort($candidates, fn($a, $b) => ($b['hybrid_score'] <=> $a['hybrid_score']));
+        return array_slice($candidates, 0, self::HYBRID_CANDIDATES);
+    }
+
+    private function rerankKnowledge(string $query, array $candidates, int $limit): array {
+        if (empty($candidates)) {
+            return ['results' => [], 'retrieval_mode' => 'hybrid_no_results'];
+        }
+
+        $texts = array_map(fn($d) => trim(($d['title'] ?? '') . "\n" . ($d['content'] ?? '')), $candidates);
+        $payload = ['query' => $query, 'texts' => $texts];
+        $response = $this->requestRagMl('/rerank', $payload, $this->ragMlTimeout('RAG_RERANK_TIMEOUT', 60));
+        if (!is_array($response) || !isset($response['sorted_indices']) || !is_array($response['sorted_indices'])) {
+            return [
+                'results' => array_slice($this->withRetrievalMode($candidates, 'hybrid_no_rerank'), 0, $limit),
+                'retrieval_mode' => 'hybrid_no_rerank',
+            ];
+        }
+
+        $scores = is_array($response['scores'] ?? null) ? $response['scores'] : [];
+        $reranked = [];
+        foreach ($response['sorted_indices'] as $idx) {
+            $idx = (int)$idx;
+            if (!isset($candidates[$idx])) continue;
+            $doc = $candidates[$idx];
+            $doc['rerank_score'] = isset($scores[$idx]) ? round((float)$scores[$idx], 6) : null;
+            $doc['score'] = $doc['rerank_score'] ?? $doc['hybrid_score'];
+            $reranked[] = $doc;
+        }
+
+        return [
+            'results' => array_slice($this->withRetrievalMode($reranked, 'hybrid_reranked'), 0, $limit),
+            'retrieval_mode' => 'hybrid_reranked',
+            'reranker_model' => $response['model'] ?? null,
+        ];
+    }
+
+    private function withRetrievalMode(array $results, string $mode): array {
+        foreach ($results as &$result) {
+            $result['retrieval_mode'] = $mode;
+        }
+        unset($result);
+        return $results;
+    }
+
+    private function embedViaRagMl(string $text): ?array {
+        if ($this->ragMlUrl === null || $this->embeddingProvider === 'local_hash') {
+            return null;
+        }
+        $response = $this->requestRagMl('/embed', ['texts' => [$text]], $this->ragMlTimeout('RAG_EMBED_TIMEOUT', 180));
+        if (!is_array($response) || empty($response['embeddings'][0]) || !is_array($response['embeddings'][0])) {
+            return null;
+        }
+        $vector = array_map('floatval', $response['embeddings'][0]);
+        return count($vector) === self::VECTOR_SIZE ? $vector : null;
+    }
+
+    private function requestRagMl(string $path, array $payload, int $timeout): ?array {
+        if ($this->ragMlUrl === null) return null;
+        $ch = curl_init($this->ragMlUrl . $path);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+            CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_CONNECTTIMEOUT => 3,
+        ]);
+        $raw = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($raw === false || $raw === '' || $httpCode >= 400) return null;
+        $data = json_decode($raw, true);
+        return is_array($data) ? $data : null;
+    }
+
+    private function ragMlTimeout(string $key, int $default): int {
+        $value = getenv($key);
+        if ($value === false || $value === '') return $default;
+        return max(1, (int)$value);
+    }
+
+    private function documentKey(array $doc): string {
+        $source = (string)($doc['source'] ?? '');
+        $title = (string)($doc['title'] ?? '');
+        $content = mb_substr((string)($doc['content'] ?? ''), 0, 120);
+        return sha1($source . '|' . $title . '|' . $content);
     }
 
     private function getMarkdownDocuments(): array {

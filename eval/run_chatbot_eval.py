@@ -69,6 +69,7 @@ def call_chatbot(
         headers["Authorization"] = f"Bearer {bearer_token}"
 
     last_response: requests.Response | None = None
+    last_error: str | None = None
     for attempt in range(max_retries + 1):
         started = time.perf_counter()
         response = requests.post(
@@ -78,15 +79,29 @@ def call_chatbot(
             timeout=timeout,
         )
         latency_ms = int((time.perf_counter() - started) * 1000)
-        if response.status_code != 429 or attempt >= max_retries:
+        should_retry = response.status_code == 429 or response.status_code >= 500
+        if not should_retry:
             response.raise_for_status()
-            return response.json(), latency_ms
+            try:
+                return response.json(), latency_ms
+            except ValueError as exc:
+                last_error = f"Non-JSON response HTTP {response.status_code}: {response.text[:200]}"
+                should_retry = True
+        else:
+            last_error = f"HTTP {response.status_code}: {response.text[:200]}"
+
+        if not should_retry or attempt >= max_retries:
+            break
         last_response = response
         time.sleep(retry_delay)
 
-    assert last_response is not None
-    last_response.raise_for_status()
-    return last_response.json(), 0
+    status = last_response.status_code if last_response is not None else 0
+    return {
+        "message": f"[EVAL_ERROR] {last_error or f'HTTP {status}'}",
+        "products": [],
+        "knowledge_sources": [],
+        "session_token": session_token,
+    }, 0
 
 
 @maybe_traceable
@@ -103,12 +118,75 @@ def call_knowledge(base_url: str, question: str, category: str | None, timeout: 
     return [str(item.get("content", "")) for item in data.get("results", []) if item.get("content")]
 
 
+def product_tool_evidence(products: list[dict[str, Any]]) -> list[str]:
+    contexts: list[str] = []
+    for product in products:
+        lines = [
+            "[Source: product_inventory]",
+            f"Product ID: {product.get('id', '')}",
+            f"Name: {product.get('name', '')}",
+            f"Price: {product.get('price', '')}",
+            f"Stock: {product.get('stock', '')}",
+            f"Availability: {product.get('stock_status', '')}",
+        ]
+        sizes = product.get("available_sizes")
+        if isinstance(sizes, list) and sizes:
+            lines.append("Available sizes: " + ", ".join(str(size) for size in sizes))
+        contexts.append("\n".join(lines))
+    return contexts
+
+
+def order_tool_evidence(case: dict[str, Any], answer: str, bearer_token: str | None) -> list[str]:
+    text = (case.get("question", "") + " " + case.get("id", "") + " " + answer).lower()
+    is_order = (
+        case.get("type") == "order"
+        or "đơn hàng" in text
+        or "mã đơn" in text
+        or "đơn của tôi" in text
+        or "theo dõi đơn" in text
+    )
+    if not is_order:
+        return []
+
+    if bearer_token:
+        return [
+            "\n".join([
+                "[Source: order_auth]",
+                "Authenticated: true",
+                "Order data access: allowed only for orders owned by the authenticated user",
+            ])
+        ]
+
+    return [
+        "\n".join([
+            "[Source: order_auth]",
+            "Authenticated: false",
+            "Order data access: denied",
+            "Required action: user must log in before checking personal order status or private order details",
+        ])
+    ]
+
+
+def build_evaluation_contexts(
+    rag_documents: list[str],
+    products: list[dict[str, Any]],
+    case: dict[str, Any],
+    answer: str,
+    bearer_token: str | None,
+) -> list[str]:
+    contexts: list[str] = []
+    contexts.extend(rag_documents)
+    contexts.extend(product_tool_evidence(products))
+    contexts.extend(order_tool_evidence(case, answer, bearer_token))
+    return [context for context in contexts if context.strip()]
+
+
 def infer_category(case: dict[str, Any]) -> str | None:
     text = (case.get("question", "") + " " + case.get("id", "")).lower()
-    if "ship" in text or "giao" in text:
-        return "shipping"
     if "đổi" in text or "trả" in text or "sale" in text:
         return "return"
+    if "ship" in text or "giao" in text:
+        return "shipping"
     if "bảo hành" in text or "lỗi" in text:
         return "warranty"
     if "thanh toán" in text:
@@ -195,7 +273,8 @@ def run_cases(
             answer = str(response.get("message", ""))
             products = response.get("products") or []
             sources = response.get("knowledge_sources") or []
-            contexts = call_knowledge(base_url, turn["question"], infer_category(turn), timeout) if turn.get("expect_knowledge") else []
+            rag_documents = call_knowledge(base_url, turn["question"], infer_category(turn), timeout) if turn.get("expect_knowledge") else []
+            contexts = build_evaluation_contexts(rag_documents, products, turn, answer, bearer_token)
             failures = deterministic_check(turn, answer, products, sources)
             rows.append(EvalRow(
                 scenario_id=scenario_id,
@@ -288,7 +367,7 @@ def run_ragas(rows: list[EvalRow]) -> dict[str, Any] | None:
 
                 embedding_model = os.getenv(
                     "RAGAS_EMBEDDING_MODEL",
-                    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                    "bkai-foundation-models/vietnamese-bi-encoder",
                 )
                 kwargs["embeddings"] = HuggingFaceEmbeddings(
                     model_name=embedding_model,
@@ -313,6 +392,8 @@ def run_ragas(rows: list[EvalRow]) -> dict[str, Any] | None:
         output = dict(result)
         if notes:
             output["_notes"] = notes
+        output.setdefault("_notes", [])
+        output["_notes"].append("RAGAS contexts include RAG documents plus serialized product/order evidence when those tools are used.")
         return output
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}

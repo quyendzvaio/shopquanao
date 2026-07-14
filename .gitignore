@@ -39,6 +39,21 @@ DOCKER.md
 # Reports and generated evidence
 reports/
 report/
+reports-*/
+report-*/
+*_report.*
+*_reports.*
+*report*.json
+*report*.md
+*report*.html
+*report*.csv
+BAO_CAO*
+Bao_cao*
+bao_cao*
+chatbot_*_ragas_langsmith*.json
+chatbot_*_eval*.json
+ragas_*.json
+langsmith_*.json
 test-evidence/
 postman/
 

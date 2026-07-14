@@ -34,6 +34,7 @@ COPY includes/ includes/
 COPY css/ css/
 COPY sql/ sql/
 COPY knowledge/ knowledge/
+COPY scripts/ingest_knowledge.php scripts/ingest_knowledge.php
 COPY images/ images/
 COPY *.php ./
 COPY admin/*.php admin/

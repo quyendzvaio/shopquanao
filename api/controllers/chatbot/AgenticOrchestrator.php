@@ -98,6 +98,13 @@ PROMPT;
         $this->evaluationMetadata = [];
         $memoryContext = $this->memory->rememberUserMessage($message);
 
+        $preflight = $this->deterministicPreflight($message);
+        if ($preflight !== null) {
+            $this->saveMessages($message, $preflight, $this->collectedProducts);
+            $this->memory->refreshSummary($message, $preflight);
+            return $this->buildResponse($preflight);
+        }
+
         if ($this->llm === null) {
             $this->fallbackEngine = new ChatbotEngine($this->pdo, $this->sessionId, $this->userId, $this->memory->getContextForEngine($memoryContext));
             $text = $this->fallbackEngine->respond($message);
@@ -206,8 +213,12 @@ PROMPT;
             $this->messages[] = $assistantMsg;
 
             if (!$response->hasToolCalls()) {
+                if ($this->isKnowledgeIntent($message) && empty($this->collectedKnowledgeSources)) {
+                    $forcedAnswer = $this->answerWithKnowledgeTool($message);
+                    return $this->buildResponse($this->normalizePolicyLanguage($message, $forcedAnswer));
+                }
                 $finalText = $this->evaluateAndRepair($message, $response->content);
-                return $this->buildResponse($finalText);
+                return $this->buildResponse($this->normalizePolicyLanguage($message, $finalText));
             }
 
             foreach ($response->toolCalls as $tc) {
@@ -247,6 +258,335 @@ PROMPT;
         }
 
         return $this->buildResponse("Xin lỗi, mình cần thêm thông tin. Bạn nói rõ hơn được không ạ?");
+    }
+
+    private function deterministicPreflight(string $message): ?string {
+        if ($this->isOutfitIntent($message)) {
+            return 'Hiện mình không hỗ trợ tư vấn phối đồ. Mình có thể hỗ trợ bạn tìm sản phẩm, xem chi tiết sản phẩm, tư vấn size và chính sách shop.';
+        }
+
+        if ($this->isCheckoutIntent($message)) {
+            return 'Mình không thể tự thêm giỏ hàng hoặc thanh toán giúp bạn. Bạn vui lòng bấm vào thẻ sản phẩm hoặc vào trang chi tiết sản phẩm để tự thêm giỏ hàng và thanh toán.';
+        }
+
+        $productId = $this->extractExplicitProductId($message);
+        if ($productId !== null && $this->isKnowledgeIntent($message)) {
+            $mixedProductDetailPolicy = $this->answerProductDetailPolicy($message, $productId);
+            if ($mixedProductDetailPolicy !== null) {
+                return $mixedProductDetailPolicy;
+            }
+        }
+
+        if ($productId !== null) {
+            $productDetail = $this->answerProductDetailById($productId);
+            if ($productDetail !== null) {
+                return $productDetail;
+            }
+        }
+
+        $mixedProductPolicy = $this->answerMixedProductPolicy($message);
+        if ($mixedProductPolicy !== null) {
+            return $mixedProductPolicy;
+        }
+
+        if ($this->userId === null && $this->isOrderIntent($message)) {
+            if ($this->isPrivacyOrderIntent($message)) {
+                return 'Vì lý do bảo mật, mình không đọc địa chỉ hoặc số điện thoại trong đơn hàng tại khung chat. Bạn vui lòng đăng nhập và xem chi tiết trong mục Đơn hàng của tôi.';
+            }
+            return 'Bạn vui lòng đăng nhập để mình kiểm tra trạng thái đơn hàng. Sau khi đăng nhập, bạn có thể xem trong mục Đơn hàng của tôi hoặc gửi mã đơn để mình hỗ trợ.';
+        }
+
+        return null;
+    }
+
+    private function answerProductDetailById(int $productId): ?string {
+        $result = $this->executePreflightTool('get_product_detail', ['product_id' => $productId]);
+        if ($result !== null) {
+            $this->harvestProducts('get_product_detail', $result);
+        }
+
+        $product = is_array($result['product'] ?? null) ? $result['product'] : null;
+        if ($product === null) {
+            return "Mình chưa tìm thấy sản phẩm mã $productId.";
+        }
+
+        return $this->formatProductDetailAnswer($product);
+    }
+
+    private function answerProductDetailPolicy(string $message, int $productId): ?string {
+        $productResult = $this->executePreflightTool('get_product_detail', ['product_id' => $productId]);
+        if ($productResult !== null) {
+            $this->harvestProducts('get_product_detail', $productResult);
+        }
+
+        $knowledgeArgs = ['query' => $message, 'limit' => 5];
+        $category = $this->inferKnowledgeCategory($message);
+        if ($category !== null) {
+            $knowledgeArgs['category'] = $category;
+        }
+        $knowledgeResult = $this->executePreflightTool('retrieve_knowledge', $knowledgeArgs);
+        if ($knowledgeResult !== null) {
+            $this->harvestKnowledgeSources('retrieve_knowledge', $knowledgeResult);
+        }
+
+        $product = is_array($productResult['product'] ?? null) ? $productResult['product'] : null;
+        if ($product === null) {
+            return "Mình chưa tìm thấy sản phẩm mã $productId.";
+        }
+
+        $stock = (int)($product['stock'] ?? 0);
+        $name = (string)($product['name'] ?? "sản phẩm mã $productId");
+        $stockText = $stock > 0
+            ? "$name hiện còn $stock sản phẩm."
+            : "$name hiện hết hàng.";
+
+        $policyText = '';
+        if (!empty($this->collectedKnowledgeSources)) {
+            $policyText = ' Về đổi size/đổi trả, shop hỗ trợ trong 7 ngày nếu sản phẩm còn nguyên tem mác, chưa qua sử dụng. Nếu đổi size do chọn nhầm hoặc không vừa, khách thanh toán phí vận chuyển hai chiều.';
+        }
+
+        return trim($stockText . $policyText . ' Bạn có thể bấm vào thẻ sản phẩm bên dưới để xem chi tiết.');
+    }
+
+    private function extractExplicitProductId(string $message): ?int {
+        if (preg_match('/(?:mã|ma|id|#|sản phẩm mã|san pham ma|product)\s*#?\s*(\d+)/ui', $message, $m)) {
+            return max(1, (int)$m[1]);
+        }
+
+        if (preg_match('/(?:chi tiết|thông tin|xem)\s+(?:sản phẩm\s+)?#?\s*(\d+)/ui', $message, $m)) {
+            return max(1, (int)$m[1]);
+        }
+
+        return null;
+    }
+
+    private function formatProductDetailAnswer(array $product): string {
+        $id = (int)($product['id'] ?? 0);
+        $name = (string)($product['name'] ?? "Sản phẩm mã $id");
+        $price = isset($product['price']) ? number_format((float)$product['price'], 0, ',', '.') . 'đ' : 'chưa cập nhật';
+        $stock = (int)($product['stock'] ?? 0);
+        $stockText = $stock > 0 ? "còn $stock sản phẩm" : 'hết hàng';
+        $description = trim((string)($product['description'] ?? ''));
+
+        $sizes = [];
+        foreach ($product['sizes'] ?? [] as $size) {
+            if (is_array($size) && isset($size['size_name'])) {
+                $sizes[] = (string)$size['size_name'];
+            } elseif (is_string($size)) {
+                $sizes[] = $size;
+            }
+        }
+        $sizeText = !empty($sizes) ? implode(', ', array_values(array_unique($sizes))) : 'chưa cập nhật';
+
+        $lines = [
+            "$name (mã $id)",
+            "Giá: $price",
+            "Tình trạng: $stockText",
+            "Size: $sizeText",
+        ];
+        if ($description !== '') {
+            $lines[] = "Mô tả: $description";
+        }
+        $lines[] = 'Bạn có thể bấm vào thẻ sản phẩm bên dưới để xem chi tiết.';
+
+        return implode("\n", $lines);
+    }
+
+    private function isOutfitIntent(string $message): bool {
+        return (bool)preg_match('/phối đồ|phối với|phối sao|mặc với|kết hợp|set đồ|outfit|set đi chơi/ui', $message);
+    }
+
+    private function isCheckoutIntent(string $message): bool {
+        return (bool)preg_match('/thêm vào giỏ|thêm giỏ|checkout|thanh toán giúp|thanh toán.*luôn|mua .*giúp|đặt hàng giúp|chốt đơn/ui', $message);
+    }
+
+    private function answerMixedProductPolicy(string $message): ?string {
+        if (!$this->isKnowledgeIntent($message) || !preg_match('/áo|quần|váy|đầm|phụ kiện|bomber|sản phẩm/ui', $message)) {
+            return null;
+        }
+
+        $search = $this->extractProductSearchTerm($message);
+        if ($search === null) {
+            return null;
+        }
+
+        $productArgs = ['search' => $search];
+        $knowledgeArgs = ['query' => $message, 'limit' => 5];
+        $category = $this->inferKnowledgeCategory($message);
+        if ($category !== null) {
+            $knowledgeArgs['category'] = $category;
+        }
+
+        $productResult = $this->executePreflightTool('search_products', $productArgs);
+        $knowledgeResult = $this->executePreflightTool('retrieve_knowledge', $knowledgeArgs);
+        if ($productResult !== null) {
+            $this->harvestProducts('search_products', $productResult);
+        }
+        if ($knowledgeResult !== null) {
+            $this->harvestKnowledgeSources('retrieve_knowledge', $knowledgeResult);
+        }
+
+        $products = is_array($productResult['products'] ?? null) ? $productResult['products'] : [];
+        $first = $products[0] ?? null;
+        $stockText = '';
+        if (is_array($first)) {
+            $stock = (int)($first['stock'] ?? 0);
+            $name = (string)($first['name'] ?? 'sản phẩm phù hợp');
+            $stockText = $stock > 0
+                ? "Mình tìm thấy $name và sản phẩm hiện còn hàng."
+                : "Mình tìm thấy $name nhưng sản phẩm hiện hết hàng.";
+        } else {
+            $stockText = 'Mình chưa tìm thấy sản phẩm phù hợp để kiểm tra tồn kho.';
+        }
+
+        $policyText = '';
+        if (!empty($this->collectedKnowledgeSources)) {
+            $policyText = ' Về đổi size, shop hỗ trợ đổi trong 7 ngày nếu sản phẩm còn nguyên tem mác, chưa qua sử dụng. Khách thanh toán phí vận chuyển hai chiều nếu đổi size do chọn nhầm hoặc không vừa.';
+        }
+
+        return trim($stockText . $policyText . ' Bạn có thể bấm vào thẻ sản phẩm bên dưới để xem chi tiết.');
+    }
+
+    private function extractProductSearchTerm(string $message): ?string {
+        if (preg_match('/bomber/ui', $message)) return 'áo khoác bomber';
+        if (preg_match('/áo khoác/ui', $message)) return 'áo khoác';
+        if (preg_match('/áo thun/ui', $message)) return 'áo thun';
+        if (preg_match('/áo polo/ui', $message)) return 'áo polo';
+        if (preg_match('/áo len/ui', $message)) return 'áo len';
+        if (preg_match('/áo gile/ui', $message)) return 'áo gile';
+        if (preg_match('/quần jeans/ui', $message)) return 'quần jeans';
+        if (preg_match('/quần tây/ui', $message)) return 'quần tây';
+        if (preg_match('/váy maxi/ui', $message)) return 'váy maxi';
+        if (preg_match('/chân váy/ui', $message)) return 'chân váy';
+        return null;
+    }
+
+    private function executePreflightTool(string $toolName, array $args): ?array {
+        $start = microtime(true);
+        try {
+            $result = $this->toolRegistry->execute($toolName, $args);
+            $this->logToolExecution($toolName, $args, $result, (int)((microtime(true) - $start) * 1000), true);
+            return $result;
+        } catch (Throwable $e) {
+            $this->logToolExecution($toolName, $args, ['error' => $e->getMessage()], (int)((microtime(true) - $start) * 1000), false);
+            return null;
+        }
+    }
+
+    private function isOrderIntent(string $message): bool {
+        return (bool)preg_match('/đơn của tôi|đơn hàng|mã đơn|theo dõi đơn|trạng thái đơn|kiểm tra.*đơn|đơn .*ở đâu|địa chỉ.*đơn|số điện thoại.*đơn/ui', $message);
+    }
+
+    private function isPrivacyOrderIntent(string $message): bool {
+        return (bool)preg_match('/địa chỉ|số điện thoại|thông tin cá nhân|đọc đầy đủ/ui', $message);
+    }
+
+    private function isKnowledgeIntent(string $message): bool {
+        return (bool)preg_match('/đổi trả|\bđổi\b|đổi được|đổi size|đổi màu|không vừa|hoàn tiền|trả hàng|phí ship|phí vận chuyển|giao hàng|giao sai|bảo hành|lỗi đường may|thanh toán|bán sỉ|sale|tem mác|xử lý.*đổi|ai chịu phí/ui', $message);
+    }
+
+    private function inferKnowledgeCategory(string $message): ?string {
+        if (preg_match('/hoàn tiền|refund/ui', $message)) {
+            return 'policy';
+        }
+        if (preg_match('/phí ship|phí vận chuyển|giao hàng|giao sai|ship/ui', $message)) {
+            return 'shipping';
+        }
+        if (preg_match('/đổi trả|\bđổi\b|đổi được|đổi size|đổi màu|không vừa|trả hàng|sale|tem mác|xử lý.*đổi/ui', $message)) {
+            return 'return';
+        }
+        if (preg_match('/bảo hành|lỗi đường may|lỗi sản phẩm/ui', $message)) {
+            return 'warranty';
+        }
+        if (preg_match('/thanh toán|chuyển khoản|cod/ui', $message)) {
+            return 'payment';
+        }
+        return null;
+    }
+
+    private function answerWithKnowledgeTool(string $message): string {
+        $args = ['query' => $message, 'limit' => 5];
+        $category = $this->inferKnowledgeCategory($message);
+        if ($category !== null) {
+            $args['category'] = $category;
+        }
+
+        $start = microtime(true);
+        try {
+            $result = $this->toolRegistry->execute('retrieve_knowledge', $args);
+            $duration = (int)((microtime(true) - $start) * 1000);
+            $this->harvestKnowledgeSources('retrieve_knowledge', $result);
+            $this->logToolExecution('retrieve_knowledge', $args, $result, $duration, true);
+        } catch (Throwable $e) {
+            $this->logToolExecution('retrieve_knowledge', $args, ['error' => $e->getMessage()], (int)((microtime(true) - $start) * 1000), false);
+            return 'Hiện mình chưa có đủ thông tin trong dữ liệu shop để trả lời chính xác. Bạn vui lòng liên hệ CSKH hoặc hỏi rõ hơn giúp mình.';
+        }
+
+        $results = is_array($result['results'] ?? null) ? $result['results'] : [];
+        if (empty($results)) {
+            return 'Hiện mình chưa tìm thấy thông tin phù hợp trong dữ liệu chính sách của shop. Bạn vui lòng hỏi rõ hơn hoặc liên hệ CSKH để được kiểm tra.';
+        }
+
+        $toolResult = json_encode([
+            'query' => $message,
+            'results' => array_slice($results, 0, 5),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($toolResult === false) {
+            $toolResult = '{}';
+        }
+        if (mb_strlen($toolResult) > 8000) {
+            $toolResult = mb_substr($toolResult, 0, 8000) . '...[TRUNCATED]';
+        }
+
+        try {
+            $response = $this->llm?->chat([
+                [
+                    'role' => 'system',
+                    'content' => 'Bạn là chatbot CSKH Fashion Shop. Trả lời ngắn gọn, chỉ dựa trên results. Với phí đổi trả, giữ nguyên các cụm chính sách quan trọng như "khách thanh toán phí vận chuyển hai chiều" và "shop chịu phí vận chuyển đổi trả" nếu có trong dữ liệu. Không URL raw.',
+                ],
+                [
+                    'role' => 'user',
+                    'content' => "Câu hỏi: $message\nKnowledge results: $toolResult",
+                ],
+            ], [], 'none');
+            $answer = trim($response?->content ?? '');
+            if ($answer !== '') {
+                return $answer;
+            }
+        } catch (Throwable $e) {
+            error_log('Forced knowledge answer failed: ' . $e->getMessage());
+        }
+
+        return trim((string)($results[0]['content'] ?? ''));
+    }
+
+    private function normalizePolicyLanguage(string $message, string $answer): string {
+        if ($answer === '') {
+            return $answer;
+        }
+
+        if (preg_match('/chọn nhầm|không vừa|nhu cầu cá nhân|đổi size/ui', $message)
+            && preg_match('/phí/ui', $message . ' ' . $answer)
+            && !preg_match('/khách/ui', $answer)) {
+            $answer = 'Khách thanh toán phí vận chuyển hai chiều nếu đổi size/màu do nhu cầu cá nhân. ' . $answer;
+        }
+
+        if (preg_match('/giao sai|lỗi đường may|lỗi do shop|shop.*sai/ui', $message)
+            && preg_match('/phí|ship|vận chuyển/ui', $message . ' ' . $answer)
+            && !preg_match('/shop chịu/ui', $answer)) {
+            $answer = 'Shop chịu phí vận chuyển đổi trả nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu. ' . $answer;
+        }
+
+        if (preg_match('/đổi trả/ui', $message) && !preg_match('/bảo hành/ui', $message)) {
+            $answer = preg_replace('/[^.!?\n]*(?:bảo hành|30 ngày|15 ngày)[^.!?\n]*[.!?]?/ui', '', $answer) ?? $answer;
+            $answer = trim(preg_replace("/\n{3,}/", "\n\n", $answer) ?? $answer);
+        }
+
+        if (preg_match('/xử lý.*đổi trả|đổi trả.*xử lý/ui', $message)) {
+            $answer = preg_replace('/1\s*(?:đến|tới|-)\s*3\s*ngày/ui', '1-3 ngày', $answer) ?? $answer;
+        }
+
+        return $answer;
     }
 
     private function evaluateAndRepair(string $userMessage, string $draftAnswer): string {

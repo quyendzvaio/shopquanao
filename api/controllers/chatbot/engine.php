@@ -106,6 +106,9 @@ class ChatbotEngine {
         if ($this->isPolicyRequest($message)) {
             return $this->handlePolicyKnowledge($message);
         }
+        if ($this->isSizeAdviceRequest($message)) {
+            return $this->handleSizeAdvice($message);
+        }
         $intent = $this->classify($message);
         $response = $this->execute($intent, $message);
         return $response;
@@ -446,6 +449,11 @@ class ChatbotEngine {
             && (bool)preg_match('/bomber|hoodie|polo|jeans|sơ mi|áo thun|áo khoác|váy maxi|chân váy|quần tây|quần short|mã\s*\d+|sản phẩm này/ui', $message);
     }
 
+    private function isSizeAdviceRequest(string $message): bool {
+        return (bool)preg_match('/\bsize\b|chọn size|mặc size|kích cỡ|mặc vừa/ui', $message)
+            && !(bool)preg_match('/mã\s*\d+|sản phẩm\s*mã|chi tiết/ui', $message);
+    }
+
     private function handlePolicyKnowledge(string $message): string {
         $retriever = new KnowledgeRetriever($this->pdo);
         $category = $this->inferPolicyCategory($message);
@@ -477,7 +485,8 @@ class ChatbotEngine {
 
     private function inferPolicyCategory(string $message): ?string {
         $msg = mb_strtolower($message);
-        if (preg_match('/đổi|trả|hoàn tiền|sale|size/ui', $msg)) return 'return';
+        if (preg_match('/hoàn tiền|refund/ui', $msg)) return 'policy';
+        if (preg_match('/đổi|trả|sale|size/ui', $msg)) return 'return';
         if (preg_match('/ship|giao|vận chuyển/ui', $msg)) return 'shipping';
         if (preg_match('/bảo hành|lỗi/ui', $msg)) return 'warranty';
         if (preg_match('/thanh toán|cod|momo|vnpay/ui', $msg)) return 'payment';

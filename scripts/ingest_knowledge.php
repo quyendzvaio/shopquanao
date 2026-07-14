@@ -5,8 +5,8 @@
  * Usage:
  *   php scripts/ingest_knowledge.php
  *
- * Requires QDRANT_URL. Uses local deterministic embeddings by default, so no
- * external embedding API is required for development.
+ * Requires QDRANT_URL and RAG_ML_URL for semantic embeddings. The default
+ * runtime model is bkai-foundation-models/vietnamese-bi-encoder.
  */
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../api/cache/Cache.php';

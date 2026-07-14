@@ -36,11 +36,27 @@ eval/
 test-evidence/
 reports/
 report/
+reports-*/
+report-*/
+*_report.*
+*_reports.*
+*report*.json
+*report*.md
+*report*.html
+*report*.csv
+BAO_CAO*
+Bao_cao*
+bao_cao*
+chatbot_*_ragas_langsmith*.json
+chatbot_*_eval*.json
+ragas_*.json
+langsmith_*.json
 postman/
 .phpunit.cache/
 
-# Scripts (dev only)
-scripts/
+# Scripts (dev only), except production knowledge ingest entrypoint
+scripts/*
+!scripts/ingest_knowledge.php
 node_modules/
 vendor/
 composer.phar
