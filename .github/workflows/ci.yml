@@ -339,39 +339,65 @@ jobs:
             echo "DB_PASS=${{ secrets.DB_PASS }}" >> .env
             echo "PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}" >> .env
             echo "RERANKER_URL=http://reranker:8000" >> .env
+            echo "RAG_ML_WARMUP_ON_START=${{ secrets.RAG_ML_WARMUP_ON_START || 'true' }}" >> .env
             echo ".env written ($(wc -l < .env) lines)"
 
+            echo "Stopping current stack before cleanup..."
+            docker compose down --remove-orphans 2>/dev/null || true
+
+            echo "=== Disk before project cleanup ==="
+            df -h / | tail -1
+            docker system df || true
+
+            # Aggressive cleanup for small VPS disks. This preserves named
+            # volumes such as db_data/qdrant_data/hf_cache because --volumes is
+            # intentionally not used.
+            docker container prune -f 2>/dev/null || true
+            docker image prune -af 2>/dev/null || true
+            docker builder prune -af 2>/dev/null || true
+            docker system prune -af 2>/dev/null || true
+
+            echo "=== Disk after project cleanup ==="
+            df -h / | tail -1
+            docker system df || true
+
             FREE_MB=$(df -Pm / | awk 'NR==2 {print $4}')
-            if [ "${FREE_MB:-0}" -lt 1200 ]; then
-              echo "⚠️ Low disk (${FREE_MB}MB free). Stopping current stack before image prune."
-              docker compose down --remove-orphans 2>/dev/null || true
-              docker image prune -af 2>/dev/null || true
-              docker builder prune -af 2>/dev/null || true
-              echo "=== Disk after low-space cleanup ==="
-              df -h / | tail -1
-              docker system df || true
+            if [ "${FREE_MB:-0}" -lt 6000 ]; then
+              echo "❌ Not enough free disk after Docker cleanup: ${FREE_MB}MB."
+              echo "Need at least 6000MB for MariaDB/Nginx/Redis/Qdrant plus app/reranker/rag-ml image build."
+              echo "Manual fix on server:"
+              echo "  docker compose down --remove-orphans || true"
+              echo "  docker system prune -af"
+              echo "  docker builder prune -af"
+              echo "  df -h /"
+              exit 1
             fi
 
             # Build images (cache-aware)
             echo "Building images..."
             docker compose build reranker
+            docker compose build rag-ml
             docker compose build app
+
+            echo "Pulling runtime base images..."
+            docker compose pull nginx db redis qdrant
 
             # Deploy
             echo "Starting containers..."
             docker compose up -d --remove-orphans
 
-            # Healthcheck with extended timeout for reranker cold start
-            echo "Waiting for app (up to 120s)..."
-            for i in $(seq 1 40); do
+            # Healthcheck with extended timeout for rag-ml model warmup.
+            echo "Waiting for app (up to 300s)..."
+            for i in $(seq 1 100); do
               STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8090/api/products?limit=1 2>/dev/null || echo "000")
               if [ "$STATUS" = "200" ]; then
                 echo "✅ App ready (${i}x3s)"
                 break
               fi
-              if [ "$i" -eq 40 ]; then
-                echo "❌ App failed after 120s"
+              if [ "$i" -eq 100 ]; then
+                echo "❌ App failed after 300s"
                 docker compose logs app --tail=30 2>/dev/null || true
+                docker compose logs rag-ml --tail=30 2>/dev/null || true
                 exit 1
               fi
               sleep 3
@@ -381,8 +407,12 @@ jobs:
             echo "Checking reranker..."
             curl -sf http://localhost:8001/health && echo " ✅" || echo " ⚠️ Reranker still warming up (ok)"
 
+            echo "Checking rag-ml..."
+            docker compose exec -T rag-ml curl -sf http://localhost:8000/health && echo " ✅" || echo " ⚠️ rag-ml still warming up"
+
             # Final cleanup
             docker image prune -f 2>/dev/null || true
+            docker builder prune -af --filter "until=24h" 2>/dev/null || true
             echo "=== Disk after deploy ==="
             df -h / | tail -1
             echo "✅ Deploy complete!"
