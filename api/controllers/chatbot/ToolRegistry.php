@@ -194,10 +194,6 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
             return $detail;
         }
 
-        if ($this->isSqlite()) {
-            return $this->executeSearchProductsDirect($args);
-        }
-
         $queryParams = [
             'search' => $args['search'] ?? '',
             'sort' => 'price_asc',
@@ -207,24 +203,35 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         if (!empty($args['min_price'])) $queryParams['min_price'] = $args['min_price'];
         if (!empty($args['max_price'])) $queryParams['max_price'] = $args['max_price'];
 
-        // Check cache first
-        $cached = Cache::getSearchResult($queryParams);
-        if ($cached !== null) {
-            return $cached;
+        $cachedIds = Cache::getProductSearchIds($queryParams);
+        if ($cachedIds !== null && isset($cachedIds['product_ids']) && is_array($cachedIds['product_ids'])) {
+            $freshProducts = $this->fetchFreshProductsByIds(array_map('intval', $cachedIds['product_ids']));
+            if (!empty($freshProducts)) {
+                return [
+                    'products' => $freshProducts,
+                    'pagination' => [
+                        'page' => 1,
+                        'limit' => null,
+                        'total' => (int)($cachedIds['total'] ?? count($freshProducts)),
+                        'total_pages' => 1,
+                    ],
+                    'cache' => ['product_cache_hit' => true, 'cache_policy' => 'ids_only_fresh_price_stock'],
+                ];
+            }
         }
 
-        $base = getInternalApiUrl();
-        $url = "$base/api/products?" . http_build_query($queryParams);
-        $result = $this->fetchJson($url);
+        $result = $this->executeSearchProductsDirect($args);
 
-        // Rerank if enough results
         if (!isset($result['error']) && !empty($result['products'])) {
             $result = $this->applyRerank($args['search'] ?? '', $result);
         }
 
-        // Only cache successful results (no error)
         if (!isset($result['error'])) {
-            Cache::setSearchResult($queryParams, $result);
+            Cache::setProductSearchIds($queryParams, [
+                'product_ids' => array_values(array_map(fn($p) => (int)$p['id'], $result['products'] ?? [])),
+                'total' => (int)($result['pagination']['total'] ?? count($result['products'] ?? [])),
+            ]);
+            $result['cache'] = ['product_cache_hit' => false, 'cache_policy' => 'ids_only_fresh_price_stock'];
         }
 
         return $result;
@@ -257,20 +264,28 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         $id = $args['product_id'] ?? 0;
         if (!$id) return ['error' => 'Product ID required'];
 
-        // Check cache
-        $cached = Cache::getProductDetail($id);
-        if ($cached !== null) {
-            return $cached;
+        $static = Cache::getProductDetailStatic($id);
+        if ($static === null) {
+            $static = $this->fetchProductDetailStatic($id);
+            if (isset($static['error'])) {
+                return $static;
+            }
+            Cache::setProductDetailStatic($id, $static);
         }
 
-        $url = getInternalApiUrl() . "/api/products/$id";
-        $result = $this->fetchJson($url);
-
-        if (!isset($result['error'])) {
-            Cache::setProductDetail($id, $result);
+        $fresh = $this->fetchProductFreshById($id);
+        if ($fresh === null) {
+            return ['error' => 'Product not found'];
         }
 
-        return $result;
+        $product = array_merge($static['product'] ?? [], $fresh);
+        return [
+            'product' => $product,
+            'cache' => [
+                'product_detail_static_cache_hit' => true,
+                'cache_policy' => 'static_metadata_only_fresh_price_stock',
+            ],
+        ];
     }
 
     private function executeSuggestSize(array $args): array {
@@ -286,15 +301,137 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
             return $cached;
         }
 
-        $params = http_build_query($queryParams);
-        $url = getInternalApiUrl() . "/api/size-guide?$params";
-        $result = $this->fetchJson($url);
+        $result = $this->suggestSizeDirect($queryParams);
 
         if (!isset($result['error'])) {
             Cache::setSizeGuide($queryParams, $result);
         }
 
         return $result;
+    }
+
+    private function fetchFreshProductsByIds(array $ids): array {
+        $ids = array_values(array_filter(array_unique($ids), fn($id) => $id > 0));
+        if ($ids === []) return [];
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare("SELECT p.id, p.category_id, p.name, p.price, p.stock, p.image, c.name as category_name
+                FROM products p
+                LEFT JOIN categories c ON p.category_id = c.id
+                WHERE p.id IN ($placeholders)");
+        $stmt->execute($ids);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $byId = [];
+        foreach ($rows as $p) {
+            $p['id'] = (int)$p['id'];
+            $p['category_id'] = $p['category_id'] !== null ? (int)$p['category_id'] : null;
+            $p['price'] = (float)$p['price'];
+            $p['stock'] = (int)($p['stock'] ?? 0);
+            $byId[$p['id']] = $p;
+        }
+        $ordered = [];
+        foreach ($ids as $id) {
+            if (isset($byId[$id])) $ordered[] = $byId[$id];
+        }
+        return $ordered;
+    }
+
+    private function fetchProductFreshById(int $id): ?array {
+        $stmt = $this->pdo->prepare("SELECT id, price, stock FROM products WHERE id = ?");
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+        return [
+            'id' => (int)$row['id'],
+            'price' => (float)$row['price'],
+            'stock' => (int)($row['stock'] ?? 0),
+        ];
+    }
+
+    private function fetchProductDetailStatic(int $id): array {
+        $stmt = $this->pdo->prepare("SELECT p.id, p.category_id, p.name, p.description, p.image, c.name as category_name
+                FROM products p
+                LEFT JOIN categories c ON p.category_id = c.id
+                WHERE p.id = ?");
+        $stmt->execute([$id]);
+        $product = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$product) return ['error' => 'Product not found'];
+
+        $product['id'] = (int)$product['id'];
+        $product['category_id'] = $product['category_id'] !== null ? (int)$product['category_id'] : null;
+        $product['sizes'] = [];
+        try {
+            $stmt = $this->pdo->prepare("SELECT * FROM product_sizes WHERE product_id = ?");
+            $stmt->execute([$id]);
+            $product['sizes'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {}
+
+        try {
+            $stmt = $this->pdo->prepare("SELECT AVG(rating) as avg_rating, COUNT(*) as total_reviews FROM reviews WHERE product_id = ?");
+            $stmt->execute([$id]);
+            $rating = $stmt->fetch(PDO::FETCH_ASSOC);
+            $product['avg_rating'] = $rating && $rating['avg_rating'] ? round((float)$rating['avg_rating'], 1) : null;
+            $product['total_reviews'] = $rating ? (int)$rating['total_reviews'] : 0;
+        } catch (Throwable $e) {
+            $product['avg_rating'] = null;
+            $product['total_reviews'] = 0;
+        }
+
+        return ['product' => $product];
+    }
+
+    private function suggestSizeDirect(array $queryParams): array {
+        $height = (int)($queryParams['height'] ?? 0);
+        $weight = (int)($queryParams['weight'] ?? 0);
+        $catId = (int)($queryParams['category_id'] ?? 0);
+        if ($height <= 0 || $weight <= 0) return ['error' => 'Height and weight are required'];
+
+        $orderBy = $this->isSqlite()
+            ? "ORDER BY category_id, CASE size_name WHEN 'S' THEN 1 WHEN 'M' THEN 2 WHEN 'L' THEN 3 WHEN 'XL' THEN 4 ELSE 5 END"
+            : "ORDER BY category_id, FIELD(size_name, 'S','M','L','XL')";
+        if ($catId > 0) {
+            $stmt = $this->pdo->prepare("SELECT * FROM size_guides WHERE category_id = ? $orderBy");
+            $stmt->execute([$catId]);
+        } else {
+            $stmt = $this->pdo->query("SELECT * FROM size_guides $orderBy");
+        }
+        $sizes = $this->dedupeSizeRows($stmt->fetchAll(PDO::FETCH_ASSOC));
+        $recommended = null;
+        foreach ($sizes as $s) {
+            $hOk = (!$s['height_from'] || $height >= (int)$s['height_from'])
+                && (!$s['height_to'] || $height <= (int)$s['height_to']);
+            $wOk = (!$s['weight_from'] || $weight >= (int)$s['weight_from'])
+                && (!$s['weight_to'] || $weight <= (int)$s['weight_to']);
+            if ($hOk && $wOk) {
+                $recommended = $s;
+                break;
+            }
+        }
+        return ['recommended' => $recommended, 'sizes' => $sizes];
+    }
+
+    private function dedupeSizeRows(array $rows): array {
+        $seen = [];
+        $sizes = [];
+        foreach ($rows as $s) {
+            if (!is_array($s)) continue;
+            $key = implode('|', [
+                $s['category_id'] ?? '',
+                strtoupper((string)($s['size_name'] ?? '')),
+                $s['height_from'] ?? '',
+                $s['height_to'] ?? '',
+                $s['weight_from'] ?? '',
+                $s['weight_to'] ?? '',
+            ]);
+            if (isset($seen[$key])) continue;
+            $seen[$key] = true;
+            foreach (['id', 'category_id', 'product_id', 'height_from', 'height_to', 'weight_from', 'weight_to'] as $field) {
+                if (array_key_exists($field, $s) && $s[$field] !== null && $s[$field] !== '') {
+                    $s[$field] = (int)$s[$field];
+                }
+            }
+            $sizes[] = $s;
+        }
+        return $sizes;
     }
 
     private function executeRetrieveKnowledge(array $args): array {

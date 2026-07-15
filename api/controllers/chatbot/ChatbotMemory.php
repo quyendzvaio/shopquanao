@@ -98,8 +98,8 @@ class ChatbotMemory {
                 session_id int NOT NULL PRIMARY KEY,
                 summary text DEFAULT NULL,
                 slots longtext DEFAULT NULL,
-                created_at timestamp NOT NULL DEFAULT current_timestamp(),
-                updated_at timestamp NOT NULL DEFAULT current_timestamp()
+                created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
             )");
             if ($this->userId === null) {
                 return;
@@ -111,8 +111,8 @@ class ChatbotMemory {
                 important_events longtext DEFAULT NULL,
                 feedback longtext DEFAULT NULL,
                 purchase_history longtext DEFAULT NULL,
-                created_at timestamp NOT NULL DEFAULT current_timestamp(),
-                updated_at timestamp NOT NULL DEFAULT current_timestamp()
+                created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
             )");
         } catch (Throwable $e) {
             error_log("Memory schema error: " . $e->getMessage());

@@ -1,110 +1,126 @@
-# Fashion Shop ReAct RAG Chatbot
+# Fashion Shop Agentic RAG Chatbot
 
-Chatbot AI cho website shop quần áo, hỗ trợ CSKH/chính sách và tư vấn sản phẩm cơ bản dựa trên dữ liệu thật của shop.
-Hệ thống dùng kiến trúc ReAct Agent kết hợp RAG: RAG Service phụ trách truy xuất tri thức, ReAct Agent Service phụ trách reasoning, chọn tool nghiệp vụ và tổng hợp câu trả lời.
+Chatbot AI cho website shop quần áo, hỗ trợ tư vấn sản phẩm cơ bản, tư vấn size, tra đơn hàng và hỏi đáp chính sách CSKH dựa trên dữ liệu thật của shop.
+Hệ thống dùng kiến trúc Agentic RAG theo hướng production pipeline: RAG Service phụ trách truy xuất tri thức, ReAct/Agent Service phụ trách intent extraction, tool planning, evidence validation và tổng hợp câu trả lời.
 
-## Tóm Tắt Dự Án
+## Tóm Tắt
 
 | Hạng mục | Mô tả |
 |---|---|
-| Bài toán | Chatbot tư vấn sản phẩm, size, trạng thái đơn hàng và chính sách đổi trả/giao hàng/bảo hành cho web shop thời trang |
-| Kiến trúc AI | ReAct Agent + RAG + tool calling + self-evaluation |
-| RAG Service | Query rewriting, semantic embedding, hybrid retrieval, cross-encoder reranking, context selection |
-| ReAct Agent Service | Nhận user query, phân tích intent, gọi tool, kiểm chứng kết quả, trả `message`, `products`, `knowledge_sources` |
-| Phạm vi hỗ trợ | Chính sách/CSKH, tìm sản phẩm, xem chi tiết sản phẩm, tư vấn size, tra đơn hàng nếu đã đăng nhập |
-| Không hỗ trợ | Tư vấn phối đồ, tự thêm giỏ hàng, tự checkout, hiển thị raw URL |
+| Bài toán | Chatbot CSKH và tư vấn sản phẩm cho fashion shop |
+| Kiến trúc | Nginx API Gateway -> PHP Agent Service -> RAG/Product/Order tools |
+| Agent Service | Load memory, phân tích intent, lập kế hoạch tool, chuẩn hóa evidence, sinh answer, validate online |
+| RAG Service | Query rewriting, Vietnamese embedding, Qdrant vector search, lexical search, RRF fusion, cross-encoder rerank |
+| Phạm vi | Chính sách, sản phẩm, chi tiết sản phẩm, size, trạng thái đơn hàng |
+| Không hỗ trợ | Phối đồ, tự thêm giỏ hàng, tự checkout |
 
-## Công Nghệ Sử Dụng
+## Công Nghệ
 
 | Thành phần | Công nghệ/Kỹ thuật | Vai trò |
 |---|---|---|
-| Backend API | PHP 8.2, Apache | API web shop và chatbot |
-| API Gateway | Nginx | Reverse proxy, public port `8090`, rate limit `/api/chatbot` |
-| Database | MariaDB 10.11 | Sản phẩm, danh mục, size guide, đơn hàng, FAQ, chat logs |
-| Cache | Redis, file fallback | Cache search/detail/retrieval |
-| LLM | DeepSeek-compatible OpenAI API format | Reasoning, tool calling, answer synthesis |
-| VectorDB | Qdrant | Lưu vector index `shop_knowledge_v2` |
-| Knowledge Embedding | `bkai-foundation-models/vietnamese-bi-encoder` | Embedding tiếng Việt 768 chiều cho policy chunks |
-| Knowledge Reranker | `itdainb/PhoRanker` | Cross-encoder rerank top candidates |
-| RAG ML Service | FastAPI, SentenceTransformers, Transformers, PyTorch CPU | `/embed`, `/rerank`, model warmup |
+| API Gateway | Nginx | Reverse proxy, rate limit `/api/chatbot`, chặn file nhạy cảm |
+| Backend | PHP 8.2, Apache | API shop và Agent Service |
+| Database | MariaDB 10.11 | Products, categories, size guides, orders, FAQ, chat logs |
+| Cache | Redis, file fallback | Embedding/retrieval/rerank/product/size cache |
+| Vector DB | Qdrant | Collection `shop_knowledge_v2` |
+| Embedding | `bkai-foundation-models/vietnamese-bi-encoder` | Vietnamese semantic embedding 768 chiều |
+| Knowledge Reranker | `itdainb/PhoRanker` | Cross-encoder rerank policy chunks |
+| RAG ML Sidecar | FastAPI, SentenceTransformers, PyTorch CPU | Endpoint `/embed`, `/rerank` |
 | Product Reranker | FastAPI, scikit-learn TF-IDF char n-gram | Rerank riêng cho product search |
-| Agent | `AgenticOrchestrator`, `ToolRegistry` | ReAct loop, function calling, orchestration |
-| Evaluation | RAGAS, LangSmith, HuggingFace local embeddings | Offline/manual benchmark |
+| LLM Fallback | DeepSeek-compatible OpenAI API format | Dùng khi deterministic pipeline không đủ chắc chắn |
+| Evaluation | RAGAS, LangSmith, HuggingFace local embedding | Offline/manual eval, không nằm trong request production |
 | Container | Docker Compose | Chạy Nginx, app, DB, Redis, Qdrant, rag-ml, reranker |
 
-## Kiến Trúc Hệ Thống
+## Kiến Trúc
 
 ```text
 Browser
   -> Nginx API Gateway
       -> PHP App /api/chatbot
+          -> ChatbotMemory
           -> AgenticOrchestrator
-              -> LLM reasoning + tool calling
-              -> ToolRegistry
-                  -> retrieve_knowledge
-                      -> KnowledgeRetriever
-                      -> rag-ml /embed
-                      -> Qdrant vector search
-                      -> local lexical search Markdown + DB
-                      -> rag-ml /rerank
-                  -> search_products
-                  -> get_product_detail
-                  -> suggest_size
-                  -> get_order_status
-              -> AgentEvaluator
-              -> ChatbotMemory
-          -> MariaDB + Redis/file cache
+              -> IntentAndConstraintExtractor
+              -> ToolPlanner
+              -> ParallelToolExecutor
+                  -> retrieve_knowledge -> KnowledgeRetriever -> rag-ml + Qdrant + Markdown/DB
+                  -> search_products -> MariaDB + product TF-IDF reranker
+                  -> get_product_detail -> MariaDB
+                  -> suggest_size -> MariaDB size_guides
+                  -> get_order_status -> MariaDB orders
+              -> EvidenceNormalizer
+              -> ResponseGenerator
+              -> OnlineValidator
+              -> LLM fallback nếu pipeline không chắc chắn
+          -> chat_messages + tool_executions
       -> JSON response
 ```
 
-## Docker Services
+Response giữ backward compatibility với frontend cũ:
 
-| Service | Vai trò | Port |
-|---|---|---:|
-| `nginx` | API Gateway, reverse proxy, rate limit | `8090:80` |
-| `app` | PHP 8.2 Apache app | internal `80` |
-| `db` | MariaDB shop database | `3308:3306` |
-| `redis` | Cache | `6379` |
-| `qdrant` | VectorDB cho RAG | internal `6333` |
-| `rag-ml` | Embedding + cross-encoder rerank cho knowledge RAG | internal `8000` |
-| `reranker` | TF-IDF sidecar cho product search | `8001:8000` |
-| `phpmyadmin` | DB admin profile `tools` | `8091:80` |
-
-## Luồng Kỹ Thuật Chi Tiết
-
-### 1. Chatbot Request Flow
-
-```text
-User gửi câu hỏi
-  -> Nginx kiểm rate limit
-  -> PHP /api/chatbot nhận message + session_token
-  -> AgenticOrchestrator nạp chat history + memory
-  -> deterministic preflight cho guardrail, product_id, order auth
-  -> LLM chọn tool nếu cần
-  -> ToolRegistry execute tool
-  -> Observation được đưa lại cho LLM
-  -> LLM sinh draft answer
-  -> AgentEvaluator kiểm hard constraints
-  -> lưu chat_messages + tool_executions
-  -> trả JSON response cho frontend
+```json
+{
+  "message": "Câu trả lời cho UI cũ",
+  "products": [],
+  "knowledge_sources": [],
+  "session_token": "...",
+  "session_id": 1,
+  "answer": "Câu trả lời chuẩn mới",
+  "cards": [],
+  "response_type": "final_answer",
+  "primary_intent": "product_search",
+  "secondary_intents": [],
+  "requested_fields": ["price", "stock"],
+  "missing_slots": [],
+  "trace_id": "...",
+  "latency": {}
+}
 ```
 
-### 2. Knowledge RAG Flow
+## Luồng Kỹ Thuật
+
+### Agent Service
 
 ```text
-Policy/CSKH query
-  -> query rewriting theo nhóm return/shipping/payment/warranty/size
-  -> embed query bằng Vietnamese bi-encoder
-  -> Qdrant vector search top 20
-  -> lexical keyword search Markdown + DB top 20
-  -> merge candidate theo doc_key
-  -> hybrid_score = 0.65 * vector_score + 0.35 * lexical_score
-  -> cross-encoder rerank bằng PhoRanker
-  -> chọn top 5 chunks
-  -> trả context kèm source/category/score/retrieval_mode
+User query
+  -> load session memory + slot memory
+  -> extract primary_intent, secondary_intents, entities, requested_fields
+  -> plan tool calls
+  -> execute tools
+  -> normalize tool outputs thành evidence schema
+  -> generate direct answer từ evidence
+  -> deterministic online validation
+  -> save chat/tool logs
+  -> return JSON
 ```
 
-Nguồn tri thức RAG:
+Các intent chính:
+
+| Intent | Tool chính | Ghi chú |
+|---|---|---|
+| `product_search` | `search_products` | Tìm sản phẩm theo keyword/category/price/stock |
+| `product_detail` | `get_product_detail` | Product ID route thẳng detail, không search list |
+| `size_advice` | `suggest_size` | Thiếu chiều cao/cân nặng thì trả clarification |
+| `return_exchange`, `shipping`, `policy` | `retrieve_knowledge` | Chỉ trả lời dựa trên policy chunks |
+| `mixed_product_policy` | Product tool + `retrieve_knowledge` | Ví dụ sản phẩm còn hàng và đổi size có mất phí |
+| `order_status` | `get_order_status` | Guest phải đăng nhập, không cache dài |
+
+### RAG Service
+
+```text
+Policy query
+  -> query rewriting theo intent
+  -> embedding cache lookup
+  -> rag-ml /embed nếu cache miss
+  -> Qdrant vector search
+  -> local lexical search trên Markdown + DB
+  -> RRF fusion theo doc_key
+  -> retrieval cache
+  -> rerank cache lookup
+  -> rag-ml /rerank nếu cache miss
+  -> top-k chunks
+```
+
+Nguồn tri thức:
 
 | Nguồn | Nội dung |
 |---|---|
@@ -112,132 +128,199 @@ Nguồn tri thức RAG:
 | `knowledge/faq.md` | FAQ chính sách |
 | `knowledge/shop-info.md` | Thông tin shop |
 | `knowledge/size-guide.md` | Hướng dẫn size |
-| Database `faqs`, `size_guides` | FAQ và bảng size trong DB |
+| DB `faqs`, `size_guides` | FAQ và bảng size trong database |
 
-Fallback RAG:
+Fallback:
 
-| Điều kiện | Cơ chế |
+| Lỗi | Cách xử lý |
 |---|---|
-| Qdrant/rag-ml lỗi | Local lexical fallback trên Markdown + DB |
-| Reranker lỗi | Hybrid result không rerank, metadata `hybrid_no_rerank` |
-| Không có context | Chatbot trả lời chưa đủ dữ liệu shop, không tự bịa chính sách |
+| `rag-ml` hoặc Qdrant lỗi | Local lexical fallback trên Markdown + DB |
+| Reranker lỗi | Trả hybrid candidates với `retrieval_mode=hybrid_no_rerank` |
+| Không có context | Trả lời chưa đủ dữ liệu shop, không tự bịa chính sách |
 
-### 3. Product Basic Flow
+### Product Tools
 
-```text
-Product query
-  -> intent product/search/detail/size
-  -> search_products hoặc get_product_detail
-  -> đọc Product API/DB
-  -> trả product cards trong field products
-  -> message ngắn hướng dẫn bấm thẻ sản phẩm
-```
+`search_products` lọc cứng bằng MariaDB và chỉ cache product IDs/ranking ngắn hạn. Khi trả card, hệ thống luôn đọc lại `price` và `stock` mới nhất.
 
-Các tool sản phẩm:
+`get_product_detail` cache metadata tĩnh như tên, mô tả, ảnh, size chart; giá và tồn kho luôn refresh từ DB.
 
-| Tool | Chức năng |
+`suggest_size` normalize chiều cao/cân nặng, dedupe size rows và trả một recommendation chính.
+
+`get_order_status` đọc trực tiếp từ DB theo `user_id`; guest sẽ nhận yêu cầu đăng nhập.
+
+## Memory
+
+| User type | Memory |
 |---|---|
-| `search_products` | Tìm sản phẩm theo keyword, category, khoảng giá |
-| `get_product_detail` | Lấy đúng một sản phẩm theo `product_id` |
-| `suggest_size` | Tư vấn size theo chiều cao/cân nặng và bảng size |
-| `get_order_status` | Tra đơn hàng thuộc user đã đăng nhập |
+| Guest | Session summary + slot memory |
+| Logged-in user | Session summary + slot memory + long-term memory |
 
-### 4. Product Detail Routing
+Slot memory lưu các trường như `product_type`, `height_cm`, `weight_kg`, `size`, `min_price`, `max_price`. Long-term memory chỉ được nạp khi user có token đăng nhập.
 
-```text
-"chi tiết sản phẩm mã 52"
-  -> nhận diện product_id = 52
-  -> gọi get_product_detail(product_id=52)
-  -> trả đúng 1 product card
-  -> message tóm tắt tên, giá, tồn kho, size, mô tả
-```
+## Cache Policy
 
-Safety net: nếu LLM gọi nhầm `search_products(search="52")`, `ToolRegistry` tự route sang `get_product_detail`.
+| Cache | Key chính | TTL mặc định |
+|---|---|---:|
+| Embedding | model + preprocess version + query hash | 7 ngày |
+| Policy retrieval | query/category/top-k/knowledge version/model | 1 giờ |
+| Rerank | query hash + candidate IDs + reranker model | 1 giờ |
+| Product search IDs | search/category/price filters | 60 giây |
+| Product detail static | product ID | 15 phút |
+| Size suggestion | height/weight/category | 10 phút |
+| Order status | Không cache dài | 0 giây |
 
-### 5. Evaluator/Self-Reflection
-
-| Task | Rule kiểm tra chính |
-|---|---|
-| Product search | Không sai category, price, stock, product id |
-| Product detail | Đúng product id, đúng giá/tồn kho/size, không trả nhiều sản phẩm |
-| Size advice | Cần chiều cao/cân nặng, không khẳng định tuyệt đối |
-| Order status | Bắt buộc auth, không lộ số điện thoại/địa chỉ |
-
-Evaluator có thể chọn `return`, `revise_answer`, `retry_tool`, `ask_user`, `fallback` hoặc `deny`.
-
-## API Response Chính
-
-```json
-{
-  "message": "Áo Khoác Bomber Kaki Đen (mã 52)\nGiá: 550.000đ\nTình trạng: còn 12 sản phẩm\nSize: S, M, L, XL",
-  "products": [
-    {
-      "id": 52,
-      "name": "Áo Khoác Bomber Kaki Đen",
-      "price": 550000,
-      "stock": 12,
-      "stock_status": "in_stock",
-      "available_sizes": ["S", "M", "L", "XL"]
-    }
-  ],
-  "knowledge_sources": [],
-  "session_token": "...",
-  "session_id": 1
-}
-```
+Khi đổi knowledge base, tăng `KNOWLEDGE_VERSION` để cache retrieval/rerank tự tách phiên bản.
 
 ## Metrics Đã Đo
 
-Môi trường đo: Docker Compose local qua Nginx `http://localhost:8090`. Bộ benchmark gồm `25` positive/non-refusal turns, phủ RAG policy, product search/detail, size, mixed product+policy và order/CSKH chưa đăng nhập.
+Điều kiện đo gần nhất:
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Ngày đo | 2026-07-16 |
+| Target | `http://localhost:8090` qua Nginx |
+| Case file | `eval/chatbot_positive_eval_cases.jsonl` |
+| Số case | 5 scenario, 25 turns |
+| Dữ liệu | Qdrant reindexed `shop_knowledge_v2`, Redis/model cache warm |
+| LLM evaluator | DeepSeek-compatible endpoint |
+| RAGAS embedding | HuggingFace local `bkai-foundation-models/vietnamese-bi-encoder` |
+| LangSmith project | `fashion-shop-production-pipeline-offline-eval-20260716` |
+| Network | Tính HTTP localhost qua Nginx, không tính browser network |
 
 ### Functional & Latency
 
-| Nhóm | Metric | Giá trị |
-|---|---|---:|
-| Deterministic eval | Total turns | `25` |
-| Deterministic eval | Passed | `25/25` |
-| Deterministic eval | Failed | `0/25` |
-| Latency | Min | `218 ms` |
-| Latency | Avg | `1658.08 ms` |
-| Latency | P50 | `1273 ms` |
-| Latency | P95 | `4608 ms` |
-| Latency | Max | `6239 ms` |
-
-### RAGAS & LangSmith
-
-| Nhóm | Metric | Giá trị |
-|---|---|---:|
-| RAGAS | Faithfulness | `0.6647` |
-| RAGAS | Answer relevancy | `~0.6523` |
-| RAGAS | Context precision | `0.9333` |
-| RAGAS | Context recall | `0.8500` |
-| LangSmith | Trace project | `fashion-shop-chatbot-positive-eval-after-routing-fix` |
-| Eval setup | Embedding evaluator | `bkai-foundation-models/vietnamese-bi-encoder` local |
-
-Ghi chú: RAGAS/LangSmith là offline/manual eval, không chạy bắt buộc trong CI public và không nằm trong Docker runtime.
-
-### Docker Image Size
-
-| Image | Size |
+| Metric | Giá trị |
 |---|---:|
-| `shop_quan_ao-app:latest` | `723 MB` |
-| `shop_quan_ao-rag-ml:latest` | `1.88 GB` |
-| `shop_quan_ao-reranker:latest` | `603 MB` |
-| `nginx:1.27-alpine` | `74.5 MB` |
-| `mariadb:10.11` | `458 MB` |
-| `redis:7-alpine` | `57.8 MB` |
-| `qdrant/qdrant:v1.12.4` | `279 MB` |
+| Deterministic pass | `25/25` |
+| Deterministic fail | `0/25` |
+| Latency min | `15 ms` |
+| Latency avg | `27.28 ms` |
+| Latency p50 | `25 ms` |
+| Latency p95 | `46 ms` |
+| Latency max | `48 ms` |
 
-`rag-ml` lớn do PyTorch CPU + SentenceTransformers + Transformers. Service đã bật `RAG_ML_WARMUP_ON_START=true`; health gần nhất xác nhận `embedding_model_loaded=true`, `reranker_model_loaded=true`, `warmup_elapsed_ms=4998`.
+Ghi chú: Lượt cold/warm-up ngay sau rebuild có avg `579.96 ms`, p95 `2632 ms`, max `4261 ms`; lượt chính thức phía trên chạy sau khi model, retrieval và rerank cache đã warm.
 
-## Ignore Policy
+### RAGAS
 
-Không commit các artefact runtime/eval:
+| Metric | Giá trị |
+|---|---:|
+| Faithfulness | `0.6844` |
+| Answer relevancy | `0.4172` |
+| Context precision | `0.9050` |
+| Context recall | `0.8500` |
 
-| Nhóm | Pattern |
+RAGAS contexts gồm policy chunks và evidence chuẩn hóa từ product/order tools khi tool đó thực sự được dùng. RAGAS và LangSmith chỉ chạy offline/manual, không chạy trong CI public và không nằm trong Docker runtime request path.
+
+## Docker Services
+
+| Service | Vai trò | Port |
+|---|---|---:|
+| `nginx` | API Gateway | `8090:80` |
+| `app` | PHP Agent/API app | internal `80` |
+| `db` | MariaDB | `3308:3306` |
+| `redis` | Cache | `6379` |
+| `qdrant` | VectorDB | internal `6333` |
+| `rag-ml` | Embedding + cross-encoder rerank | internal `8000` |
+| `reranker` | Product TF-IDF reranker | `8001:8000` |
+| `phpmyadmin` | DB admin profile `tools` | `8091:80` |
+
+## Chạy Dự Án
+
+1. Tạo `.env` từ mẫu:
+
+```bash
+cp .env.example .env
+```
+
+2. Cập nhật các biến bắt buộc:
+
+```env
+DB_PASS=...
+MARIADB_ROOT_PASSWORD=...
+LLM_API_KEY=...
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-chat
+```
+
+3. Start stack:
+
+```bash
+docker compose up -d --build
+```
+
+4. Reindex knowledge sau khi đổi tài liệu hoặc đổi embedding dimension:
+
+```bash
+docker compose exec -T app php scripts/ingest_knowledge.php
+```
+
+5. Smoke test:
+
+```bash
+curl http://localhost:8090/api/products?limit=1
+curl -X POST http://localhost:8090/api/chatbot \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"áo thun giá rẻ"}'
+```
+
+## Test
+
+```bash
+docker compose run --rm --no-deps -v "$PWD":/work -w /work app \
+  sh -lc 'php vendor/bin/phpunit'
+
+docker compose run --rm --no-deps -v "$PWD":/work -w /work app \
+  sh -lc 'php vendor/bin/phpstan analyse --no-progress --memory-limit=512M'
+
+docker compose config
+```
+
+Kết quả gần nhất:
+
+| Check | Kết quả |
 |---|---|
-| Env/secret | `.env`, `.env.*`, trừ `.env.example` |
-| Reports/evidence | `reports/`, `report/`, `*_report.*`, `*report*.json`, `BAO_CAO*`, `chatbot_*_eval*.json`, `ragas_*.json`, `langsmith_*.json` |
-| Model/cache | `.cache/`, `.huggingface/`, `hf_cache/`, `models/`, `__pycache__/` |
-| DB/dump/archive | `*.db`, `*.sqlite`, `*.sql.gz`, `*.dump`, `*.tar.gz`, `*.zip` |
+| PHPUnit | `79 tests, 256 assertions` pass |
+| PHPStan | No errors |
+| Docker Compose config | OK |
 
+## Offline Evaluation
+
+RAGAS/LangSmith chạy thủ công một lần khi cần benchmark, không commit API key và không ghi secret vào report.
+
+```bash
+export RAGAS_ENABLE=1
+export RAGAS_EMBEDDING_PROVIDER=huggingface
+export RAGAS_EMBEDDING_MODEL=bkai-foundation-models/vietnamese-bi-encoder
+export LANGSMITH_PROJECT=fashion-shop-production-pipeline-offline-eval
+
+python3 eval/run_chatbot_eval.py \
+  --base-url http://localhost:8090 \
+  --cases eval/chatbot_positive_eval_cases.jsonl \
+  --output reports/chatbot_eval_report.json \
+  --markdown-output reports/BAO_CAO_CHATBOT_EVAL.md \
+  --timeout 90 \
+  --turn-delay 5.3
+```
+
+Các report trong `reports/` đã được ignore để tránh đẩy benchmark artefacts hoặc log nhạy cảm lên GitHub.
+
+## Repository Hygiene
+
+`.gitignore` và `.dockerignore` loại trừ:
+
+| Nhóm | Ví dụ |
+|---|---|
+| Secret/env | `.env`, `.env.*`, trừ `.env.example` |
+| Reports/evidence | `reports/`, `*_report.*`, `ragas_*.json`, `langsmith_*.json` |
+| Model/cache | `.cache/`, `.huggingface/`, `hf_cache/`, `models/`, `*.safetensors`, `*.bin`, `*.pt` |
+| Python cache | `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/` |
+| DB/archive | `*.db`, `*.sqlite`, `*.sql.gz`, `*.dump`, `*.tar.gz`, `*.zip` |
+
+## Production Notes
+
+- Không cache `POST /api/chatbot` ở Nginx vì response phụ thuộc user/session/memory/stock/order.
+- Product price/stock luôn refresh từ DB trước khi trả response.
+- Order status không dùng semantic cache và luôn kiểm tra ownership theo `user_id`.
+- `rag-ml` chạy CPU, cold start phụ thuộc tốc độ tải/warm model; nên warm service trước khi benchmark production.
+- `ParallelToolExecutor` hiện có batch/dependency abstraction trong PHP request; có thể nâng cấp lên true concurrent HTTP/curl_multi nếu cần throughput cao hơn.

@@ -13,6 +13,12 @@ require_once __DIR__ . '/llm/LLMFactory.php';
 require_once __DIR__ . '/engine.php';
 require_once __DIR__ . '/ChatbotMemory.php';
 require_once __DIR__ . '/evaluator/AgentEvaluator.php';
+require_once __DIR__ . '/pipeline/IntentAndConstraintExtractor.php';
+require_once __DIR__ . '/pipeline/ToolPlanner.php';
+require_once __DIR__ . '/pipeline/ParallelToolExecutor.php';
+require_once __DIR__ . '/pipeline/EvidenceNormalizer.php';
+require_once __DIR__ . '/pipeline/ResponseGenerator.php';
+require_once __DIR__ . '/pipeline/OnlineValidator.php';
 
 class AgenticOrchestrator {
     private PDO $pdo;
@@ -28,6 +34,7 @@ class AgenticOrchestrator {
     private array $collectedKnowledgeSources = [];
     private array $toolAttempts = [];
     private array $evaluationMetadata = [];
+    private array $responseMetadata = [];
 
     private const SYSTEM_PROMPT = <<<'PROMPT'
 Bạn là nhân viên tư vấn bán hàng của Fashion Shop - cửa hàng thời trang online bán áo, quần, váy đầm, phụ kiện.
@@ -96,7 +103,17 @@ PROMPT;
         $this->collectedKnowledgeSources = [];
         $this->toolAttempts = [];
         $this->evaluationMetadata = [];
+        $this->responseMetadata = [];
+        $memoryStart = microtime(true);
         $memoryContext = $this->memory->rememberUserMessage($message);
+        $this->responseMetadata['latency']['memory_load_ms'] = (int)((microtime(true) - $memoryStart) * 1000);
+
+        $pipelineResult = $this->processWithProductionPipeline($message, $memoryContext);
+        if ($pipelineResult !== null) {
+            $this->saveMessages($message, $pipelineResult['message'], $pipelineResult['products'] ?? []);
+            $this->memory->refreshSummaryWithoutLlm($message, $pipelineResult['message']);
+            return $pipelineResult;
+        }
 
         $preflight = $this->deterministicPreflight($message);
         if ($preflight !== null) {
@@ -129,6 +146,105 @@ PROMPT;
             $this->saveMessages($message, $text, $this->collectedProducts);
             $this->memory->refreshSummary($message, $text);
             return $this->buildResponse($text);
+        }
+    }
+
+    private function processWithProductionPipeline(string $message, array $memoryContext): ?array {
+        $totalStart = microtime(true);
+        $traceId = bin2hex(random_bytes(8));
+        $spans = [
+            'trace_id' => $traceId,
+            'pipeline' => 'deterministic',
+            'memory_load_ms' => (int)($this->responseMetadata['latency']['memory_load_ms'] ?? 0),
+        ];
+
+        $start = microtime(true);
+        $extractor = new IntentAndConstraintExtractor();
+        $intent = $extractor->extract($message, $memoryContext);
+        $spans['intent_extraction_ms'] = (int)((microtime(true) - $start) * 1000);
+
+        if (($intent['primary_intent'] ?? 'unknown') === 'unknown' || (float)($intent['confidence'] ?? 0) < 0.6) {
+            return null;
+        }
+
+        $start = microtime(true);
+        $planner = new ToolPlanner();
+        $plan = $planner->plan($intent);
+        $spans['planning_ms'] = (int)((microtime(true) - $start) * 1000);
+
+        $executor = new ParallelToolExecutor($this->toolRegistry);
+        $execution = $executor->execute($plan);
+        foreach (($execution['spans'] ?? []) as $key => $value) {
+            $spans[$key] = $value;
+        }
+        $this->recordPipelineToolExecutions($execution);
+
+        $start = microtime(true);
+        $normalizer = new EvidenceNormalizer();
+        $normalized = $normalizer->normalize($intent, $execution);
+        $spans['normalization_ms'] = (int)((microtime(true) - $start) * 1000);
+
+        $this->collectedProducts = $normalized['cards'] ?? [];
+        $this->collectedKnowledgeSources = $normalized['knowledge_sources'] ?? [];
+
+        $start = microtime(true);
+        $generator = new ResponseGenerator();
+        $response = $generator->generate($message, $intent, $normalized, $plan);
+        $spans['generation_ms'] = (int)((microtime(true) - $start) * 1000);
+
+        $start = microtime(true);
+        $validator = new OnlineValidator();
+        $validation = $validator->validate($intent, $normalized, $response);
+        $spans['validation_ms'] = (int)((microtime(true) - $start) * 1000);
+        if (!$validation['passed']) {
+            $response['answer'] = $validation['safe_fallback'];
+            $response['message'] = $validation['safe_fallback'];
+            $response['response_type'] = 'fallback';
+        }
+
+        $spans['total_ms'] = (int)((microtime(true) - $totalStart) * 1000);
+        $response['trace_id'] = $traceId;
+        $response['latency'] = $spans;
+        $response['knowledge_sources'] = $this->collectedKnowledgeSources;
+        $response['products'] = $response['products'] ?? ($response['cards'] ?? []);
+        $response['cards'] = $response['cards'] ?? $response['products'];
+
+        $this->evaluationMetadata[] = [
+            'trace_id' => $traceId,
+            'mode' => 'online_validator',
+            'passed' => (bool)$validation['passed'],
+            'issues' => $validation['issues'],
+            'async_evaluation' => 'queued_for_offline_langsmith_ragas',
+        ];
+        $this->responseMetadata['latency'] = $spans;
+        $this->responseMetadata['primary_intent'] = $intent['primary_intent'];
+        $this->responseMetadata['requested_fields'] = $intent['requested_fields'] ?? [];
+        $this->logToolExecution('async_evaluation_outbox', [], [
+            'trace_id' => $traceId,
+            'primary_intent' => $intent['primary_intent'],
+            'validation_passed' => (bool)$validation['passed'],
+            'validation_issues' => $validation['issues'],
+        ], 0, true);
+
+        return $response;
+    }
+
+    private function recordPipelineToolExecutions(array $execution): void {
+        foreach (($execution['results'] ?? []) as $entry) {
+            $tool = (string)($entry['tool'] ?? '');
+            if ($tool === '') continue;
+            $args = is_array($entry['args'] ?? null) ? $entry['args'] : [];
+            $result = is_array($entry['result'] ?? null) ? $entry['result'] : [];
+            $duration = (int)($entry['duration_ms'] ?? 0);
+            $success = (bool)($entry['success'] ?? false);
+            $this->logToolExecution($tool, $args, $result, $duration, $success);
+            $this->toolAttempts[] = [
+                'tool_name' => $tool,
+                'tool_arguments' => $args,
+                'tool_result' => $result,
+                'tool_latency_ms' => $duration,
+                'success' => $success,
+            ];
         }
     }
 
@@ -171,11 +287,12 @@ PROMPT;
             if (!empty($products)) $metaData['products'] = $products;
             if (!empty($this->collectedKnowledgeSources)) $metaData['knowledge_sources'] = $this->collectedKnowledgeSources;
             if (!empty($this->evaluationMetadata)) $metaData['evaluation'] = $this->evaluationMetadata;
+            if (!empty($this->responseMetadata)) $metaData['pipeline'] = $this->responseMetadata;
             $meta = !empty($metaData) ? json_encode($metaData, JSON_UNESCAPED_UNICODE) : null;
             $stmt = $this->pdo->prepare("INSERT INTO chat_messages (session_id, role, message, metadata) VALUES (?, 'bot', ?, ?)");
             $stmt->execute([$this->sessionId, $botMsg, $meta]);
 
-            $this->pdo->prepare("UPDATE chat_sessions SET updated_at = NOW() WHERE id = ?")->execute([$this->sessionId]);
+            $this->pdo->prepare("UPDATE chat_sessions SET updated_at = " . $this->sqlNow() . " WHERE id = ?")->execute([$this->sessionId]);
 
 
         } catch (Throwable $e) {
@@ -685,6 +802,15 @@ PROMPT;
     }
 
     private function evaluateAndRepair(string $userMessage, string $draftAnswer): string {
+        $syncEvaluator = getenv('CHATBOT_ENABLE_SYNC_EVALUATOR');
+        if ($syncEvaluator === false || !in_array(strtolower((string)$syncEvaluator), ['1', 'true', 'yes'], true)) {
+            $this->evaluationMetadata[] = [
+                'mode' => 'async_only',
+                'reason' => 'sync_llm_evaluator_disabled',
+            ];
+            return $draftAnswer;
+        }
+
         $attempt = $this->latestEvaluableAttempt();
         if ($attempt === null) {
             return $draftAnswer;
@@ -991,7 +1117,22 @@ PROMPT;
                 } catch (Throwable $e) {}
             }
         }
-        $response = ['message' => $text, 'products' => $products];
+        $traceId = $this->responseMetadata['latency']['trace_id'] ?? bin2hex(random_bytes(8));
+        $response = [
+            'message' => $text,
+            'answer' => $text,
+            'products' => $products,
+            'cards' => $products,
+            'response_type' => 'final_answer',
+            'primary_intent' => $this->responseMetadata['primary_intent'] ?? 'fallback_or_llm',
+            'secondary_intents' => [],
+            'requested_fields' => $this->responseMetadata['requested_fields'] ?? [],
+            'missing_slots' => [],
+            'trace_id' => $traceId,
+        ];
+        if (!empty($this->responseMetadata['latency'])) {
+            $response['latency'] = $this->responseMetadata['latency'];
+        }
         if (!empty($this->collectedKnowledgeSources)) {
             $response['knowledge_sources'] = $this->collectedKnowledgeSources;
         }
@@ -1002,7 +1143,7 @@ PROMPT;
         try {
             $stmt = $this->pdo->prepare(
                 "INSERT INTO tool_executions (session_id, tool_name, arguments, result, duration_ms, success, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, NOW())"
+                 VALUES (?, ?, ?, ?, ?, ?, " . $this->sqlNow() . ")"
             );
             $stmt->execute([$this->sessionId, $tool, json_encode($args, JSON_UNESCAPED_UNICODE),
                 is_array($result) ? json_encode($result, JSON_UNESCAPED_UNICODE) : $result, $duration, $success ? 1 : 0]);
@@ -1024,5 +1165,13 @@ PROMPT;
             'failure_type' => $metadata['failure_type'] ?? '',
         ];
         $this->logToolExecution('agent_evaluator', [], $safe, (int)($safe['evaluation_latency_ms'] ?? 0), true);
+    }
+
+    private function sqlNow(): string {
+        try {
+            return $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? 'CURRENT_TIMESTAMP' : 'NOW()';
+        } catch (Throwable $e) {
+            return 'NOW()';
+        }
     }
 }

@@ -10,9 +10,8 @@
 class KnowledgeRetriever {
     public const COLLECTION = 'shop_knowledge_v2';
     public const VECTOR_SIZE = 768;
+    private const PREPROCESS_VERSION = 'v1';
     private const DEFAULT_HYBRID_CANDIDATES = 12;
-    private const VECTOR_WEIGHT = 0.65;
-    private const LEXICAL_WEIGHT = 0.35;
 
     private PDO $pdo;
     private string $rootDir;
@@ -22,6 +21,8 @@ class KnowledgeRetriever {
     private string $embeddingProvider;
     private string $embeddingModel;
     private int $hybridCandidates;
+    private array $cacheMetrics = [];
+    private array $spans = [];
 
     public function __construct(PDO $pdo, ?string $rootDir = null, ?string $qdrantUrl = null, ?string $ragMlUrl = null) {
         $this->pdo = $pdo;
@@ -43,29 +44,47 @@ class KnowledgeRetriever {
     public function search(string $query, ?string $category = null, int $limit = 5): array {
         $query = trim($query);
         $limit = max(1, min(10, $limit));
+        $this->cacheMetrics = [
+            'embedding_cache_hit' => false,
+            'retrieval_cache_hit' => false,
+            'rerank_cache_hit' => false,
+        ];
+        $this->spans = [];
         if ($query === '') {
             return ['results' => [], 'source' => 'none'];
         }
 
+        $start = microtime(true);
         $rewrite = $this->rewriteQuery($query, $category);
         $searchQuery = $rewrite['query'];
+        $this->spans['query_normalization_ms'] = (int)((microtime(true) - $start) * 1000);
 
-        $cacheKey = Cache::buildKey('kr', [
+        $cacheParams = [
             'query' => mb_strtolower($searchQuery),
             'original_query' => mb_strtolower($query),
             'category' => (string)$category,
             'limit' => $limit,
             'collection' => $this->collection,
             'embedding_model' => $this->embeddingModel,
-            'v' => 3,
-        ]);
-        $cached = Cache::get($cacheKey);
-        if (is_array($cached)) return $cached;
+            'knowledge_version' => getenv('KNOWLEDGE_VERSION') ?: 'v1',
+            'preprocess' => self::PREPROCESS_VERSION,
+            'v' => 4,
+        ];
+        $cached = Cache::getRetrieval($cacheParams);
+        if (is_array($cached)) {
+            $cached['cache_metrics']['retrieval_cache_hit'] = true;
+            return $cached;
+        }
 
+        $start = microtime(true);
         $lexical = $this->searchLocal($searchQuery, $category, $this->hybridCandidates);
+        $this->spans['lexical_search_ms'] = (int)((microtime(true) - $start) * 1000);
+
+        $start = microtime(true);
         $vector = $this->qdrantUrl !== null
             ? ($this->searchQdrant($searchQuery, $category, $this->hybridCandidates) ?? [])
             : [];
+        $this->spans['vector_search_ms'] = (int)((microtime(true) - $start) * 1000);
 
         if (empty($vector)) {
             $results = array_slice($this->withRetrievalMode($lexical, 'lexical_fallback'), 0, $limit);
@@ -75,7 +94,9 @@ class KnowledgeRetriever {
                 'retrieval_mode' => 'lexical_fallback',
             ];
         } else {
+            $start = microtime(true);
             $merged = $this->mergeHybridCandidates($vector, $lexical);
+            $this->spans['fusion_ms'] = (int)((microtime(true) - $start) * 1000);
             $reranked = $this->rerankKnowledge($searchQuery, $merged, $limit);
             $result = [
                 'results' => $reranked['results'],
@@ -90,7 +111,9 @@ class KnowledgeRetriever {
         $result['query_rewrites'] = $rewrite['terms'];
         $result['embedding_model'] = $this->embeddingModel;
         $result['collection'] = $this->collection;
-        Cache::set($cacheKey, $result, 600);
+        $result['cache_metrics'] = $this->cacheMetrics;
+        $result['latency'] = $this->spans;
+        Cache::setRetrieval($cacheParams, $result);
         return $result;
     }
 
@@ -276,37 +299,36 @@ class KnowledgeRetriever {
     }
 
     private function mergeHybridCandidates(array $vector, array $lexical): array {
-        $maxVector = max(1.0, ...array_map(fn($d) => (float)($d['vector_score'] ?? $d['score'] ?? 0), $vector ?: [['score' => 0]]));
-        $maxLexical = max(1.0, ...array_map(fn($d) => (float)($d['lexical_score'] ?? $d['score'] ?? 0), $lexical ?: [['score' => 0]]));
         $merged = [];
 
-        foreach ($vector as $doc) {
+        foreach ($vector as $rank => $doc) {
             $key = $doc['doc_key'] ?: $this->documentKey($doc);
             $doc['doc_key'] = $key;
             $doc['vector_score'] = (float)($doc['vector_score'] ?? $doc['score'] ?? 0);
             $doc['lexical_score'] = 0.0;
+            $doc['rrf_score'] = 1.0 / (60 + $rank + 1);
             $merged[$key] = $doc;
         }
 
-        foreach ($lexical as $doc) {
+        foreach ($lexical as $rank => $doc) {
             $key = $doc['doc_key'] ?: $this->documentKey($doc);
             if (!isset($merged[$key])) {
                 $doc['doc_key'] = $key;
                 $doc['vector_score'] = 0.0;
+                $doc['rrf_score'] = 0.0;
                 $merged[$key] = $doc;
             }
             $merged[$key]['lexical_score'] = max(
                 (float)($merged[$key]['lexical_score'] ?? 0),
                 (float)($doc['lexical_score'] ?? $doc['score'] ?? 0)
             );
+            $merged[$key]['rrf_score'] = (float)($merged[$key]['rrf_score'] ?? 0) + (1.0 / (60 + $rank + 1));
         }
 
         foreach ($merged as &$doc) {
-            $vectorNorm = max(0.0, min(1.0, (float)($doc['vector_score'] ?? 0) / $maxVector));
-            $lexicalNorm = max(0.0, min(1.0, (float)($doc['lexical_score'] ?? 0) / $maxLexical));
             $doc['vector_score'] = round((float)($doc['vector_score'] ?? 0), 6);
             $doc['lexical_score'] = round((float)($doc['lexical_score'] ?? 0), 6);
-            $doc['hybrid_score'] = round((self::VECTOR_WEIGHT * $vectorNorm) + (self::LEXICAL_WEIGHT * $lexicalNorm), 6);
+            $doc['hybrid_score'] = round((float)($doc['rrf_score'] ?? 0), 6);
             $doc['score'] = $doc['hybrid_score'];
             $doc['rerank_score'] = null;
         }
@@ -323,8 +345,29 @@ class KnowledgeRetriever {
         }
 
         $texts = array_map(fn($d) => trim(($d['title'] ?? '') . "\n" . ($d['content'] ?? '')), $candidates);
-        $payload = ['query' => $query, 'texts' => $texts];
-        $response = $this->requestRagMl('/rerank', $payload, $this->ragMlTimeout('RAG_RERANK_TIMEOUT', 6));
+        $candidateIds = array_map(fn($d) => (string)($d['doc_key'] ?? $this->documentKey($d)), $candidates);
+        $rerankCacheParams = [
+            'query_hash' => hash('sha256', $query),
+            'candidate_ids_hash' => hash('sha256', implode('|', $candidateIds)),
+            'model' => getenv('KNOWLEDGE_RERANKER_MODEL') ?: 'itdainb/PhoRanker',
+            'knowledge_version' => getenv('KNOWLEDGE_VERSION') ?: 'v1',
+            'limit' => $limit,
+        ];
+        $response = Cache::getRerank($rerankCacheParams);
+        if (is_array($response)) {
+            $this->cacheMetrics['rerank_cache_hit'] = true;
+        } else {
+            $payload = ['query' => $query, 'texts' => $texts];
+            $start = microtime(true);
+            $response = $this->requestRagMl('/rerank', $payload, $this->ragMlTimeout('RAG_RERANK_TIMEOUT', 6));
+            $this->spans['rerank_ms'] = (int)((microtime(true) - $start) * 1000);
+            if (is_array($response) && isset($response['sorted_indices'])) {
+                Cache::setRerank($rerankCacheParams, $response);
+            }
+        }
+        if (!isset($this->spans['rerank_ms'])) {
+            $this->spans['rerank_ms'] = 0;
+        }
         if (!is_array($response) || !isset($response['sorted_indices']) || !is_array($response['sorted_indices'])) {
             return [
                 'results' => array_slice($this->withRetrievalMode($candidates, 'hybrid_no_rerank'), 0, $limit),
@@ -362,12 +405,22 @@ class KnowledgeRetriever {
         if ($this->ragMlUrl === null || $this->embeddingProvider === 'local_hash') {
             return null;
         }
+        $cached = Cache::getEmbedding($this->embeddingModel, self::PREPROCESS_VERSION, $text);
+        if ($cached !== null && count($cached) === self::VECTOR_SIZE) {
+            $this->cacheMetrics['embedding_cache_hit'] = true;
+            $this->spans['embedding_ms'] = 0;
+            return array_map('floatval', $cached);
+        }
+        $start = microtime(true);
         $response = $this->requestRagMl('/embed', ['texts' => [$text]], $this->ragMlTimeout('RAG_EMBED_TIMEOUT', 8));
+        $this->spans['embedding_ms'] = (int)((microtime(true) - $start) * 1000);
         if (!is_array($response) || empty($response['embeddings'][0]) || !is_array($response['embeddings'][0])) {
             return null;
         }
         $vector = array_map('floatval', $response['embeddings'][0]);
-        return count($vector) === self::VECTOR_SIZE ? $vector : null;
+        if (count($vector) !== self::VECTOR_SIZE) return null;
+        Cache::setEmbedding($this->embeddingModel, self::PREPROCESS_VERSION, $text, $vector);
+        return $vector;
     }
 
     private function requestRagMl(string $path, array $payload, int $timeout): ?array {

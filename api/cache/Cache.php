@@ -182,6 +182,66 @@ class Cache {
         return $prefix . '|' . http_build_query($params);
     }
 
+    private static function ttl(string $envKey, int $default): int {
+        $value = getenv($envKey);
+        if ($value === false || $value === '') return $default;
+        return max(0, (int)$value);
+    }
+
+    public static function getEmbedding(string $model, string $preprocessVersion, string $text): ?array {
+        $key = self::buildKey('embedding', [
+            'model' => $model,
+            'preprocess' => $preprocessVersion,
+            'hash' => hash('sha256', $text),
+        ]);
+        $value = self::get($key);
+        return is_array($value) ? $value : null;
+    }
+
+    public static function setEmbedding(string $model, string $preprocessVersion, string $text, array $embedding): void {
+        self::set(self::buildKey('embedding', [
+            'model' => $model,
+            'preprocess' => $preprocessVersion,
+            'hash' => hash('sha256', $text),
+        ]), $embedding, self::ttl('EMBEDDING_CACHE_TTL', 604800));
+    }
+
+    public static function getRetrieval(array $params): ?array {
+        $value = self::get(self::buildKey('retrieval', $params));
+        return is_array($value) ? $value : null;
+    }
+
+    public static function setRetrieval(array $params, array $result): void {
+        self::set(self::buildKey('retrieval', $params), $result, self::ttl('RETRIEVAL_CACHE_TTL', 3600));
+    }
+
+    public static function getRerank(array $params): ?array {
+        $value = self::get(self::buildKey('rerank', $params));
+        return is_array($value) ? $value : null;
+    }
+
+    public static function setRerank(array $params, array $result): void {
+        self::set(self::buildKey('rerank', $params), $result, self::ttl('RERANK_CACHE_TTL', 3600));
+    }
+
+    public static function getProductSearchIds(array $params): ?array {
+        $value = self::get(self::buildKey('psi', $params));
+        return is_array($value) ? $value : null;
+    }
+
+    public static function setProductSearchIds(array $params, array $ids): void {
+        self::set(self::buildKey('psi', $params), $ids, self::ttl('PRODUCT_SEARCH_IDS_CACHE_TTL', 60));
+    }
+
+    public static function getProductDetailStatic(int $id): ?array {
+        $value = self::get('pds|' . $id);
+        return is_array($value) ? $value : null;
+    }
+
+    public static function setProductDetailStatic(int $id, array $result): void {
+        self::set('pds|' . $id, $result, self::ttl('PRODUCT_DETAIL_STATIC_CACHE_TTL', 900));
+    }
+
     /** Shortcut: get search_products cache */
     public static function getSearchResult(array $params): ?array {
         return self::get(self::buildKey('sp', $params));

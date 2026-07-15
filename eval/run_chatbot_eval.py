@@ -363,7 +363,10 @@ def run_ragas(rows: list[EvalRow]) -> dict[str, Any] | None:
         embedding_provider = os.getenv("RAGAS_EMBEDDING_PROVIDER", "huggingface").lower()
         if embedding_provider in {"huggingface", "hf", "local"}:
             try:
-                from langchain_community.embeddings import HuggingFaceEmbeddings
+                try:
+                    from langchain_huggingface import HuggingFaceEmbeddings
+                except Exception:
+                    from langchain_community.embeddings import HuggingFaceEmbeddings
 
                 embedding_model = os.getenv(
                     "RAGAS_EMBEDDING_MODEL",

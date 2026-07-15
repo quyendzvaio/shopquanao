@@ -60,6 +60,57 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
         }
     }
 
+    public function testProductIdRoutesToDetailResponse(): void
+    {
+        $sessionId = $this->createSession();
+        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
+        $result = $orchestrator->respond('áo mã 52 xem chi tiết');
+
+        $this->assertSame('product_detail', $result['primary_intent']);
+        $this->assertCount(1, $result['products']);
+        $this->assertSame(52, (int)$result['products'][0]['id']);
+        $this->assertStringContainsString('mã 52', mb_strtolower($result['message']));
+    }
+
+    public function testSizeQuestionWithoutMeasurementsReturnsClarification(): void
+    {
+        $sessionId = $this->createSession();
+        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
+        $result = $orchestrator->respond('mình mặc size gì?');
+
+        $this->assertSame('clarification', $result['response_type']);
+        $this->assertContains('height', $result['missing_slots']);
+        $this->assertContains('weight', $result['missing_slots']);
+    }
+
+    public function testMixedProductPolicyCallsProductAndKnowledge(): void
+    {
+        $sessionId = $this->createSession();
+        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
+        $result = $orchestrator->respond('áo mã 52 còn size L không và đổi size có mất phí ship không');
+
+        $this->assertSame('mixed_product_policy', $result['primary_intent']);
+        $this->assertNotEmpty($result['products']);
+        $this->assertSame(52, (int)$result['products'][0]['id']);
+        $this->assertArrayHasKey('knowledge_sources', $result);
+        $this->assertNotEmpty($result['knowledge_sources']);
+    }
+
+    public function testProductSearchFastPathReturnsNewResponseShape(): void
+    {
+        $sessionId = $this->createSession();
+        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
+        $result = $orchestrator->respond('áo khoác dưới 600k còn hàng');
+
+        $this->assertSame('product_search', $result['primary_intent']);
+        $this->assertArrayHasKey('answer', $result);
+        $this->assertArrayHasKey('cards', $result);
+        $this->assertContains('stock', $result['requested_fields']);
+        foreach ($result['products'] as $p) {
+            $this->assertLessThanOrEqual(600000, $p['price']);
+        }
+    }
+
     public function testOrchestratorLoadsHistory(): void
     {
         $sessionId = $this->createSession();

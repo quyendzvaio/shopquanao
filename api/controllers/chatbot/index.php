@@ -91,10 +91,18 @@ $knowledgeSources = $result['knowledge_sources'] ?? [];
 $pdo->prepare("UPDATE chat_sessions SET updated_at = NOW(), user_id = COALESCE(?, user_id) WHERE id = ?")
     ->execute([$userId, $sessionId]);
 
-jsonResponse([
+$response = [
     'message' => $responseText,
     'products' => $products,
     'knowledge_sources' => $knowledgeSources,
     'session_token' => $sessionToken,
     'session_id' => $sessionId,
-]);
+];
+
+foreach (['answer', 'response_type', 'primary_intent', 'secondary_intents', 'requested_fields', 'cards', 'missing_slots', 'trace_id', 'latency'] as $key) {
+    if (array_key_exists($key, $result)) {
+        $response[$key] = $result[$key];
+    }
+}
+
+jsonResponse($response);

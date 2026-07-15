@@ -59,12 +59,21 @@ postman/
 
 # Python
 __pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
 .cache/
 .huggingface/
 hf_cache/
 models/
+.ragas/
+.langsmith/
+*.arrow
+*.parquet
+*.safetensors
+*.bin
+*.pt
+*.pth
 .venv/
 venv/
 .pytest_cache/

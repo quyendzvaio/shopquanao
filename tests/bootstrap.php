@@ -17,6 +17,12 @@ require_once ROOT_DIR . '/api/controllers/chatbot/KnowledgeRetriever.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/ToolRegistry.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMFactory.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/evaluator/AgentEvaluator.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/IntentAndConstraintExtractor.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ToolPlanner.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ParallelToolExecutor.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/EvidenceNormalizer.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ResponseGenerator.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/OnlineValidator.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/AgenticOrchestrator.php';
 
 /**

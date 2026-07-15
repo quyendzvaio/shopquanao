@@ -7,6 +7,8 @@ class KnowledgeRetrieverTest extends \PHPUnit\Framework\TestCase
 
     protected function setUp(): void
     {
+        putenv('EMBEDDING_PROVIDER=local_hash');
+        putenv('RAG_ML_URL=');
         $this->pdo = new PDO('sqlite::memory:', null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
