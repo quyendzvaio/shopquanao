@@ -391,7 +391,7 @@ jobs:
             # Healthcheck with extended timeout for rag-ml model warmup.
             echo "Waiting for app (up to 300s)..."
             for i in $(seq 1 100); do
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8090/api/products?limit=1 2>/dev/null || echo "000")
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/api/products?limit=1 2>/dev/null || echo "000")
               if [ "$STATUS" = "200" ]; then
                 echo "✅ App ready (${i}x3s)"
                 break
@@ -423,7 +423,7 @@ jobs:
         run: |
           echo "## ✅ Deploy complete" >> $GITHUB_STEP_SUMMARY
           echo "| Host | ${{ secrets.DEPLOY_HOST }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Port | 8090 |" >> $GITHUB_STEP_SUMMARY
+          echo "| Port | 80 |" >> $GITHUB_STEP_SUMMARY
           echo "| Reranker | 8001 |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
           echo "| By | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY

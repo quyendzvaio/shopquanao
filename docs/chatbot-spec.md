@@ -71,7 +71,8 @@
 
 | Service | Container | Base Image | Port | RAM |
 |---|---|---|---|---|
-| `app` | `shop_quan_ao_app` | php:8.2-apache | 8090:80 | ~100 MB |
+| `nginx` | `shop_quan_ao_nginx` | nginx:1.27-alpine | ${NGINX_HTTP_PORT:-80}:80 | ~20 MB |
+| `app` | `shop_quan_ao_app` | php:8.2-apache | internal 80 | ~100 MB |
 | `db` | `shop_quan_ao_db` | mariadb:10.11 | 3308:3306 | ~200 MB |
 | `reranker` | `shop_quan_ao_reranker` | python:3.12-slim | 8001:8000 | ~785 MB |
 | `phpmyadmin` | `shop_quan_ao_phpmyadmin` | phpmyadmin:5.2 | 8091:80 | profile: tools |

@@ -1,7 +1,7 @@
 # Thông tin cửa hàng
 
 ## Fashion Shop
-- Website: http://localhost:8090
+- Website: http://hostshop.work.gd
 - Email: support@fashionshop.com
 - Hotline: 1900-1234-5678
 - Địa chỉ: Số 123, Đường ABC, Quận 1, TP.HCM

@@ -13,6 +13,14 @@ require_once __DIR__ . '/llm/LLMFactory.php';
 require_once __DIR__ . '/engine.php';
 require_once __DIR__ . '/ChatbotMemory.php';
 require_once __DIR__ . '/evaluator/AgentEvaluator.php';
+require_once __DIR__ . '/pipeline/PartialParseResult.php';
+require_once __DIR__ . '/pipeline/CapabilityRegistry.php';
+require_once __DIR__ . '/pipeline/FastParser.php';
+require_once __DIR__ . '/pipeline/ConflictDetector.php';
+require_once __DIR__ . '/pipeline/ConflictResolver.php';
+require_once __DIR__ . '/pipeline/LLMSemanticCompletion.php';
+require_once __DIR__ . '/pipeline/MergeEngine.php';
+require_once __DIR__ . '/pipeline/PlanValidator.php';
 require_once __DIR__ . '/pipeline/IntentAndConstraintExtractor.php';
 require_once __DIR__ . '/pipeline/ToolPlanner.php';
 require_once __DIR__ . '/pipeline/ParallelToolExecutor.php';
@@ -106,6 +114,7 @@ PROMPT;
         $this->responseMetadata = [];
         $memoryStart = microtime(true);
         $memoryContext = $this->memory->rememberUserMessage($message);
+        $memoryContext = $this->enrichMemoryContextWithLastProduct($memoryContext);
         $this->responseMetadata['latency']['memory_load_ms'] = (int)((microtime(true) - $memoryStart) * 1000);
 
         $pipelineResult = $this->processWithProductionPipeline($message, $memoryContext);
@@ -154,23 +163,83 @@ PROMPT;
         $traceId = bin2hex(random_bytes(8));
         $spans = [
             'trace_id' => $traceId,
-            'pipeline' => 'deterministic',
+            'pipeline' => 'partial_parse_capability_planner',
             'memory_load_ms' => (int)($this->responseMetadata['latency']['memory_load_ms'] ?? 0),
         ];
 
         $start = microtime(true);
-        $extractor = new IntentAndConstraintExtractor();
-        $intent = $extractor->extract($message, $memoryContext);
-        $spans['intent_extraction_ms'] = (int)((microtime(true) - $start) * 1000);
+        $capabilities = CapabilityRegistry::fromToolDefinitions($this->toolRegistry->getDefinitions());
+        $spans['capability_definition_ms'] = (int)((microtime(true) - $start) * 1000);
 
-        if (($intent['primary_intent'] ?? 'unknown') === 'unknown' || (float)($intent['confidence'] ?? 0) < 0.6) {
-            return null;
+        $start = microtime(true);
+        $partial = (new FastParser())->parse($message, $memoryContext)->toArray();
+        $spans['fast_parse_ms'] = (int)((microtime(true) - $start) * 1000);
+
+        $start = microtime(true);
+        $partial['conflicts'] = (new ConflictDetector())->detect($partial);
+        $conflictResolution = (new ConflictResolver())->resolve($partial);
+        $spans['conflict_detection_ms'] = (int)((microtime(true) - $start) * 1000);
+
+        if (!empty($conflictResolution['unresolved_conflicts'])) {
+            $response = $this->clarificationPipelineResponse(
+                (string)$conflictResolution['clarification_message'],
+                $traceId,
+                $partial,
+                $conflictResolution,
+                $spans,
+                'clarification'
+            );
+            $this->logRoutingPipeline($response['latency']['routing'] ?? []);
+            return $response;
         }
 
         $start = microtime(true);
-        $planner = new ToolPlanner();
+        $semanticCompletion = (new LLMSemanticCompletion($this->llm))->complete(
+            $partial,
+            CapabilityRegistry::relevantForPartial($partial, $capabilities)
+        );
+        $spans['semantic_completion_ms'] = (int)((microtime(true) - $start) * 1000);
+
+        $start = microtime(true);
+        $intent = (new MergeEngine())->merge($partial, $semanticCompletion, $memoryContext, $conflictResolution);
+        $spans['merge_ms'] = (int)((microtime(true) - $start) * 1000);
+
+        if (($intent['primary_intent'] ?? 'unknown') === 'unknown' || (float)($intent['confidence'] ?? 0) < 0.6) {
+            $response = $this->clarificationPipelineResponse(
+                'Mình chưa đủ thông tin để chọn đúng cách hỗ trợ. Bạn nói rõ hơn là muốn tìm sản phẩm, xem chi tiết, hỏi size, chính sách hay đơn hàng nhé.',
+                $traceId,
+                $partial,
+                $conflictResolution,
+                $spans,
+                'fallback'
+            );
+            $this->logRoutingPipeline($response['latency']['routing'] ?? []);
+            return $response;
+        }
+
+        $start = microtime(true);
+        $planner = new ToolPlanner($capabilities);
         $plan = $planner->plan($intent);
-        $spans['planning_ms'] = (int)((microtime(true) - $start) * 1000);
+        $spans['capability_planning_ms'] = (int)((microtime(true) - $start) * 1000);
+
+        $start = microtime(true);
+        $planValidation = (new PlanValidator($capabilities))->validate($plan, $intent);
+        $spans['plan_validation_ms'] = (int)((microtime(true) - $start) * 1000);
+        $plan = $planValidation['sanitized_plan'];
+        if (!$planValidation['passed']) {
+            $response = $this->clarificationPipelineResponse(
+                'Mình chưa thể tạo kế hoạch xử lý an toàn cho yêu cầu này. Bạn nói rõ hơn giúp mình nhé.',
+                $traceId,
+                $partial,
+                $conflictResolution,
+                $spans,
+                'fallback',
+                $intent,
+                $planValidation['errors']
+            );
+            $this->logRoutingPipeline($response['latency']['routing'] ?? []);
+            return $response;
+        }
 
         $executor = new ParallelToolExecutor($this->toolRegistry);
         $execution = $executor->execute($plan);
@@ -209,6 +278,15 @@ PROMPT;
         $response['products'] = $response['products'] ?? ($response['cards'] ?? []);
         $response['cards'] = $response['cards'] ?? $response['products'];
 
+        $routingLog = $this->routingLog(
+            $partial,
+            $semanticCompletion,
+            $intent,
+            $plan,
+            $planValidation['errors'],
+            (string)($intent['execution_mode'] ?? 'deterministic')
+        );
+        $response['latency']['routing'] = $routingLog;
         $this->evaluationMetadata[] = [
             'trace_id' => $traceId,
             'mode' => 'online_validator',
@@ -219,14 +297,107 @@ PROMPT;
         $this->responseMetadata['latency'] = $spans;
         $this->responseMetadata['primary_intent'] = $intent['primary_intent'];
         $this->responseMetadata['requested_fields'] = $intent['requested_fields'] ?? [];
+        $this->responseMetadata['routing'] = $routingLog;
         $this->logToolExecution('async_evaluation_outbox', [], [
             'trace_id' => $traceId,
             'primary_intent' => $intent['primary_intent'],
             'validation_passed' => (bool)$validation['passed'],
             'validation_issues' => $validation['issues'],
         ], 0, true);
+        $this->logRoutingPipeline($routingLog);
 
         return $response;
+    }
+
+    private function clarificationPipelineResponse(
+        string $message,
+        string $traceId,
+        array $partial,
+        array $conflictResolution,
+        array $spans,
+        string $responseType,
+        array $intent = [],
+        array $validationErrors = []
+    ): array {
+        $spans['generation_ms'] = $spans['generation_ms'] ?? 0;
+        $spans['tool_execution_ms'] = $spans['tool_execution_ms'] ?? 0;
+        $spans['total_ms'] = (int)(($spans['total_ms'] ?? 0) ?: 0);
+        $routingLog = $this->routingLog(
+            $partial,
+            ['used' => false, 'inferred_fields' => [], 'unresolved_remaining' => [], 'error' => null],
+            $intent,
+            ['batches' => [], 'selected_capabilities' => []],
+            $validationErrors,
+            $responseType === 'clarification' ? 'clarification' : 'deterministic'
+        );
+        if (!empty($conflictResolution['unresolved_conflicts'])) {
+            $routingLog['conflicts'] = $conflictResolution['unresolved_conflicts'];
+        }
+        $spans['routing'] = $routingLog;
+        $spans['total_ms'] = max((int)$spans['total_ms'], (int)($spans['fast_parse_ms'] ?? 0) + (int)($spans['conflict_detection_ms'] ?? 0));
+
+        $response = [
+            'message' => $message,
+            'answer' => $message,
+            'products' => [],
+            'cards' => [],
+            'knowledge_sources' => [],
+            'response_type' => $responseType,
+            'primary_intent' => (string)($intent['primary_intent'] ?? ($partial['resolved_fields']['intent']['value'] ?? 'unknown')),
+            'secondary_intents' => $intent['secondary_intents'] ?? [],
+            'requested_fields' => $intent['requested_fields'] ?? [],
+            'missing_slots' => $intent['missing_slots'] ?? ($partial['missing_fields'] ?? []),
+            'trace_id' => $traceId,
+            'latency' => $spans,
+        ];
+
+        $this->responseMetadata['latency'] = $spans;
+        $this->responseMetadata['primary_intent'] = $response['primary_intent'];
+        $this->responseMetadata['requested_fields'] = $response['requested_fields'];
+        $this->responseMetadata['routing'] = $routingLog;
+
+        return $response;
+    }
+
+    private function routingLog(
+        array $partial,
+        array $semanticCompletion,
+        array $intent,
+        array $plan,
+        array $validationErrors,
+        string $executionMode
+    ): array {
+        return [
+            'resolved_fields' => $partial['resolved_fields'] ?? [],
+            'unresolved_spans' => $partial['unresolved_spans'] ?? [],
+            'conflicts' => $partial['conflicts'] ?? [],
+            'llm_semantic_completion_used' => (bool)($semanticCompletion['used'] ?? false),
+            'llm_inferred_fields' => $semanticCompletion['inferred_fields'] ?? [],
+            'llm_unresolved_remaining' => $semanticCompletion['unresolved_remaining'] ?? [],
+            'llm_semantic_completion_error' => $semanticCompletion['error'] ?? null,
+            'locked_field_overwrite_attempts' => $intent['locked_field_overwrite_attempts'] ?? [],
+            'merged_entities' => $intent['entities'] ?? [],
+            'selected_capabilities' => $plan['selected_capabilities'] ?? [],
+            'selected_tools' => $this->selectedTools($plan),
+            'validation_errors' => $validationErrors,
+            'execution_mode' => $executionMode,
+        ];
+    }
+
+    private function selectedTools(array $plan): array {
+        $tools = [];
+        foreach (($plan['batches'] ?? []) as $batch) {
+            foreach ($batch as $call) {
+                if (!empty($call['tool'])) {
+                    $tools[] = (string)$call['tool'];
+                }
+            }
+        }
+        return array_values(array_unique($tools));
+    }
+
+    private function logRoutingPipeline(array $routingLog): void {
+        $this->logToolExecution('routing_pipeline', [], $routingLog, 0, empty($routingLog['validation_errors']));
     }
 
     private function recordPipelineToolExecutions(array $execution): void {
@@ -246,6 +417,40 @@ PROMPT;
                 'success' => $success,
             ];
         }
+    }
+
+    private function enrichMemoryContextWithLastProduct(array $memoryContext): array {
+        if (!isset($memoryContext['slots']) || !is_array($memoryContext['slots'])) {
+            $memoryContext['slots'] = [];
+        }
+        if (!empty($memoryContext['slots']['last_product_id'])) {
+            return $memoryContext;
+        }
+
+        try {
+            $stmt = $this->pdo->prepare(
+                "SELECT metadata FROM chat_messages
+                 WHERE session_id = ? AND role = 'bot' AND metadata IS NOT NULL
+                 ORDER BY id DESC
+                 LIMIT 8"
+            );
+            $stmt->execute([$this->sessionId]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $metadata = json_decode((string)($row['metadata'] ?? ''), true);
+                if (!is_array($metadata) || empty($metadata['products']) || !is_array($metadata['products'])) {
+                    continue;
+                }
+                $first = $metadata['products'][0] ?? null;
+                if (is_array($first) && !empty($first['id'])) {
+                    $memoryContext['slots']['last_product_id'] = (int)$first['id'];
+                    return $memoryContext;
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('Last product memory enrich failed: ' . $e->getMessage());
+        }
+
+        return $memoryContext;
     }
 
     /**

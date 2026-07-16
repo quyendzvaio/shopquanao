@@ -81,6 +81,13 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
                         ],
                         'min_price' => ['type' => 'number', 'description' => 'Giá thấp nhất (VNĐ)'],
                         'max_price' => ['type' => 'number', 'description' => 'Giá cao nhất (VNĐ)'],
+                        'color' => ['type' => 'string', 'description' => 'Màu sắc đã chuẩn hóa nếu user nêu rõ.'],
+                        'size' => ['type' => 'string', 'description' => 'Size user quan tâm nếu có.'],
+                        'in_stock' => ['type' => 'boolean', 'description' => 'Chỉ ưu tiên sản phẩm còn hàng nếu user hỏi tồn kho/còn hàng.'],
+                        'occasion' => ['type' => 'string', 'description' => 'Ngữ cảnh sử dụng do semantic completion bổ sung.'],
+                        'style' => ['type' => ['string', 'array'], 'description' => 'Phong cách mong muốn do semantic completion bổ sung.'],
+                        'avoid' => ['type' => ['string', 'array'], 'description' => 'Đặc điểm cần tránh do semantic completion bổ sung.'],
+                        'semantic_query' => ['type' => 'string', 'description' => 'Đoạn semantic constraint không dùng làm keyword LIKE cứng.'],
                     ],
                     'required' => ['search'],
                 ],
@@ -517,6 +524,9 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         if (!empty($args['max_price'])) {
             $sql .= " AND p.price <= ?";
             $params[] = (float)$args['max_price'];
+        }
+        if (($args['in_stock'] ?? null) === true) {
+            $sql .= " AND p.stock > 0";
         }
 
         $sql .= " ORDER BY p.price ASC";

@@ -244,8 +244,8 @@ Response chatbot có dạng:
       "price": 550000,
       "stock": 12,
       "image": "ak_bomber_03.jpg",
-      "image_url": "http://localhost:8090/images/ak_bomber_03.jpg",
-      "url": "http://localhost:8090/product.php?id=52"
+      "image_url": "/images/ak_bomber_03.jpg",
+      "url": "/product.php?id=52"
     }
   ]
 }
@@ -429,7 +429,7 @@ phpmyadmin
 
 Port local:
 
-- App: `http://localhost:8090`
+- App: `http://localhost`
 - MariaDB: `localhost:3308`
 - Redis: `localhost:6379`
 - Reranker: `http://localhost:8001`
@@ -686,13 +686,13 @@ docker compose logs -f reranker
 docker compose exec -T redis redis-cli FLUSHDB
 
 # Health app
-curl http://localhost:8090/api/products?limit=1
+curl http://localhost/api/products?limit=1
 
 # Health reranker
 curl http://localhost:8001/health
 
 # Test chatbot
-curl -X POST http://localhost:8090/api/chatbot \
+curl -X POST http://localhost/api/chatbot \
   -H "Content-Type: application/json" \
   -d '{"message":"mình muốn tìm áo bomber"}'
 ```
@@ -717,4 +717,3 @@ curl -X POST http://localhost:8090/api/chatbot \
 5. Chuẩn hóa migration runner thay vì phụ thuộc import SQL thủ công.
 6. Thêm E2E test cho flow chatbot -> product card -> checkout.
 7. Tách business service khỏi controller để giảm PHP-to-PHP internal HTTP trong tool.
-

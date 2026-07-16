@@ -114,6 +114,27 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
         }
     }
 
+    public function testPipelineRoutingMetadataIsPersisted(): void
+    {
+        $sessionId = $this->createSession();
+        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
+        $result = $orchestrator->respond('Tìm áo đen dưới 300k giúp mình với nhé.');
+
+        $this->assertSame('product_search', $result['primary_intent']);
+
+        $stmt = $this->pdo->prepare("SELECT metadata FROM chat_messages WHERE session_id = ? AND role = 'bot' ORDER BY id DESC LIMIT 1");
+        $stmt->execute([$sessionId]);
+        $metadata = json_decode((string)$stmt->fetchColumn(), true);
+
+        $this->assertIsArray($metadata);
+        $this->assertArrayHasKey('pipeline', $metadata);
+        $routing = $metadata['pipeline']['routing'] ?? [];
+        $this->assertSame('deterministic', $routing['execution_mode'] ?? '');
+        $this->assertFalse((bool)($routing['llm_semantic_completion_used'] ?? true));
+        $this->assertSame('black', $routing['merged_entities']['color'] ?? null);
+        $this->assertContains('search_products', $routing['selected_tools'] ?? []);
+    }
+
     public function testOrchestratorLoadsHistory(): void
     {
         $sessionId = $this->createSession();

@@ -1,6 +1,12 @@
 <?php
 
 class ToolPlanner {
+    private array $capabilities;
+
+    public function __construct(array $capabilities = []) {
+        $this->capabilities = $capabilities;
+    }
+
     public function plan(array $intent): array {
         $primary = (string)($intent['primary_intent'] ?? 'unknown');
         $entities = is_array($intent['entities'] ?? null) ? $intent['entities'] : [];
@@ -32,7 +38,7 @@ class ToolPlanner {
             case 'product_search':
                 if (empty($entities['product_type'])) return ['batches' => [], 'response_type' => 'fallback'];
                 $args = ['search' => (string)$entities['product_type']];
-                foreach (['min_price', 'max_price', 'category_id'] as $key) {
+                foreach (['min_price', 'max_price', 'category_id', 'color', 'size', 'in_stock', 'occasion', 'style', 'avoid', 'semantic_query'] as $key) {
                     if (isset($entities[$key])) $args[$key] = $entities[$key];
                 }
                 $calls[] = ['tool' => 'search_products', 'args' => $args, 'id' => 'product_search'];
@@ -48,7 +54,11 @@ class ToolPlanner {
                 if (!empty($entities['product_id'])) {
                     $calls[] = ['tool' => 'get_product_detail', 'args' => ['product_id' => (int)$entities['product_id']], 'id' => 'product_detail'];
                 } elseif (!empty($entities['product_type'])) {
-                    $calls[] = ['tool' => 'search_products', 'args' => ['search' => (string)$entities['product_type']], 'id' => 'product_search'];
+                    $args = ['search' => (string)$entities['product_type']];
+                    foreach (['min_price', 'max_price', 'category_id', 'color', 'size', 'in_stock', 'occasion', 'style', 'avoid', 'semantic_query'] as $key) {
+                        if (isset($entities[$key])) $args[$key] = $entities[$key];
+                    }
+                    $calls[] = ['tool' => 'search_products', 'args' => $args, 'id' => 'product_search'];
                 }
                 $calls[] = ['tool' => 'retrieve_knowledge', 'args' => $this->knowledgeArgs($intent), 'id' => 'knowledge'];
                 break;
@@ -63,6 +73,8 @@ class ToolPlanner {
         return [
             'batches' => empty($calls) ? [] : [$calls],
             'response_type' => 'final_answer',
+            'selected_capabilities' => array_values(array_unique(array_map(fn($call) => (string)$call['tool'], $calls))),
+            'capability_definitions_version' => $this->capabilities === [] ? 'legacy' : 'capability_registry_v1',
         ];
     }
 

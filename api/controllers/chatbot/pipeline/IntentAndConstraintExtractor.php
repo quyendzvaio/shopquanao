@@ -1,92 +1,24 @@
 <?php
 
+require_once __DIR__ . '/PartialParseResult.php';
+require_once __DIR__ . '/FastParser.php';
+require_once __DIR__ . '/ConflictDetector.php';
+require_once __DIR__ . '/ConflictResolver.php';
+require_once __DIR__ . '/MergeEngine.php';
+
 class IntentAndConstraintExtractor {
     public function extract(string $message, array $memoryContext = []): array {
-        $text = trim($message);
-        $lower = mb_strtolower($text);
-        $entities = [];
-        $requestedFields = [];
-        $secondary = [];
-        $missingSlots = [];
+        $parser = new FastParser();
+        $partial = $parser->parse($message, $memoryContext)->toArray();
+        $partial['conflicts'] = (new ConflictDetector())->detect($partial);
+        $conflictResolution = (new ConflictResolver())->resolve($partial);
 
-        $productId = $this->extractProductId($text);
-        if ($productId !== null) {
-            $entities['product_id'] = $productId;
-            $requestedFields = array_merge($requestedFields, ['product_id', 'price', 'stock']);
-        }
-
-        $orderId = $this->extractOrderId($text);
-        if ($orderId !== null) {
-            $entities['order_id'] = $orderId;
-            $requestedFields[] = 'order_status';
-        }
-
-        $productType = $this->extractProductType($lower);
-        if ($productType !== null) {
-            $entities['product_type'] = $productType;
-        } elseif (!empty($memoryContext['slots']['product_type'])) {
-            $entities['product_type'] = $memoryContext['slots']['product_type'];
-        }
-
-        $price = $this->extractPriceConstraints($lower);
-        foreach ($price as $key => $value) {
-            $entities[$key] = $value;
-        }
-        if (isset($entities['min_price']) || isset($entities['max_price']) || preg_match('/giá|gia|rẻ|re|đắt|dat|tầm|tam|khoảng|khoang/ui', $lower)) {
-            $requestedFields[] = 'price';
-        }
-        if (preg_match('/còn hàng|con hang|tồn kho|ton kho|còn size|con size|hết hàng|het hang/ui', $lower)) {
-            $requestedFields[] = 'stock';
-        }
-
-        $height = $this->extractInt('/(\d+)\s*cm/ui', $lower);
-        if ($height === null && preg_match('/(\d+)\s*m\s*(\d+)/ui', $lower, $m)) {
-            $height = ((int)$m[1] * 100) + (int)$m[2];
-        }
-        $weight = $this->extractInt('/(\d+)\s*kg/ui', $lower);
-        if ($height !== null) $entities['height'] = $height;
-        if ($weight !== null) $entities['weight'] = $weight;
-        if (preg_match('/\b(xs|s|m|l|xl|xxl)\b/ui', $text, $m)) {
-            $entities['size'] = strtoupper($m[1]);
-            $requestedFields[] = 'size';
-        }
-
-        $primary = $this->primaryIntent($lower, $entities);
-        if ($this->isReturnExchange($lower)) {
-            $requestedFields[] = 'exchange_eligibility';
-        }
-        if ($this->isShipping($lower)) {
-            $requestedFields[] = $this->isReturnExchange($lower) ? 'exchange_shipping_fee' : 'shipping_fee';
-        }
-        if ($primary === 'size_advice') {
-            if (!isset($entities['height'])) $missingSlots[] = 'height';
-            if (!isset($entities['weight'])) $missingSlots[] = 'weight';
-        }
-
-        if ($this->isReturnExchange($lower) && $primary !== 'return_exchange') $secondary[] = 'return_exchange';
-        if ($this->isShipping($lower) && $primary !== 'shipping') $secondary[] = 'shipping';
-        if ($this->isProductIntent($lower, $entities) && !in_array($primary, ['product_search', 'product_detail'], true)) $secondary[] = 'product_search';
-
-        $subQueries = [];
-        if ($primary === 'mixed_product_policy' || in_array('return_exchange', $secondary, true) || in_array('shipping', $secondary, true)) {
-            $subQueries['knowledge'] = $text;
-        }
-        if (isset($entities['product_id'])) {
-            $subQueries['product_detail'] = (string)$entities['product_id'];
-        } elseif (!empty($entities['product_type'])) {
-            $subQueries['product_search'] = (string)$entities['product_type'];
-        }
-
-        return [
-            'original_query' => $text,
-            'primary_intent' => $primary,
-            'secondary_intents' => array_values(array_unique($secondary)),
-            'entities' => $entities,
-            'requested_fields' => array_values(array_unique($requestedFields)),
-            'missing_slots' => array_values(array_unique($missingSlots)),
-            'sub_queries' => $subQueries,
-            'confidence' => $primary === 'unknown' ? 0.2 : 0.9,
-        ];
+        return (new MergeEngine())->merge(
+            $partial,
+            ['used' => false, 'inferred_fields' => [], 'unresolved_remaining' => [], 'error' => null],
+            $memoryContext,
+            $conflictResolution
+        );
     }
 
     private function primaryIntent(string $text, array $entities): string {

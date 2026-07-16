@@ -178,7 +178,7 @@ Khi đổi knowledge base, tăng `KNOWLEDGE_VERSION` để cache retrieval/reran
 | Thuộc tính | Giá trị |
 |---|---|
 | Ngày đo | 2026-07-16 |
-| Target | `http://localhost:8090` qua Nginx |
+| Target | `http://localhost` qua Nginx |
 | Case file | `eval/chatbot_positive_eval_cases.jsonl` |
 | Số case | 5 scenario, 25 turns |
 | Dữ liệu | Qdrant reindexed `shop_knowledge_v2`, Redis/model cache warm |
@@ -216,7 +216,7 @@ RAGAS contexts gồm policy chunks và evidence chuẩn hóa từ product/order 
 
 | Service | Vai trò | Port |
 |---|---|---:|
-| `nginx` | API Gateway | `8090:80` |
+| `nginx` | API Gateway | `${NGINX_HTTP_PORT:-80}:80` |
 | `app` | PHP Agent/API app | internal `80` |
 | `db` | MariaDB | `3308:3306` |
 | `redis` | Cache | `6379` |
@@ -241,7 +241,10 @@ MARIADB_ROOT_PASSWORD=...
 LLM_API_KEY=...
 LLM_BASE_URL=https://api.deepseek.com
 LLM_MODEL=deepseek-chat
+NGINX_HTTP_PORT=80
 ```
+
+Nếu máy local đã có service chiếm port 80, đổi tạm `NGINX_HTTP_PORT=8090` và truy cập `http://localhost:8090`.
 
 3. Start stack:
 
@@ -258,8 +261,8 @@ docker compose exec -T app php scripts/ingest_knowledge.php
 5. Smoke test:
 
 ```bash
-curl http://localhost:8090/api/products?limit=1
-curl -X POST http://localhost:8090/api/chatbot \
+curl http://localhost/api/products?limit=1
+curl -X POST http://localhost/api/chatbot \
   -H 'Content-Type: application/json' \
   -d '{"message":"áo thun giá rẻ"}'
 ```
@@ -280,7 +283,7 @@ Kết quả gần nhất:
 
 | Check | Kết quả |
 |---|---|
-| PHPUnit | `79 tests, 256 assertions` pass |
+| PHPUnit | `86 tests, 316 assertions` pass |
 | PHPStan | No errors |
 | Docker Compose config | OK |
 
@@ -295,7 +298,7 @@ export RAGAS_EMBEDDING_MODEL=bkai-foundation-models/vietnamese-bi-encoder
 export LANGSMITH_PROJECT=fashion-shop-production-pipeline-offline-eval
 
 python3 eval/run_chatbot_eval.py \
-  --base-url http://localhost:8090 \
+  --base-url http://localhost \
   --cases eval/chatbot_positive_eval_cases.jsonl \
   --output reports/chatbot_eval_report.json \
   --markdown-output reports/BAO_CAO_CHATBOT_EVAL.md \
