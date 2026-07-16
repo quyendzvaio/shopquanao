@@ -171,7 +171,6 @@ class EvidenceNormalizer {
     }
 
     private function productCard(array $product): array {
-        $baseUrl = function_exists('getBaseUrl') ? rtrim(getBaseUrl(), '/') : '';
         $id = (int)($product['id'] ?? 0);
         $image = (string)($product['image'] ?? '');
         return [
@@ -185,9 +184,26 @@ class EvidenceNormalizer {
             'available_sizes' => $this->extractSizes($product),
             'available_colors' => [],
             'image' => $image,
-            'image_url' => ($baseUrl !== '' && $image !== '') ? $baseUrl . '/images/' . $image : '',
-            'url' => $baseUrl !== '' ? $baseUrl . '/product.php?id=' . $id : '',
+            'image_url' => $this->productImageUrl($image, (string)($product['image_url'] ?? '')),
+            'url' => $id > 0 ? '/product.php?id=' . $id : '',
         ];
+    }
+
+    private function productImageUrl(string $image, string $imageUrl = ''): string {
+        $raw = trim($image !== '' ? $image : $imageUrl);
+        if ($raw === '') {
+            return '';
+        }
+
+        $path = parse_url($raw, PHP_URL_PATH);
+        $path = is_string($path) && $path !== '' ? $path : $raw;
+        $path = ltrim($path, '/');
+
+        if (str_starts_with($path, 'images/')) {
+            return '/' . $path;
+        }
+
+        return '/images/' . $path;
     }
 
     private function addProductFacts(array $card, array &$evidence, string $source): void {

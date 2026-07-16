@@ -378,31 +378,88 @@ async function sendMessage() {
     setTimeout(() => document.getElementById('chat-input').focus(), 100);
 }
 
+function escapeHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = String(value ?? '');
+    return div.innerHTML;
+}
+
+function fallbackProductUrl(product) {
+    const id = Number.parseInt(product?.id, 10);
+    return id > 0 ? '/product.php?id=' + encodeURIComponent(String(id)) : '#';
+}
+
+function fallbackImageUrl(product) {
+    const raw = String(product?.image || '').trim();
+    if (!raw) return '';
+    let path = raw.replace(/^https?:\/\/[^/]+\/?/i, '').replace(/^\/?images\//i, '');
+    path = path.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+    return path ? '/images/' + path : '';
+}
+
+function normalizeShopPath(raw, fallback, allowExternal = false) {
+    const fallbackPath = fallback || '';
+    const value = String(raw || '').trim();
+    if (!value) return fallbackPath;
+
+    try {
+        const url = new URL(value, window.location.origin);
+        const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+        const sameOrigin = url.origin === window.location.origin;
+        if (sameOrigin || isLocalhost || value.startsWith('/')) {
+            return url.pathname + url.search + url.hash;
+        }
+        return allowExternal ? url.href : fallbackPath;
+    } catch (e) {
+        return value.startsWith('/') ? value : fallbackPath;
+    }
+}
+
+function productCardUrl(product) {
+    return normalizeShopPath(product?.url, fallbackProductUrl(product));
+}
+
+function productImageUrl(product) {
+    return normalizeShopPath(product?.image_url, fallbackImageUrl(product));
+}
+
 function renderProductCards(products) {
     const container = document.getElementById('chat-messages');
     const cardWrap = document.createElement('div');
     cardWrap.style.cssText = 'display:flex; flex-wrap:wrap; gap:8px; padding:4px 0; max-width:100%; align-self:flex-start;';
 
     products.forEach(p => {
-        const imgSrc = p.image_url || ('/images/' + (p.image || ''));
+        const imgSrc = productImageUrl(p);
+        const href = productCardUrl(p);
         const stockLabel = p.stock > 0 ? 'Còn ' + p.stock : 'Hết hàng';
         const stockColor = p.stock > 0 ? '#27ae60' : '#e74c3c';
+        const name = escapeHtml(p.name || 'Sản phẩm');
+        const price = Number(p.price || 0).toLocaleString('vi-VN');
 
         const card = document.createElement('a');
-        card.href = p.url;
-        card.target = '_blank';
+        card.href = href;
         card.style.cssText = 'display:flex; flex-direction:column; width:calc(50% - 4px); border:1px solid #eee; border-radius:8px; overflow:hidden; text-decoration:none; color:inherit; background:#fff; transition:0.2s;';
 
         card.innerHTML = `
             <div style="width:100%; height:110px; background:#f5f5f5; display:flex; align-items:center; justify-content:center; overflow:hidden;">
-                <img src="${imgSrc}" alt="${p.name}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'">
+                ${imgSrc ? `<img src="${escapeHtml(imgSrc)}" alt="${name}" style="width:100%; height:100%; object-fit:cover;">` : '<span style="font-size:11px; color:#999;">Không có ảnh</span>'}
             </div>
             <div style="padding:6px 8px;">
-                <div style="font-size:12px; font-weight:700; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${p.name}</div>
-                <div style="font-size:11px; color:#d0021b; font-weight:700; margin-top:2px;">${Number(p.price).toLocaleString()}đ</div>
-                <div style="font-size:10px; color:${stockColor}; margin-top:2px;">${stockLabel}</div>
+                <div style="font-size:12px; font-weight:700; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${name}</div>
+                <div style="font-size:11px; color:#d0021b; font-weight:700; margin-top:2px;">${price}đ</div>
+                <div style="font-size:10px; color:${stockColor}; margin-top:2px;">${escapeHtml(stockLabel)}</div>
             </div>
         `;
+
+        const img = card.querySelector('img');
+        if (img) {
+            img.addEventListener('error', () => {
+                const imageBox = img.parentElement;
+                if (imageBox) {
+                    imageBox.innerHTML = '<span style="font-size:11px; color:#999;">Không có ảnh</span>';
+                }
+            });
+        }
 
         card.addEventListener('mouseenter', () => { card.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'; });
         card.addEventListener('mouseleave', () => { card.style.boxShadow = 'none'; });

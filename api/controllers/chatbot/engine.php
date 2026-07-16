@@ -264,7 +264,6 @@ class ChatbotEngine {
             return "Hiện mình không tìm thấy sản phẩm phù hợp với yêu cầu của bạn. Bạn có thể thử từ khóa khác như \"áo khoác dưới 500k\", \"áo thun\", \"quần jeans\" hoặc \"váy maxi\".";
         }
 
-        $base = getBaseUrl();
         $count = count($products);
         $productNames = array_map(fn($p) => (string)$p['name'], array_slice($products, 0, 3));
         $response = "Mình tìm thấy $count sản phẩm phù hợp";
@@ -277,15 +276,14 @@ class ChatbotEngine {
         $response .= ". Bạn có thể bấm vào thẻ sản phẩm bên dưới để xem chi tiết.";
 
         foreach ($products as $p) {
-            $url = "$base/product.php?id={$p['id']}";
             $this->lastProducts[] = [
                 'id' => (int)$p['id'],
                 'name' => $p['name'],
                 'price' => (float)$p['price'],
                 'stock' => (int)($p['stock'] ?? 0),
                 'image' => $p['image'] ?? '',
-                'image_url' => $base . '/images/' . ($p['image'] ?? ''),
-                'url' => $url,
+                'image_url' => $this->productImageUrl((string)($p['image'] ?? '')),
+                'url' => '/product.php?id=' . (int)$p['id'],
             ];
         }
 
@@ -302,12 +300,11 @@ class ChatbotEngine {
         $p = $stmt->fetch();
         if (!$p) return "Mình chưa tìm thấy sản phẩm #$id.";
 
-        $base = getBaseUrl();
         $this->lastProducts[] = [
             'id' => (int)$p['id'], 'name' => $p['name'], 'price' => (float)$p['price'],
             'stock' => (int)($p['stock'] ?? 0), 'image' => $p['image'] ?? '',
-            'image_url' => $base . '/images/' . ($p['image'] ?? ''),
-            'url' => $base . '/product.php?id=' . (int)$p['id'],
+            'image_url' => $this->productImageUrl((string)($p['image'] ?? '')),
+            'url' => '/product.php?id=' . (int)$p['id'],
         ];
 
         $stmt = $this->pdo->prepare("SELECT size_name FROM product_sizes WHERE product_id = ?");
@@ -532,6 +529,23 @@ class ChatbotEngine {
         $stmt = $this->pdo->prepare("INSERT INTO chat_messages (session_id, role, message, metadata) VALUES (?, 'bot', ?, ?)");
         $stmt->execute([$this->sessionId, $response, $meta]);
         $this->pdo->prepare("UPDATE chat_sessions SET updated_at = NOW() WHERE id = ?")->execute([$this->sessionId]);
+    }
+
+    private function productImageUrl(string $image): string {
+        $raw = trim($image);
+        if ($raw === '') {
+            return '';
+        }
+
+        $path = parse_url($raw, PHP_URL_PATH);
+        $path = is_string($path) && $path !== '' ? $path : $raw;
+        $path = ltrim($path, '/');
+
+        if (str_starts_with($path, 'images/')) {
+            return '/' . $path;
+        }
+
+        return '/images/' . $path;
     }
 
     private function isSqlite(): bool {

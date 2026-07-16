@@ -1022,8 +1022,6 @@ PROMPT;
     }
 
     private function harvestProducts(string $toolName, array $result): void {
-        $baseUrl = getBaseUrl();
-
         if ($toolName === 'search_products' && isset($result['products'])) {
             foreach ($result['products'] as $p) {
                 $pId = (int)($p['id'] ?? 0);
@@ -1037,8 +1035,8 @@ PROMPT;
                     'available_sizes' => [],
                     'available_colors' => [],
                     'image' => $p['image'] ?? '',
-                    'image_url' => ($p['image'] ?? '') ? $baseUrl . '/images/' . $p['image'] : '',
-                    'url' => $baseUrl . '/product.php?id=' . $pId,
+                    'image_url' => $this->productImageUrl((string)($p['image'] ?? ''), (string)($p['image_url'] ?? '')),
+                    'url' => $this->productUrl($pId),
                 ];
             }
         }
@@ -1064,10 +1062,41 @@ PROMPT;
                 'available_sizes' => array_values(array_unique($availableSizes)),
                 'available_colors' => [],
                 'image' => $p['image'] ?? '',
-                'image_url' => ($p['image'] ?? '') ? $baseUrl . '/images/' . $p['image'] : '',
-                'url' => $baseUrl . '/product.php?id=' . $pId,
+                'image_url' => $this->productImageUrl((string)($p['image'] ?? ''), (string)($p['image_url'] ?? '')),
+                'url' => $this->productUrl($pId),
             ];
         }
+    }
+
+    private function productImageUrl(string $image, string $imageUrl = ''): string {
+        $raw = trim($image !== '' ? $image : $imageUrl);
+        if ($raw === '') {
+            return '';
+        }
+
+        $path = parse_url($raw, PHP_URL_PATH);
+        $path = is_string($path) && $path !== '' ? $path : $raw;
+        $path = ltrim($path, '/');
+
+        if (str_starts_with($path, 'images/')) {
+            return '/' . $path;
+        }
+
+        return '/images/' . $path;
+    }
+
+    private function productUrl(int $id): string {
+        return $id > 0 ? '/product.php?id=' . $id : '';
+    }
+
+    private function normalizeProductCardLinks(array $product): array {
+        $id = (int)($product['id'] ?? 0);
+        $product['image_url'] = $this->productImageUrl(
+            (string)($product['image'] ?? ''),
+            (string)($product['image_url'] ?? '')
+        );
+        $product['url'] = $this->productUrl($id);
+        return $product;
     }
 
     private function harvestKnowledgeSources(string $toolName, array $result): void {
@@ -1100,7 +1129,6 @@ PROMPT;
                     $stmt->execute([$pid]);
                     $p = $stmt->fetch(PDO::FETCH_ASSOC);
                     if ($p) {
-                        $baseUrl = getBaseUrl();
                         $products[] = [
                             'id' => (int)$p['id'],
                             'name' => $p['name'],
@@ -1110,13 +1138,14 @@ PROMPT;
                             'available_sizes' => [],
                             'available_colors' => [],
                             'image' => $p['image'] ?? '',
-                            'image_url' => ($p['image'] ?? '') ? $baseUrl . '/images/' . $p['image'] : '',
-                            'url' => $baseUrl . '/product.php?id=' . (int)$p['id'],
+                            'image_url' => $this->productImageUrl((string)($p['image'] ?? '')),
+                            'url' => $this->productUrl((int)$p['id']),
                         ];
                     }
                 } catch (Throwable $e) {}
             }
         }
+        $products = array_values(array_map(fn($product) => $this->normalizeProductCardLinks($product), $products));
         $traceId = $this->responseMetadata['latency']['trace_id'] ?? bin2hex(random_bytes(8));
         $response = [
             'message' => $text,

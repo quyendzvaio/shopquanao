@@ -63,6 +63,10 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
         ]);
 
         $this->assertSame(52, $normalized['cards'][0]['id']);
+        $this->assertSame('/product.php?id=52', $normalized['cards'][0]['url']);
+        $this->assertSame('/images/ak_01.jpg', $normalized['cards'][0]['image_url']);
+        $this->assertStringNotContainsString('localhost', $normalized['cards'][0]['url']);
+        $this->assertStringNotContainsString('localhost', $normalized['cards'][0]['image_url']);
         $this->assertArrayNotHasKey('duration_ms', $normalized['cards'][0]);
         $this->assertNotEmpty($normalized['evidence']);
     }

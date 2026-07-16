@@ -55,6 +55,7 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
                 $this->assertArrayHasKey('name', $p);
                 $this->assertArrayHasKey('price', $p);
                 $this->assertArrayHasKey('url', $p);
+                $this->assertProductCardUsesRelativeLinks($p);
                 $this->assertLessThanOrEqual(500000, $p['price']);
             }
         }
@@ -69,6 +70,7 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
         $this->assertSame('product_detail', $result['primary_intent']);
         $this->assertCount(1, $result['products']);
         $this->assertSame(52, (int)$result['products'][0]['id']);
+        $this->assertProductCardUsesRelativeLinks($result['products'][0]);
         $this->assertStringContainsString('mã 52', mb_strtolower($result['message']));
     }
 
@@ -107,6 +109,7 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
         $this->assertArrayHasKey('cards', $result);
         $this->assertContains('stock', $result['requested_fields']);
         foreach ($result['products'] as $p) {
+            $this->assertProductCardUsesRelativeLinks($p);
             $this->assertLessThanOrEqual(600000, $p['price']);
         }
     }
@@ -222,6 +225,19 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
     }
 
     // ---- Helpers ----
+
+    private function assertProductCardUsesRelativeLinks(array $product): void
+    {
+        $this->assertArrayHasKey('url', $product);
+        $this->assertStringStartsWith('/product.php?id=', (string)$product['url']);
+        $this->assertStringNotContainsString('localhost', (string)$product['url']);
+
+        $imageUrl = (string)($product['image_url'] ?? '');
+        if ($imageUrl !== '') {
+            $this->assertStringStartsWith('/images/', $imageUrl);
+            $this->assertStringNotContainsString('localhost', $imageUrl);
+        }
+    }
 
     private function createSession(): int
     {
