@@ -71,9 +71,9 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
         $this->assertNotEmpty($normalized['evidence']);
     }
 
-    public function testFastParserUnderstandsProductDetailWithoutLlm(): void
+    public function testDeterministicParserUnderstandsProductDetailWithoutLlm(): void
     {
-        $partial = (new FastParser())->parse('Chi tiết sản phẩm mã 52')->toArray();
+        $partial = (new DeterministicIntentParser())->parse('Chi tiết sản phẩm mã 52')->toArray();
         $intent = (new MergeEngine())->merge($partial, ['used' => false, 'inferred_fields' => []]);
         $plan = (new ToolPlanner())->plan($intent);
 
@@ -86,7 +86,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
     public function testPartialSemanticCompletionAddsOnlyUnresolvedFields(): void
     {
-        $partial = (new FastParser())->parse('Tìm áo sơ mi trắng dưới 500k, mặc đi phỏng vấn nhưng không quá già.')->toArray();
+        $partial = (new DeterministicIntentParser())->parse('Tìm áo sơ mi trắng dưới 500k, mặc đi phỏng vấn nhưng không quá già.')->toArray();
         $partial['conflicts'] = (new ConflictDetector())->detect($partial);
         $llm = new FakeSemanticCompletionLlm([
             'inferred_fields' => [
@@ -113,7 +113,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
     public function testConflictDetectorFindsPriceConflict(): void
     {
-        $partial = (new FastParser())->parse('Tìm áo dưới 500k, khoảng 700k cũng được.')->toArray();
+        $partial = (new DeterministicIntentParser())->parse('Tìm áo dưới 500k, khoảng 700k cũng được.')->toArray();
         $conflicts = (new ConflictDetector())->detect($partial);
 
         $this->assertNotEmpty($conflicts);
@@ -123,7 +123,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
     public function testSocialFillerDoesNotRequireLlm(): void
     {
-        $partial = (new FastParser())->parse('Tìm áo đen dưới 300k giúp mình với nhé.')->toArray();
+        $partial = (new DeterministicIntentParser())->parse('Tìm áo đen dưới 300k giúp mình với nhé.')->toArray();
         $actionable = array_values(array_filter(
             $partial['unresolved_spans'],
             fn($span) => ($span['affects_execution'] ?? false) === true
@@ -135,20 +135,85 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
     public function testSlotMemoryResolvesPronounProductId(): void
     {
-        $partial = (new FastParser())->parse('Cái này còn size L không?', [
+        $partial = (new DeterministicIntentParser())->parse('Cái này còn size L không?', [
             'slots' => ['last_product_id' => 52],
         ])->toArray();
 
         $this->assertSame(52, $partial['resolved_fields']['product_id']['value']);
         $this->assertSame('slot_memory', $partial['resolved_fields']['product_id']['source']);
 
-        $withoutMemory = (new FastParser())->parse('Cái này còn size L không?')->toArray();
+        $withoutMemory = (new DeterministicIntentParser())->parse('Cái này còn size L không?')->toArray();
         $this->assertArrayNotHasKey('product_id', $withoutMemory['resolved_fields']);
+    }
+
+    public function testProductSlotMemoryDoesNotContaminateStandalonePolicyTurn(): void
+    {
+        $parser = new DeterministicIntentParser();
+        $memory = [
+            'slots' => [
+                'product_type' => 'áo',
+                'category_id' => 1,
+                'last_product_id' => 52,
+            ],
+        ];
+
+        $policy = $parser->parse('Đơn từ 500k có được miễn phí giao hàng không?', $memory)->toArray();
+        $continuation = $parser->parse('Áo đó còn size L không?', $memory)->toArray();
+
+        $this->assertSame('shipping', $policy['resolved_fields']['intent']['value']);
+        $this->assertArrayNotHasKey('product_type', $policy['resolved_fields']);
+        $this->assertArrayNotHasKey('product_id', $policy['resolved_fields']);
+        $this->assertSame('product_detail', $continuation['resolved_fields']['intent']['value']);
+        $this->assertSame(52, $continuation['resolved_fields']['product_id']['value']);
+    }
+
+    public function testProductNounAloneDoesNotTurnPolicyQuestionIntoMixedIntent(): void
+    {
+        $parser = new DeterministicIntentParser();
+
+        $shipping = $parser->parse('Nếu tôi mua áo 550k thì có được miễn phí giao hàng không?')->toArray();
+        $return = $parser->parse('Nếu tôi đã nhận hàng rồi nhưng áo không vừa thì có đổi size được không?')->toArray();
+        $mixed = $parser->parse('Áo bomber mã 52 còn hàng không và nếu không vừa size thì đổi được không?')->toArray();
+
+        $this->assertSame('shipping', $shipping['resolved_fields']['intent']['value']);
+        $this->assertSame('return_exchange', $return['resolved_fields']['intent']['value']);
+        $this->assertSame('mixed_product_policy', $mixed['resolved_fields']['intent']['value']);
+    }
+
+    public function testPolicyResponseKeepsThirdSentenceFromTopRerankedChunk(): void
+    {
+        $intent = (new IntentAndConstraintExtractor())->extract(
+            'Shop giao hàng trong bao lâu đối với nội thành và các khu vực khác?'
+        );
+        $response = (new ResponseGenerator())->generate(
+            'Shop giao hàng trong bao lâu đối với nội thành và các khu vực khác?',
+            $intent,
+            [
+                'cards' => [],
+                'evidence' => [
+                    [
+                        'source' => 'policy_rag',
+                        'fact_type' => 'shipping',
+                        'value' => 'Có, shop giao hàng toàn quốc. Thời gian 2-5 ngày tùy khu vực. Nội thành nhận trong 24h.',
+                    ],
+                    [
+                        'source' => 'policy_rag',
+                        'fact_type' => 'shipping',
+                        'value' => 'Nội dung FAQ trùng lặp không nên được ghép thêm.',
+                    ],
+                ],
+            ],
+            ['response_type' => 'final_answer']
+        );
+
+        $this->assertStringContainsString('2-5 ngày', $response['message']);
+        $this->assertStringContainsString('24h', $response['message']);
+        $this->assertStringNotContainsString('trùng lặp', $response['message']);
     }
 
     public function testMergeRejectsLockedFieldOverwrite(): void
     {
-        $partial = (new FastParser())->parse('Tìm áo dưới 500k')->toArray();
+        $partial = (new DeterministicIntentParser())->parse('Tìm áo dưới 500k')->toArray();
         $intent = (new MergeEngine())->merge($partial, [
             'used' => true,
             'inferred_fields' => [
@@ -160,6 +225,198 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
         $this->assertSame(500000, $intent['entities']['max_price']);
         $this->assertSame('casual', $intent['entities']['occasion']);
         $this->assertSame('max_price', $intent['locked_field_overwrite_attempts'][0]['field']);
+    }
+
+    public function testPlanValidatorRequiresPolicyRetrieval(): void
+    {
+        $intent = (new IntentAndConstraintExtractor())->extract('Shop đổi trả trong bao lâu?');
+        $capabilities = CapabilityRegistry::fromToolDefinitions((new ToolRegistry(getTestPDO(), null))->getDefinitions());
+        $validator = new PlanValidator($capabilities);
+
+        $invalid = $validator->validate(['batches' => [[]], 'response_type' => 'final_answer'], $intent);
+        $this->assertFalse($invalid['passed']);
+        $this->assertContains('policy_requires_retrieve_knowledge', $invalid['errors']);
+
+        $valid = $validator->validate((new ToolPlanner($capabilities))->plan($intent), $intent);
+        $this->assertTrue($valid['passed']);
+        $this->assertSame('return', $valid['sanitized_plan']['batches'][0][0]['args']['category']);
+        $this->assertSame(5, $valid['sanitized_plan']['batches'][0][0]['args']['limit']);
+    }
+
+    public function testPlanValidatorRejectsProductDetailSearchRoute(): void
+    {
+        $intent = (new IntentAndConstraintExtractor())->extract('cho tôi xem sản phẩm mã 52');
+        $capabilities = CapabilityRegistry::fromToolDefinitions((new ToolRegistry(getTestPDO(), null))->getDefinitions());
+        $validator = new PlanValidator($capabilities);
+
+        $result = $validator->validate([
+            'batches' => [[
+                ['tool' => 'search_products', 'args' => ['search' => '52'], 'id' => 'wrong_search'],
+            ]],
+            'response_type' => 'final_answer',
+        ], $intent);
+
+        $this->assertFalse($result['passed']);
+        $this->assertContains('product_detail_requires_get_product_detail', $result['errors']);
+        $this->assertContains('product_detail_must_not_search', $result['errors']);
+    }
+
+    public function testEvidenceScorerPassesProductDetailWithCorrectId(): void
+    {
+        $intent = (new IntentAndConstraintExtractor())->extract('cho tôi xem sản phẩm mã 52');
+        $normalized = [
+            'cards' => [[
+                'id' => 52,
+                'name' => 'Áo Khoác Bomber Kaki Đen',
+                'price' => 550000,
+                'stock' => 12,
+                'url' => '/product.php?id=52',
+                'image_url' => '/images/ak_01.jpg',
+            ]],
+            'evidence' => [
+                ['source' => 'product_detail', 'fact_type' => 'name', 'product_id' => 52, 'value' => 'Áo Khoác Bomber Kaki Đen', 'confidence' => 1],
+                ['source' => 'product_detail', 'fact_type' => 'price', 'product_id' => 52, 'value' => 550000, 'confidence' => 1],
+                ['source' => 'product_detail', 'fact_type' => 'stock', 'product_id' => 52, 'value' => 12, 'confidence' => 1],
+            ],
+        ];
+
+        $score = (new LightweightEvidenceScorer())->score($intent, $normalized, ['hard_failures' => []]);
+
+        $this->assertTrue($score['passed']);
+        $this->assertGreaterThanOrEqual(0.75, $score['score']);
+    }
+
+    public function testEvidenceScorerFailsProductDetailWithWrongId(): void
+    {
+        $intent = (new IntentAndConstraintExtractor())->extract('cho tôi xem sản phẩm mã 52');
+        $normalized = [
+            'cards' => [[
+                'id' => 51,
+                'name' => 'Áo Sơ Mi Linen Xanh',
+                'price' => 320000,
+                'stock' => 5,
+                'url' => '/product.php?id=51',
+                'image_url' => '',
+            ]],
+            'evidence' => [
+                ['source' => 'product_detail', 'fact_type' => 'name', 'product_id' => 51, 'value' => 'Áo Sơ Mi Linen Xanh', 'confidence' => 1],
+            ],
+        ];
+
+        $score = (new LightweightEvidenceScorer())->score($intent, $normalized, ['hard_failures' => ['product_id_mismatch']]);
+
+        $this->assertFalse($score['passed']);
+        $this->assertContains('product_id', $score['missing_evidence']);
+    }
+
+    public function testEvidenceScorerFailsProductSearchAboveMaxPrice(): void
+    {
+        $intent = (new IntentAndConstraintExtractor())->extract('tìm áo dưới 500k');
+        $normalized = [
+            'cards' => [[
+                'id' => 52,
+                'name' => 'Áo Khoác Bomber Kaki Đen',
+                'price' => 550000,
+                'stock' => 12,
+                'url' => '/product.php?id=52',
+                'image_url' => '',
+            ]],
+            'evidence' => [
+                ['source' => 'product_search', 'fact_type' => 'result_count', 'value' => 1, 'confidence' => 1],
+            ],
+        ];
+
+        $score = (new LightweightEvidenceScorer())->score($intent, $normalized, ['hard_failures' => []]);
+
+        $this->assertFalse($score['passed']);
+        $this->assertContains('price_constraint', $score['missing_evidence']);
+    }
+
+    public function testEvidenceScorerPassesPolicyContent(): void
+    {
+        $intent = (new IntentAndConstraintExtractor())->extract('Shop đổi trả trong bao lâu?');
+        $normalized = [
+            'cards' => [],
+            'evidence' => [[
+                'source' => 'policy_rag',
+                'fact_type' => 'return',
+                'value' => 'Shop hỗ trợ đổi trả trong 7 ngày nếu sản phẩm còn nguyên tem mác.',
+                'confidence' => 0.9,
+            ]],
+        ];
+
+        $score = (new LightweightEvidenceScorer())->score($intent, $normalized, ['hard_failures' => []]);
+
+        $this->assertTrue($score['passed']);
+        $this->assertSame('return', $score['recommended_next_action']);
+    }
+
+    public function testEvidenceScorerRejectsPolicyContentFromWrongDomain(): void
+    {
+        $intent = (new IntentAndConstraintExtractor())->extract('Shop đổi trả trong bao lâu?');
+        $normalized = [
+            'cards' => [],
+            'evidence' => [[
+                'source' => 'policy_rag',
+                'fact_type' => 'shipping',
+                'value' => 'Phí giao hàng nội thành là 30.000 đồng.',
+                'confidence' => 0.9,
+            ]],
+        ];
+
+        $score = (new LightweightEvidenceScorer())->score($intent, $normalized, ['hard_failures' => []]);
+
+        $this->assertFalse($score['passed']);
+        $this->assertContains('policy_content', $score['missing_evidence']);
+        $this->assertSame('rewrite_query', $score['recommended_next_action']);
+    }
+
+    public function testDecisionRouterRepeatsLowPolicyEvidenceThenFallsBackOnBudget(): void
+    {
+        $intent = (new IntentAndConstraintExtractor())->extract('Shop đổi trả trong bao lâu?');
+        $router = new ReasoningDecisionRouter();
+
+        $repeat = $router->decide($intent, ['batches' => [[['tool' => 'retrieve_knowledge']]]], ['evidence' => []], ['hard_failures' => []], [
+            'passed' => false,
+            'missing_evidence' => ['policy_source'],
+        ], [
+            'loop_count' => 1,
+            'tool_calls' => 1,
+            'query_rewrites' => 0,
+            'tool_retries' => 0,
+        ], false);
+        $this->assertSame('rewrite_query', $repeat['action']);
+
+        $fallback = $router->decide($intent, ['batches' => [[['tool' => 'retrieve_knowledge']]]], ['evidence' => []], ['hard_failures' => []], [
+            'passed' => false,
+            'missing_evidence' => ['policy_source'],
+        ], [
+            'loop_count' => 3,
+            'tool_calls' => 3,
+            'query_rewrites' => 1,
+            'tool_retries' => 0,
+        ], false);
+        $this->assertSame('fallback', $fallback['action']);
+    }
+
+    public function testNoProgressDetectorBlocksRepeatedFingerprint(): void
+    {
+        $detector = new NoProgressDetector();
+        $execution = [
+            'results' => [
+                'product_search' => [
+                    'tool' => 'search_products',
+                    'args' => ['search' => 'áo thun'],
+                    'result' => ['products' => []],
+                ],
+            ],
+        ];
+
+        $first = $detector->observe($execution);
+        $second = $detector->observe($execution);
+
+        $this->assertFalse($first['no_progress']);
+        $this->assertTrue($second['no_progress']);
     }
 }
 

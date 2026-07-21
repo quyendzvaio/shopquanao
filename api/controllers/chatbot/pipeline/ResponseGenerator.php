@@ -100,13 +100,13 @@ class ResponseGenerator {
             return 'Hiện mình chưa tìm thấy thông tin phù hợp trong dữ liệu chính sách của shop. Bạn vui lòng hỏi rõ hơn hoặc liên hệ CSKH để được kiểm tra.';
         }
 
-        $texts = [];
-        foreach (array_slice($policy, 0, 2) as $item) {
-            $text = trim((string)$item['value']);
-            $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
-            if ($text !== '') $texts[] = $this->firstSentences($text, 2);
-        }
-        return trim(implode(' ', $texts));
+        $text = trim((string)$policy[0]['value']);
+        $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
+
+        // The first item is already cross-encoder reranked. Keeping up to three
+        // sentences preserves compact facts such as the 24h inner-city SLA
+        // without duplicating a second, near-identical FAQ chunk.
+        return $this->firstSentences($text, 3);
     }
 
     private function sizeAnswer(array $intent, array $evidence): string {

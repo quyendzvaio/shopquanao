@@ -1,91 +1,235 @@
 # Fashion Shop Agentic RAG Chatbot
 
-Chatbot AI cho website shop quần áo, hỗ trợ hỏi đáp chính sách CSKH, tìm sản phẩm cơ bản, xem chi tiết sản phẩm, tư vấn size và tra trạng thái đơn hàng.
-Hệ thống dùng kiến trúc Nginx API Gateway, PHP Agent Service và Knowledge RAG Service; pipeline ưu tiên xử lý deterministic trước, chỉ gọi LLM khi cần semantic completion hoặc fallback.
+Chatbot AI cho website bán quần áo, hỗ trợ tra cứu chính sách CSKH, tìm kiếm và xem chi tiết sản phẩm, tư vấn size và kiểm tra trạng thái đơn hàng.
+Hệ thống kết hợp structured ReAct loop, deterministic rules và Knowledge RAG; các câu hỏi phổ biến được xử lý bằng pipeline nhanh, LLM chỉ tham gia khi cần hoàn thiện ngữ nghĩa hoặc fallback.
 
-## Tổng Quan
+## Phạm Vi Chức Năng
 
-| Hạng mục | Mô tả |
+| Nhóm | Chức năng |
 |---|---|
-| Bài toán | Chatbot CSKH và tư vấn sản phẩm cơ bản cho fashion shop |
-| Service chính | ReAct/Agent Service và Knowledge RAG Service |
-| Agent Service | Nhận câu hỏi, load memory, parse intent/constraint, lập kế hoạch tool, gọi tool, chuẩn hóa evidence, sinh câu trả lời và validate online |
-| RAG Service | Ingest tài liệu shop, embedding, hybrid retrieval, reranking và trả knowledge chunks cho agent |
-| Gateway | Nginx reverse proxy public port `80`, rate limit `/api/chatbot`, proxy vào PHP app nội bộ |
-| Phạm vi hỗ trợ | Chính sách đổi trả/giao hàng/bảo hành, tìm sản phẩm, chi tiết sản phẩm, size, order status |
-| Không hỗ trợ | Phối đồ, tự thêm giỏ hàng, tự checkout |
+| Sản phẩm | Tìm theo từ khóa, danh mục, khoảng giá, tồn kho và size |
+| Chi tiết | Trả đúng sản phẩm theo ID, giá và tồn kho mới nhất, product card có ảnh |
+| Size | Gợi ý size từ chiều cao, cân nặng và bảng `size_guides` |
+| Chính sách | Đổi trả, hoàn tiền, giao hàng, phí vận chuyển, bảo hành và thanh toán |
+| Đơn hàng | Yêu cầu đăng nhập, kiểm tra ownership và trả trạng thái đơn của user |
+| Memory | Guest dùng session summary + slot memory; user đăng nhập có thêm long-term memory |
 
-## Công Nghệ
+Chatbot không tư vấn phối đồ, không tự thêm giỏ hàng và không thực hiện checkout. Khi người dùng muốn mua, chatbot hướng dẫn mở product card hoặc trang chi tiết sản phẩm.
 
-| Thành phần | Công nghệ/Kỹ thuật | Vai trò |
-|---|---|---|
-| API Gateway | Nginx | Reverse proxy, rate limit, chặn file nhạy cảm |
-| Backend | PHP 8.2, Apache | Shop API và Agent Service |
-| Database | MariaDB 10.11 | Products, categories, size guides, orders, FAQ, chat logs |
-| Cache | Redis, file fallback | Cache embedding, retrieval, rerank, product IDs, size result |
-| Vector DB | Qdrant | Collection `shop_knowledge_v2` cho policy chunks |
-| Knowledge Embedding | `bkai-foundation-models/vietnamese-bi-encoder` | Vietnamese semantic embedding 768 chiều |
-| Knowledge Reranker | `itdainb/PhoRanker` | Cross-encoder rerank cho knowledge chunks |
-| RAG ML Sidecar | FastAPI, SentenceTransformers, PyTorch CPU | Endpoint `/embed` và `/rerank` |
-| Product Reranker | FastAPI, scikit-learn TF-IDF char n-gram | Rerank riêng cho product search |
-| LLM | DeepSeek-compatible OpenAI API format | Semantic completion/fallback, không nằm trong mọi request |
-| Eval offline | RAGAS, LangSmith, HuggingFace local embedding | Benchmark thủ công, không chạy trong CI public |
-| Container | Docker Compose | Nginx, app, DB, Redis, Qdrant, rag-ml, reranker |
+## Kiến Trúc
 
-## Kiến Trúc Hệ Thống
+Dự án có hai service logic chính:
+
+1. **ReAct Agent Service**: `AgenticOrchestrator` trong PHP app chịu trách nhiệm hiểu yêu cầu, lập kế hoạch, gọi tool, đánh giá evidence và sinh câu trả lời.
+2. **Knowledge RAG Service**: `KnowledgeRetriever` trong PHP app điều phối query rewriting, lexical/vector retrieval, fusion và gọi `rag-ml` để embedding/rerank; dữ liệu vector nằm trong Qdrant. RAG cũng được expose qua `GET /api/knowledge/search`.
+
+Hai service logic này được triển khai bằng nhiều container, không phải chỉ hai container độc lập.
 
 ```text
 Browser
   -> Nginx API Gateway :80
-      -> PHP App /api/chatbot
-          -> ChatbotMemory
-          -> AgenticOrchestrator
-              -> FastParser
-              -> PartialParseResult
+      -> POST /api/chatbot
+          -> PHP 8.2 / AgenticOrchestrator
+              -> Memory
+              -> DeterministicIntentParser
               -> ConflictDetector / ConflictResolver
-              -> LLMSemanticCompletion nếu còn unresolved spans
-              -> MergeEngine
-              -> CapabilityRegistry
-              -> ToolPlanner
-              -> PlanValidator
-              -> ParallelToolExecutor
-                  -> retrieve_knowledge -> KnowledgeRetriever -> rag-ml + Qdrant + Markdown/DB
-                  -> search_products -> MariaDB + product TF-IDF reranker
-                  -> get_product_detail -> MariaDB
-                  -> suggest_size -> MariaDB size_guides
-                  -> get_order_status -> MariaDB orders
-              -> EvidenceNormalizer
+              -> LLMSemanticCompletion khi còn phần mơ hồ
+              -> ReasoningLoop (tối đa 3 vòng)
+                  -> ThoughtStateBuilder
+                  -> ToolPlanner + PlanValidator
+                  -> ParallelToolExecutor
+                      -> Product / Size / Order tools -> MariaDB
+                      -> retrieve_knowledge -> KnowledgeRetriever
+                          -> lexical search -> Markdown + MariaDB
+                          -> vector search -> rag-ml /embed -> Qdrant
+                          -> RRF fusion
+                          -> rag-ml /rerank
+                          -> top 5 chunks
+                  -> ObservationEvaluator
+                  -> LightweightEvidenceScorer
+                  -> DecisionRouter + NoProgressDetector
               -> ResponseGenerator
               -> OnlineValidator
           -> chat_messages + tool_executions
       -> JSON response
 ```
 
-## Luồng Request Chi Tiết
+### Container Runtime
 
-1. **Browser gửi message** - Frontend chatbox gọi `POST /api/chatbot` qua Nginx - Nginx áp rate limit và proxy sang PHP app - Giúp giữ một entrypoint production thay vì expose app trực tiếp.
-2. **Load memory** - Backend đọc session summary và slot memory; long-term memory chỉ dùng khi user đã đăng nhập - Dữ liệu này giúp câu hỏi tiếp theo hiểu được ngữ cảnh như sản phẩm đang hỏi hoặc size đã cung cấp.
-3. **Fast parse** - `FastParser` trích xuất nhanh intent, product ID, size, chiều cao/cân nặng, khoảng giá, stock và policy keywords - Giảm số lần gọi LLM cho các câu hỏi phổ biến như "áo thun giá rẻ" hoặc "sản phẩm mã 52".
-4. **Resolve conflict và semantic completion** - `ConflictDetector`, `ConflictResolver`, `LLMSemanticCompletion` chỉ xử lý phần còn mơ hồ - Cách này giữ các field đã chắc chắn và chỉ dùng LLM cho phần semantic như dịp mặc, style hoặc yêu cầu tránh.
-5. **Merge và validate plan** - `MergeEngine`, `CapabilityRegistry`, `ToolPlanner`, `PlanValidator` tạo danh sách tool call hợp lệ - Product ID được route thẳng sang `get_product_detail`, không bị chuyển thành search query.
-6. **Execute tools** - `ParallelToolExecutor` chạy các tool theo kế hoạch - Mixed intent có thể gọi cả product tool và `retrieve_knowledge`.
-7. **Normalize evidence** - `EvidenceNormalizer` chuẩn hóa output thành facts như `product_id`, `price`, `stock`, `policy_condition`, `source` - Evidence này dùng cho response và eval.
-8. **Generate answer** - `ResponseGenerator` sinh câu trả lời trực tiếp từ evidence - Product cards vẫn giữ format cũ để frontend render.
-9. **Online validation** - `OnlineValidator` kiểm tra hard constraints như product ID, giá, tồn kho, auth/ownership đơn hàng - Nếu fail thì trả fallback/clarification an toàn.
-10. **Persist logs** - Lưu `chat_messages`, `tool_executions`, metadata routing/evaluation và latency - Phục vụ debug, benchmark và regression analysis.
+| Container | Vai trò |
+|---|---|
+| `nginx` | API Gateway, reverse proxy và rate limit chatbot |
+| `app` | PHP/Apache shop API, Agent Service và RAG orchestration |
+| `db` | MariaDB cho dữ liệu nghiệp vụ, memory và logs |
+| `redis` | Cache; hệ thống fallback sang file cache khi Redis không dùng được |
+| `qdrant` | Vector store cho collection `shop_knowledge_v2` |
+| `rag-ml` | FastAPI sidecar cho semantic embedding và knowledge reranking |
+| `reranker` | FastAPI sidecar TF-IDF dành riêng cho product search |
 
-## Response Contract
+## Công Nghệ
 
-Response vẫn tương thích frontend cũ bằng các field `message`, `products`, `knowledge_sources`, đồng thời bổ sung shape mới cho pipeline production.
+| Thành phần | Công nghệ/Kỹ thuật |
+|---|---|
+| Gateway | Nginx 1.27, `limit_req` 12 request/phút, burst 6 |
+| Backend | PHP 8.2, Apache, PDO |
+| Database | MariaDB 10.11 |
+| Cache | Redis 7, atomic file fallback |
+| Vector store | Qdrant 1.12.4 |
+| Knowledge embedding | `bkai-foundation-models/vietnamese-bi-encoder`, vector 768 chiều |
+| Knowledge reranker | `itdainb/PhoRanker` cross-encoder |
+| Product reranker | scikit-learn TF-IDF char n-gram |
+| ML sidecar | FastAPI, SentenceTransformers, PyTorch CPU |
+| LLM | DeepSeek API, OpenAI-compatible function calling format |
+| Offline evaluation | RAGAS 0.1.21, LangSmith, HuggingFace local embeddings |
+| Deployment | Docker Compose, GitHub Actions, SSH deploy |
+
+## Luồng ReAct Agent
+
+### 1. Nhận Query Và Memory
+
+`POST /api/chatbot` nhận `message` và `session_token`; Bearer token được dùng để xác định user đăng nhập. Backend load session summary và slot memory trước khi phân tích query. Long-term memory chỉ được nạp khi request có user hợp lệ.
+
+### 2. Intent Và Constraint Extraction
+
+`DeterministicIntentParser` trích xuất các field ổn định như `product_id`, product type, khoảng giá, size, chiều cao/cân nặng, tồn kho, order ID và policy intent. Product slot từ hội thoại trước chỉ được dùng khi câu hiện tại thực sự tham chiếu sản phẩm đó, tránh biến câu policy thành product search.
+
+`ConflictDetector` và `ConflictResolver` bắt các điều kiện mâu thuẫn. `LLMSemanticCompletion` chỉ xử lý unresolved spans như style hoặc occasion và không được ghi đè field deterministic đã khóa.
+
+### 3. Thought, Action, Observation, Repeat
+
+```text
+ThoughtStateBuilder
+  -> ToolPlanner
+  -> deterministic PlanValidator
+  -> Action: execute tools
+  -> ObservationEvaluator
+  -> LightweightEvidenceScorer
+  -> DecisionRouter
+  -> return hoặc repeat
+```
+
+Thought được lưu dưới dạng structured state gồm goal, known facts và missing evidence; hệ thống không lưu hoặc expose chain-of-thought tự do.
+
+Giới hạn loop:
+
+| Budget | Giá trị |
+|---|---:|
+| Reasoning loops | `3` |
+| Tổng tool calls | `4` |
+| Query rewrite | `1` |
+| Tool retry | `1` |
+
+`NoProgressDetector` tạo fingerprint từ tool, normalized arguments và result signature. Action/result lặp lại sẽ dừng loop để tránh timeout.
+
+### 4. Evidence Scoring Và Decision
+
+`LightweightEvidenceScorer` chạy bằng PHP rules, không gọi RAGAS hoặc LangSmith trong production request.
+
+```text
+score =
+  0.40 * required_fact_coverage
++ 0.25 * source_reliability
++ 0.20 * retrieval_quality
++ 0.15 * contradiction_score
+```
+
+Evidence chỉ pass khi score và required-fact coverage đều đạt ít nhất `0.75`, đồng thời không có hard failure. `DecisionRouter` chọn một trong các action: `return`, `call_next_tool`, `rewrite_query`, `retry_tool`, `ask_user`, `fallback` hoặc `deny`.
+
+### 5. Response Và Validation
+
+`EvidenceNormalizer` chuyển tool output thành facts có source, entity ID, value, freshness và confidence. `ResponseGenerator` tạo câu trả lời từ evidence; `OnlineValidator` kiểm tra product ID, price, stock, size, auth và order ownership trước khi trả response.
+
+## Tool Registry
+
+| Tool | Nhiệm vụ | Nguồn dữ liệu |
+|---|---|---|
+| `retrieve_knowledge` | Truy xuất chính sách và hướng dẫn shop | Knowledge RAG |
+| `search_products` | Tìm sản phẩm theo filter | MariaDB + TF-IDF product reranker |
+| `get_product_detail` | Lấy đúng một sản phẩm theo ID | MariaDB |
+| `suggest_size` | Tư vấn size | MariaDB `size_guides` |
+| `get_order_status` | Tra đơn của user đã đăng nhập | MariaDB `orders` |
+| `get_categories` | Lấy danh mục hỗ trợ product search | MariaDB `categories` |
+
+`get_outfit`, `prepare_checkout` và `get_faq` không nằm trong tool definitions của chatbot.
+
+## Knowledge RAG
+
+### Nguồn Dữ Liệu
+
+| Nguồn | Nội dung |
+|---|---|
+| `knowledge/policies.md` | Đổi trả, hoàn tiền, giao hàng, bảo hành và thanh toán |
+| `knowledge/faq.md` | FAQ của shop |
+| `knowledge/shop-info.md` | Địa chỉ, liên hệ và thông tin cửa hàng |
+| `knowledge/size-guide.md` | Hướng dẫn chọn size |
+| MariaDB `faqs`, `size_guides` | FAQ và bảng quy đổi size |
+
+Markdown được parse theo heading; mỗi section trở thành một document với `title`, `content`, `category`, `source` và `updated_at`. Script ingest embedding documents rồi upsert vào Qdrant collection `shop_knowledge_v2`.
+
+### Retrieval Pipeline
+
+```text
+query
+  -> deterministic query rewriting
+  -> retrieval cache lookup
+  -> lexical token-overlap search top 12 trên Markdown + DB
+  -> embedding cache hoặc rag-ml /embed
+  -> Qdrant cosine vector search top 12
+  -> deduplicate theo document key
+  -> Reciprocal Rank Fusion, k=60
+  -> rerank cache hoặc PhoRanker cross-encoder
+  -> top 5 knowledge chunks
+```
+
+Lexical retrieval hiện dùng weighted token overlap, không phải BM25. Product TF-IDF reranker là sidecar riêng và không được dùng để rerank policy chunks.
+
+Fallback modes:
+
+| Tình huống | Kết quả |
+|---|---|
+| Qdrant hoặc embedding lỗi | `lexical_fallback` |
+| Hybrid có kết quả nhưng reranker lỗi | `hybrid_no_rerank` |
+| Đủ vector, lexical và reranker | `hybrid_reranked` |
+| Không có context | Không tự bịa policy; trả fallback/clarification |
+
+## Data, Memory Và Cache
+
+MariaDB lưu products, categories, product sizes, size guides, users, orders, chat sessions, chat messages, tool executions, FAQ và long-term memory.
+
+| Cache | TTL mặc định | Chính sách |
+|---|---:|---|
+| Embedding | 7 ngày | Theo model, preprocess version và text hash |
+| Knowledge retrieval | 1 giờ | Theo query/category/top-k/knowledge version |
+| Knowledge rerank | 1 giờ | Theo query và candidate IDs |
+| Product search | 60 giây | Chỉ cache product IDs; price/stock được đọc lại từ DB |
+| Product detail | 15 phút | Chỉ cache metadata tĩnh; price/stock được đọc lại từ DB |
+| Size guide | 10 phút | Theo measurements/category |
+| Order status | Không cache | Luôn query theo authenticated `user_id` |
+
+## API
+
+### Chatbot
+
+```http
+POST /api/chatbot
+Content-Type: application/json
+
+{
+  "message": "Có áo khoác dưới 600k còn hàng không?",
+  "session_token": "optional"
+}
+```
+
+Response giữ tương thích với frontend cũ và bổ sung metadata của pipeline:
 
 ```json
 {
-  "message": "Câu trả lời cho UI cũ",
+  "message": "...",
   "products": [],
   "knowledge_sources": [],
   "session_token": "...",
   "session_id": 1,
-  "answer": "Câu trả lời chuẩn mới",
+  "answer": "...",
   "cards": [],
   "response_type": "final_answer",
   "primary_intent": "product_search",
@@ -97,234 +241,165 @@ Response vẫn tương thích frontend cũ bằng các field `message`, `product
 }
 ```
 
-## Tool Và Capability
+Product cards dùng relative URL `/product.php?id={id}` và `/images/{image}` để hoạt động đúng sau Nginx/domain.
 
-| Tool | Nhiệm vụ | Data source |
-|---|---|---|
-| `retrieve_knowledge` | Truy xuất chính sách, FAQ, size guide, thông tin shop | Markdown knowledge, DB FAQ/size, Qdrant |
-| `search_products` | Tìm sản phẩm theo keyword/category/price/stock/size | MariaDB products/categories |
-| `get_product_detail` | Lấy chi tiết một sản phẩm theo ID | MariaDB products |
-| `suggest_size` | Tư vấn size từ chiều cao/cân nặng/category | MariaDB size guides |
-| `get_order_status` | Tra trạng thái đơn hàng của user đăng nhập | MariaDB orders |
-| `get_categories` | Lấy danh mục để hỗ trợ lọc sản phẩm | MariaDB categories |
+### Knowledge Search
 
-Các tool đã loại khỏi chatbot: `get_outfit`, `prepare_checkout`, `get_faq`. Khi user muốn mua hoặc thanh toán, chatbot hướng dẫn bấm vào card/trang chi tiết sản phẩm thay vì tự checkout.
-
-## Knowledge RAG Service
-
-### Nguồn Dữ Liệu
-
-| Nguồn | Nội dung |
-|---|---|
-| `knowledge/policies.md` | Đổi trả, hoàn tiền, vận chuyển, bảo hành, thanh toán |
-| `knowledge/faq.md` | Câu hỏi thường gặp |
-| `knowledge/shop-info.md` | Thông tin shop |
-| `knowledge/size-guide.md` | Hướng dẫn size |
-| DB `faqs`, `size_guides` | FAQ và bảng quy đổi size trong database |
-
-### Retrieval Flow
-
-```text
-query
-  -> query rewriting
-  -> embedding cache lookup
-  -> rag-ml /embed nếu cache miss
-  -> Qdrant vector search top candidates
-  -> lexical search trên Markdown + DB
-  -> RRF fusion theo doc key
-  -> retrieval cache
-  -> rerank cache lookup
-  -> rag-ml /rerank nếu cache miss
-  -> top-k knowledge chunks
+```http
+GET /api/knowledge/search?q=shop%20đổi%20trả%20trong%20bao%20lâu&category=return&limit=5
 ```
 
-Output của retrieval giữ `title`, `content`, `category`, `source`, `updated_at`, `vector_score`, `lexical_score`, `hybrid_score`, `rerank_score`, `retrieval_mode`.
+## Benchmark Gần Nhất
 
-### Fallback
+Điều kiện đo ngày `2026-07-21`:
 
-| Sự cố | Cách xử lý |
-|---|---|
-| `rag-ml` lỗi | Dùng lexical fallback trên Markdown + DB |
-| Qdrant lỗi hoặc chưa ingest | Dùng lexical fallback và gắn `retrieval_mode=lexical_fallback` |
-| Reranker lỗi | Trả hybrid candidates và gắn `retrieval_mode=hybrid_no_rerank` |
-| Không có context | Không tự bịa chính sách; trả lời thiếu dữ liệu và hướng dẫn liên hệ shop |
+- 5 scenario, 25 positive turns bằng tiếng Việt; không gồm guardrail/refusal cases.
+- Target `http://localhost` qua Nginx port 80 và Docker Compose runtime đã warm.
+- Qdrant collection `shop_knowledge_v2`; knowledge embedding và RAGAS embedding cùng dùng `bkai-foundation-models/vietnamese-bi-encoder`.
+- `answer_relevancy strictness=4`, DeepSeek evaluator và prompt sinh reverse-question bằng tiếng Việt.
+- HTTP latency gồm Nginx và local container network, không gồm browser hoặc Internet client latency.
+- Cấu hình phần cứng host không được ghi lại trong benchmark, vì vậy không suy diễn throughput theo loại máy.
 
-## Product Và Order Flow
-
-| Chức năng | Cách xử lý |
-|---|---|
-| Product search | Lọc bằng SQL trước, rerank sản phẩm bằng TF-IDF sidecar, chỉ cache IDs ngắn hạn |
-| Product detail | Product ID route thẳng `get_product_detail`, trả đúng một product card |
-| Product card | Dùng relative URL `/product.php?id={id}` và `/images/{image}` để chạy đúng sau Nginx/domain |
-| Price/stock | Luôn refresh từ MariaDB trước khi trả response, không cache dài |
-| Size advice | Dùng chiều cao/cân nặng/category; thiếu slot thì hỏi lại |
-| Order status | Guest phải đăng nhập; user chỉ xem được đơn của chính mình |
-
-## Memory
-
-| User type | Memory được dùng |
-|---|---|
-| Guest | Session summary + slot memory |
-| Logged-in user | Session summary + slot memory + long-term memory |
-
-Slot memory lưu các trường như `last_product_id`, `product_type`, `height_cm`, `weight_kg`, `size`, `min_price`, `max_price`. Long-term memory chỉ nạp khi request có token/user hợp lệ.
-
-## Cache Policy
-
-| Cache | Key chính | TTL mặc định |
-|---|---|---:|
-| Embedding | model + preprocess version + query hash | 7 ngày |
-| Policy retrieval | query/category/top-k/knowledge version/model | 1 giờ |
-| Rerank | query hash + candidate IDs + reranker model | 1 giờ |
-| Product search IDs | search/category/price filters | 60 giây |
-| Product detail static | product ID | 15 phút |
-| Size suggestion | height/weight/category | 10 phút |
-| Order status | Không cache dài | 0 giây |
-
-Khi đổi tài liệu hoặc embedding dimension, cần reindex Qdrant và tăng knowledge/cache version nếu có.
-
-## Metrics Đã Đo
-
-Điều kiện đo gần nhất:
-
-| Thuộc tính | Giá trị |
-|---|---|
-| Ngày đo | 2026-07-16 |
-| Target | `http://localhost` qua Nginx port `80` |
-| Case file | `eval/chatbot_positive_eval_cases.jsonl` |
-| Số case | 5 scenario, 25 turns |
-| Dataset | Positive cases, không gồm guardrail/refusal cases |
-| Knowledge index | Qdrant collection `shop_knowledge_v2` |
-| Embedding eval | HuggingFace local `bkai-foundation-models/vietnamese-bi-encoder` |
-| LangSmith project | `fashion-shop-ragas-langsmith-port80-20260716` |
-| Network | HTTP localhost qua Nginx; không tính browser/client internet |
-
-### Functional Eval
+### Functional Và Latency
 
 | Metric | Giá trị |
 |---|---:|
 | Deterministic pass | `25/25` |
 | Deterministic fail | `0/25` |
-| Latency min | `18 ms` |
-| Latency avg | `491.4 ms` |
-| Latency p50 | `312 ms` |
-| Latency p95 | `1156 ms` |
-| Latency max | `3030 ms` |
-
-RAG/policy turns kéo latency cao hơn product/size turns vì phải qua embedding, vector/lexical retrieval và reranking. Product basic warm request đo riêng khoảng `17.956 ms` trung bình qua Nginx localhost.
+| Min latency | `20 ms` |
+| Average latency | `369.08 ms` |
+| P50 latency | `231 ms` |
+| P95 latency | `1072 ms` |
+| Max latency | `1124 ms` |
 
 ### RAGAS
 
-| Metric | Giá trị |
-|---|---:|
-| Faithfulness | `0.6997` |
-| Answer relevancy | `0.4029` |
-| Context precision | `0.9161` |
-| Context recall | `0.8500` |
+| Metric | Giá trị | Phạm vi |
+|---|---:|---|
+| Answer relevancy | `0.5504` | 25 turns |
+| Faithfulness | `0.8676` | 20 turns có evidence context |
+| Context precision | `0.9125` | 20 turns có evidence context |
+| Context recall | `0.8500` | 20 turns có evidence context |
 
-RAGAS contexts đã hợp nhất policy chunks và evidence chuẩn hóa từ product/order tools khi các tool đó thực sự được dùng. RAGAS chạy offline/manual, không nằm trong request production và không chạy bắt buộc trong CI public.
+RAGAS chỉ chạy offline/manual, không nằm trong production request và không phải CI gate.
 
-### Network Timing
+### LangSmith
 
-Cold/mixed timing sau deploy hoặc khi cache chưa ổn định:
+Project: `fashion-shop-vietnamese-positive25-20260721-v3`
 
-| Endpoint | Avg total | Max/P95 | Ghi chú |
-|---|---:|---:|---|
-| `nginx_health` | `0.579 ms` | `0.618 ms` | Gateway local |
-| `products_api` | `3.232 ms` | `3.781 ms` | Product API |
-| `knowledge_api` | `487.913 ms` | `2425.225 ms` | Có retrieval/rerank cold path |
-| `chatbot_product` | `47.906 ms` | `158.673 ms` | Product chatbot request |
+| Root run | Count | Avg | Min | Max |
+|---|---:|---:|---:|---:|
+| `call_chatbot` | `25` | `370.62 ms` | `21.27 ms` | `1125.13 ms` |
+| `call_knowledge` | `15` | `222.87 ms` | `4.46 ms` | `2530.15 ms` |
+| `ragas evaluation` | `2` | `14363.05 ms` | `7077.66 ms` | `21648.44 ms` |
 
-Warm timing:
+LangSmith ghi nhận tổng cộng `42` root traces và `0` trace lỗi. LangSmith dùng để tracing; bốn quality metrics phía trên do RAGAS tính.
 
-| Endpoint | Avg total | Max |
-|---|---:|---:|
-| `knowledge_api_warm` | `3.452 ms` | `3.869 ms` |
-| `chatbot_product_warm` | `17.956 ms` | `18.711 ms` |
-| `chatbot_partial_llm_warm` | `398.182 ms` | `1150.157 ms` |
+## Cài Đặt Và Chạy
 
-## Test Và CI
-
-Lệnh kiểm thử local:
-
-```bash
-docker compose run --rm --no-deps -v "$PWD":/work -w /work app \
-  sh -lc 'php vendor/bin/phpunit'
-
-docker compose run --rm --no-deps -v "$PWD":/work -w /work app \
-  sh -lc 'php vendor/bin/phpstan analyse --no-progress --memory-limit=512M'
-
-docker compose config
-```
-
-Kết quả gần nhất:
-
-| Check | Kết quả |
-|---|---|
-| PHPUnit | `86 tests, 316 assertions` pass |
-| PHPStan | No errors |
-| Docker Compose config | OK |
-
-CI/CD không chạy RAGAS/LangSmith vì cần secret evaluator và có chi phí/latency. Deploy healthcheck gọi `http://localhost/api/products?limit=1` qua Nginx port `80`.
-
-## Chạy Dự Án
-
-1. Tạo `.env`:
+### 1. Cấu Hình
 
 ```bash
 cp .env.example .env
 ```
 
-2. Cập nhật biến bắt buộc:
+Cập nhật tối thiểu:
 
 ```env
-DB_PASS=...
-MARIADB_ROOT_PASSWORD=...
-LLM_API_KEY=...
+DB_PASS=your-database-password
+MARIADB_ROOT_PASSWORD=your-root-password
+LLM_API_KEY=your-deepseek-api-key
 LLM_BASE_URL=https://api.deepseek.com
 LLM_MODEL=deepseek-chat
 NGINX_HTTP_PORT=80
 ```
 
-Nếu máy local đã có service chiếm port 80, chạy bằng port khác:
+### 2. Start Stack
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+Nếu port 80 đang được dùng:
 
 ```bash
 NGINX_HTTP_PORT=8090 docker compose up -d --build
 ```
 
-3. Start production-style stack:
+### 3. Index Knowledge
 
-```bash
-docker compose up -d --build
-```
-
-4. Reindex knowledge sau khi đổi tài liệu hoặc embedding model:
+Chạy sau lần deploy đầu tiên và mỗi khi đổi tài liệu, embedding model hoặc vector dimension:
 
 ```bash
 docker compose exec -T app php scripts/ingest_knowledge.php
 ```
 
-5. Smoke test:
+### 4. Smoke Test
 
 ```bash
-curl http://localhost/api/products?limit=1
-curl -X POST http://localhost/api/chatbot \
+curl 'http://localhost/api/products?limit=1'
+
+curl -X POST 'http://localhost/api/chatbot' \
   -H 'Content-Type: application/json' \
   -d '{"message":"áo thun giá rẻ"}'
+
+curl --get 'http://localhost/api/knowledge/search' \
+  --data-urlencode 'q=shop đổi trả trong bao lâu' \
+  --data 'category=return' \
+  --data 'limit=5'
 ```
 
-Trên VPS/domain, mở inbound TCP `80` và trỏ DNS A record về public IP. Sau khi deploy đúng port 80, URL production có dạng `http://hostshop.work.gd/` thay vì phải ghi `:8090`.
+## Test Và CI
+
+Kết quả local gần nhất:
+
+| Check | Kết quả |
+|---|---|
+| PHPUnit | `98 tests, 324 assertions` pass |
+| PHPStan level 1 | No errors |
+| Python syntax | Pass |
+| Docker Compose config | Pass |
+| Docker services | Healthy |
+
+Lệnh kiểm tra:
+
+```bash
+php vendor/bin/phpunit
+php vendor/bin/phpstan analyse --level=1 api/ config/ --no-progress
+python3 -m py_compile eval/run_chatbot_eval.py docker/reranker/app.py docker/rag-ml/app.py
+docker compose config --quiet
+```
+
+GitHub Actions gồm code quality, unit tests, integration tests với MariaDB, secret/Trivy scan, Docker image build và SSH deploy. RAGAS/LangSmith không chạy trong CI public vì cần evaluator secrets và phát sinh chi phí.
+
+Image size đo trên local build:
+
+| Image | Size |
+|---|---:|
+| `shop_quan_ao-app` | `723 MB` |
+| `shop_quan_ao-reranker` | `583 MB` |
+| `shop_quan_ao-rag-ml` | `1.87 GB` |
 
 ## Offline Evaluation
 
-RAGAS/LangSmith chỉ chạy thủ công khi cần benchmark, không commit API key và không ghi secret vào output.
+Cài dependency trong môi trường Python riêng, sau đó export secrets ở shell; không ghi API key vào source hoặc report.
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r eval/requirements-eval.txt
+
 export RAGAS_ENABLE=1
 export RAGAS_EMBEDDING_PROVIDER=huggingface
 export RAGAS_EMBEDDING_MODEL=bkai-foundation-models/vietnamese-bi-encoder
+export RAGAS_ANSWER_RELEVANCY_STRICTNESS=4
+export LLM_API_KEY=your-deepseek-api-key
+export LLM_BASE_URL=https://api.deepseek.com
+export LLM_MODEL=deepseek-chat
+export LANGSMITH_API_KEY=your-langsmith-api-key
 export LANGSMITH_TRACING=true
-export LANGSMITH_PROJECT=fashion-shop-ragas-langsmith-port80-20260716
+export LANGSMITH_PROJECT=fashion-shop-manual-eval
 
 python3 eval/run_chatbot_eval.py \
   --base-url http://localhost \
@@ -335,25 +410,12 @@ python3 eval/run_chatbot_eval.py \
   --turn-delay 5.3
 ```
 
-Các report trong `reports/` được ignore để tránh đẩy benchmark artefacts hoặc log nhạy cảm lên GitHub.
+`reports/`, environment files, model weights, HuggingFace cache, Python cache và local database dumps đã được loại khỏi Git bằng `.gitignore`.
 
-## Repository Hygiene
+## Deployment
 
-`.gitignore` và `.dockerignore` loại trừ:
-
-| Nhóm | Ví dụ |
-|---|---|
-| Secret/env | `.env`, `.env.*`, trừ `.env.example` |
-| Reports/evidence | `reports/`, `*_report.*`, `ragas_*.json`, `langsmith_*.json` |
-| Model/cache | `.cache/`, `.huggingface/`, `hf_cache/`, `models/`, `*.safetensors`, `*.bin`, `*.pt` |
-| Python cache | `__pycache__/`, `.pytest_cache/`, `.mypy_cache`, `.ruff_cache` |
-| DB/archive | `*.db`, `*.sqlite`, `*.sql.gz`, `*.dump`, `*.tar.gz`, `*.zip` |
-
-## Production Notes
-
-- Không cache `POST /api/chatbot` ở Nginx vì response phụ thuộc user/session/memory/stock/order.
-- Product price và stock luôn refresh từ MariaDB trước khi trả card.
-- Product card dùng relative URL để không bị lỗi `localhost` sau reverse proxy.
-- Order status không dùng semantic cache và luôn kiểm tra ownership theo `user_id`.
-- `rag-ml` chạy CPU; cần warm model/cache trước khi benchmark hoặc trước giờ cao điểm.
-- `ParallelToolExecutor` hiện có batch/dependency abstraction trong PHP request; có thể nâng cấp true concurrent HTTP/curl_multi nếu cần throughput cao hơn.
+- Production gateway mặc định bind `${NGINX_HTTP_PORT:-80}:80`; domain HTTP không cần hiển thị `:8090`.
+- EC2/VPS cần mở inbound TCP 80 và không có service khác chiếm port này.
+- Nginx không cache `POST /api/chatbot`; endpoint này phụ thuộc session, memory, stock và order data.
+- `rag-ml` chạy CPU và lazy-load model. Nên warm `/embed` và `/rerank` trước khi benchmark hoặc nhận traffic.
+- Product price/stock luôn được refresh từ MariaDB; order status luôn kiểm tra `user_id` ownership.

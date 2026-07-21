@@ -15,7 +15,7 @@ require_once __DIR__ . '/ChatbotMemory.php';
 require_once __DIR__ . '/evaluator/AgentEvaluator.php';
 require_once __DIR__ . '/pipeline/PartialParseResult.php';
 require_once __DIR__ . '/pipeline/CapabilityRegistry.php';
-require_once __DIR__ . '/pipeline/FastParser.php';
+require_once __DIR__ . '/pipeline/DeterministicIntentParser.php';
 require_once __DIR__ . '/pipeline/ConflictDetector.php';
 require_once __DIR__ . '/pipeline/ConflictResolver.php';
 require_once __DIR__ . '/pipeline/LLMSemanticCompletion.php';
@@ -25,6 +25,12 @@ require_once __DIR__ . '/pipeline/IntentAndConstraintExtractor.php';
 require_once __DIR__ . '/pipeline/ToolPlanner.php';
 require_once __DIR__ . '/pipeline/ParallelToolExecutor.php';
 require_once __DIR__ . '/pipeline/EvidenceNormalizer.php';
+require_once __DIR__ . '/pipeline/ThoughtStateBuilder.php';
+require_once __DIR__ . '/pipeline/ObservationEvaluator.php';
+require_once __DIR__ . '/pipeline/LightweightEvidenceScorer.php';
+require_once __DIR__ . '/pipeline/ReasoningDecisionRouter.php';
+require_once __DIR__ . '/pipeline/NoProgressDetector.php';
+require_once __DIR__ . '/pipeline/ReasoningLoop.php';
 require_once __DIR__ . '/pipeline/ResponseGenerator.php';
 require_once __DIR__ . '/pipeline/OnlineValidator.php';
 
@@ -163,17 +169,20 @@ PROMPT;
         $traceId = bin2hex(random_bytes(8));
         $spans = [
             'trace_id' => $traceId,
-            'pipeline' => 'partial_parse_capability_planner',
+            'pipeline' => 'structured_react_reasoning_loop',
             'memory_load_ms' => (int)($this->responseMetadata['latency']['memory_load_ms'] ?? 0),
         ];
 
+        // Deterministic parsing/routing is only the pre-step that extracts stable
+        // facts and guardrails. The structured Thought/Repeat behavior starts
+        // inside ReasoningLoop via ThoughtStateBuilder.
         $start = microtime(true);
         $capabilities = CapabilityRegistry::fromToolDefinitions($this->toolRegistry->getDefinitions());
         $spans['capability_definition_ms'] = (int)((microtime(true) - $start) * 1000);
 
         $start = microtime(true);
-        $partial = (new FastParser())->parse($message, $memoryContext)->toArray();
-        $spans['fast_parse_ms'] = (int)((microtime(true) - $start) * 1000);
+        $partial = (new DeterministicIntentParser())->parse($message, $memoryContext)->toArray();
+        $spans['deterministic_parse_ms'] = (int)((microtime(true) - $start) * 1000);
 
         $start = microtime(true);
         $partial['conflicts'] = (new ConflictDetector())->detect($partial);
@@ -218,47 +227,30 @@ PROMPT;
         }
 
         $start = microtime(true);
-        $planner = new ToolPlanner($capabilities);
-        $plan = $planner->plan($intent);
-        $spans['capability_planning_ms'] = (int)((microtime(true) - $start) * 1000);
-
-        $start = microtime(true);
-        $planValidation = (new PlanValidator($capabilities))->validate($plan, $intent);
-        $spans['plan_validation_ms'] = (int)((microtime(true) - $start) * 1000);
-        $plan = $planValidation['sanitized_plan'];
-        if (!$planValidation['passed']) {
-            $response = $this->clarificationPipelineResponse(
-                'Mình chưa thể tạo kế hoạch xử lý an toàn cho yêu cầu này. Bạn nói rõ hơn giúp mình nhé.',
-                $traceId,
-                $partial,
-                $conflictResolution,
-                $spans,
-                'fallback',
-                $intent,
-                $planValidation['errors']
-            );
-            $this->logRoutingPipeline($response['latency']['routing'] ?? []);
-            return $response;
+        $loop = new ReasoningLoop($this->toolRegistry, $capabilities);
+        $loopResult = $loop->run($message, $intent, $memoryContext);
+        $spans['reasoning_loop_ms'] = (int)((microtime(true) - $start) * 1000);
+        foreach (($loopResult['spans'] ?? []) as $key => $value) {
+            $spans[$key] = is_numeric($value) ? (($spans[$key] ?? 0) + (int)$value) : $value;
+        }
+        foreach (($loopResult['executions'] ?? []) as $execution) {
+            if (is_array($execution)) {
+                $this->recordPipelineToolExecutions($execution);
+            }
         }
 
-        $executor = new ParallelToolExecutor($this->toolRegistry);
-        $execution = $executor->execute($plan);
-        foreach (($execution['spans'] ?? []) as $key => $value) {
-            $spans[$key] = $value;
-        }
-        $this->recordPipelineToolExecutions($execution);
-
-        $start = microtime(true);
-        $normalizer = new EvidenceNormalizer();
-        $normalized = $normalizer->normalize($intent, $execution);
-        $spans['normalization_ms'] = (int)((microtime(true) - $start) * 1000);
-
+        $plan = is_array($loopResult['plan'] ?? null) ? $loopResult['plan'] : ['batches' => [], 'response_type' => 'final_answer'];
+        $normalized = is_array($loopResult['normalized'] ?? null) ? $loopResult['normalized'] : ['cards' => [], 'knowledge_sources' => [], 'evidence' => []];
         $this->collectedProducts = $normalized['cards'] ?? [];
         $this->collectedKnowledgeSources = $normalized['knowledge_sources'] ?? [];
 
         $start = microtime(true);
         $generator = new ResponseGenerator();
         $response = $generator->generate($message, $intent, $normalized, $plan);
+        $decision = is_array($loopResult['decision'] ?? null) ? $loopResult['decision'] : ['action' => 'fallback', 'reason' => 'missing_decision'];
+        if (($decision['action'] ?? '') === 'fallback') {
+            $response['response_type'] = 'fallback';
+        }
         $spans['generation_ms'] = (int)((microtime(true) - $start) * 1000);
 
         $start = microtime(true);
@@ -272,6 +264,7 @@ PROMPT;
         }
 
         $spans['total_ms'] = (int)((microtime(true) - $totalStart) * 1000);
+        $spans['loop_count'] = (int)($loopResult['loop_count'] ?? 0);
         $response['trace_id'] = $traceId;
         $response['latency'] = $spans;
         $response['knowledge_sources'] = $this->collectedKnowledgeSources;
@@ -283,15 +276,21 @@ PROMPT;
             $semanticCompletion,
             $intent,
             $plan,
-            $planValidation['errors'],
+            [],
             (string)($intent['execution_mode'] ?? 'deterministic')
         );
+        $routingLog['reasoning_trace'] = $loopResult['trace'] ?? [];
+        $routingLog['evidence_score'] = $loopResult['evidence_score'] ?? [];
+        $routingLog['decision'] = $loopResult['decision'] ?? [];
+        $routingLog['loop_count'] = (int)($loopResult['loop_count'] ?? 0);
         $response['latency']['routing'] = $routingLog;
         $this->evaluationMetadata[] = [
             'trace_id' => $traceId,
             'mode' => 'online_validator',
             'passed' => (bool)$validation['passed'],
             'issues' => $validation['issues'],
+            'evidence_score' => $loopResult['evidence_score'] ?? [],
+            'decision' => $loopResult['decision'] ?? [],
             'async_evaluation' => 'queued_for_offline_langsmith_ragas',
         ];
         $this->responseMetadata['latency'] = $spans;
@@ -303,6 +302,8 @@ PROMPT;
             'primary_intent' => $intent['primary_intent'],
             'validation_passed' => (bool)$validation['passed'],
             'validation_issues' => $validation['issues'],
+            'evidence_score' => $loopResult['evidence_score'] ?? [],
+            'decision' => $loopResult['decision'] ?? [],
         ], 0, true);
         $this->logRoutingPipeline($routingLog);
 
@@ -334,7 +335,10 @@ PROMPT;
             $routingLog['conflicts'] = $conflictResolution['unresolved_conflicts'];
         }
         $spans['routing'] = $routingLog;
-        $spans['total_ms'] = max((int)$spans['total_ms'], (int)($spans['fast_parse_ms'] ?? 0) + (int)($spans['conflict_detection_ms'] ?? 0));
+        $spans['total_ms'] = max(
+            (int)$spans['total_ms'],
+            (int)($spans['deterministic_parse_ms'] ?? 0) + (int)($spans['conflict_detection_ms'] ?? 0)
+        );
 
         $response = [
             'message' => $message,
@@ -397,6 +401,8 @@ PROMPT;
     }
 
     private function logRoutingPipeline(array $routingLog): void {
+        // Historical log name kept for compatibility with existing diagnostics.
+        // This now stores routing plus structured reasoning_trace/evidence_score.
         $this->logToolExecution('routing_pipeline', [], $routingLog, 0, empty($routingLog['validation_errors']));
     }
 

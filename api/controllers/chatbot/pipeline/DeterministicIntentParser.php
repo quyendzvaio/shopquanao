@@ -1,6 +1,6 @@
 <?php
 
-class FastParser {
+class DeterministicIntentParser {
     private const PRODUCT_TYPES = [
         '/áo khoác bomber|ao khoac bomber|áo bomber|ao bomber|bomber/ui' => ['áo khoác bomber', 1, 'jacket'],
         '/áo sơ mi|ao so mi/ui' => ['áo sơ mi', 1, 'shirt'],
@@ -24,9 +24,9 @@ class FastParser {
         '/đồng hồ|dong ho/ui' => ['đồng hồ', 4, 'watch'],
         '/thắt lưng|that lung/ui' => ['thắt lưng', 4, 'belt'],
         '/kính mát|kinh mat/ui' => ['kính mát', 4, 'sunglasses'],
-        '/áo|ao/ui' => ['áo', 1, 'top'],
-        '/quần|quan/ui' => ['quần', 2, 'bottom'],
-        '/váy|vay/ui' => ['váy', 3, 'dress'],
+        '/(?<![\p{L}])áo(?![\p{L}])|(?<![a-z])ao(?![a-z])/ui' => ['áo', 1, 'top'],
+        '/(?<![\p{L}])quần(?![\p{L}])|(?<![a-z])quan(?![a-z])/ui' => ['quần', 2, 'bottom'],
+        '/(?<![\p{L}])váy(?![\p{L}])|(?<![a-z])vay(?![a-z])/ui' => ['váy', 3, 'dress'],
         '/phụ kiện|phu kien/ui' => ['phụ kiện', 4, 'accessory'],
     ];
 
@@ -234,7 +234,18 @@ class FastParser {
         $data = $result->toArray();
         $slots = is_array($memoryContext['slots'] ?? null) ? $memoryContext['slots'] : [];
 
-        if (empty($data['resolved_fields']['product_type']) && !empty($slots['product_type'])) {
+        $referencesPreviousProduct = (bool)preg_match(
+            '/\b(cái|mẫu|sản phẩm|áo|quần|váy)\s*(này|đó)\b|\b(cai|mau|san pham|ao|quan|vay)\s*(nay|do)\b/ui',
+            $lower
+        );
+
+        // Product slots are conversational references, not global defaults. A
+        // policy/order turn must not silently become a mixed product request.
+        if (
+            $referencesPreviousProduct
+            && empty($data['resolved_fields']['product_type'])
+            && !empty($slots['product_type'])
+        ) {
             $result->addResolvedField('product_type', (string)$slots['product_type'], 'slot_memory', 0.85, true);
             if (!empty($slots['category_id'])) {
                 $result->addResolvedField('category_id', (int)$slots['category_id'], 'slot_memory', 0.85, true);
@@ -242,8 +253,7 @@ class FastParser {
             $result->addMatchedRule('slot_memory:product_type');
         }
 
-        $hasPronoun = (bool)preg_match('/\bcái này\b|\bcai nay\b|\bsản phẩm này\b|\bsan pham nay\b|\báo này\b|\bao nay\b/ui', $lower);
-        if ($hasPronoun && empty($data['resolved_fields']['product_id']) && !empty($slots['last_product_id'])) {
+        if ($referencesPreviousProduct && empty($data['resolved_fields']['product_id']) && !empty($slots['last_product_id'])) {
             $result->addResolvedField('product_id', (int)$slots['last_product_id'], 'slot_memory', 0.9, true);
             $result->addMatchedRule('slot_memory:last_product_id');
         }
@@ -255,7 +265,11 @@ class FastParser {
         if ($this->isOrder($lower)) return 'order_status';
         if (isset($fields['product_id']) && ($this->isReturnExchange($lower) || $this->isShipping($lower))) return 'mixed_product_policy';
         if (isset($fields['product_id'])) return 'product_detail';
-        if (isset($fields['product_type']) && ($this->isReturnExchange($lower) || $this->isShipping($lower))) return 'mixed_product_policy';
+        if (
+            isset($fields['product_type'])
+            && ($this->isReturnExchange($lower) || $this->isShipping($lower))
+            && $this->requiresProductEvidence($lower)
+        ) return 'mixed_product_policy';
         if ($this->isReturnExchange($lower)) return 'return_exchange';
         if ($this->isShipping($lower)) return 'shipping';
         if ($this->isPolicy($lower)) return 'policy';
@@ -330,6 +344,15 @@ class FastParser {
 
     private function isProductIntent(string $text): bool {
         return (bool)preg_match('/sản phẩm|san pham|áo|ao|quần|quan|váy|vay|đầm|dam|phụ kiện|phu kien/ui', $text);
+    }
+
+    private function requiresProductEvidence(string $text): bool {
+        return (bool)preg_match(
+            '/còn hàng|con hang|tồn kho|ton kho|còn size|con size|hết hàng|het hang|'
+            . 'tìm|tim|mẫu nào|mau nao|sản phẩm nào|san pham nao|xem chi tiết|xem chi tiet|'
+            . 'giá bao nhiêu|gia bao nhieu/ui',
+            $text
+        );
     }
 
     private function isReturnExchange(string $text): bool {

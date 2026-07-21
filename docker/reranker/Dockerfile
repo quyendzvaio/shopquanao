@@ -6,9 +6,9 @@
 
 FROM python:3.12-slim
 
-# Tini for clean signal handling
+# Runtime certificates only; healthcheck uses Python stdlib to avoid curl/tini.
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-    tini curl ca-certificates && \
+    ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 # Minimal deps — no torch, no sentence-transformers, no onnxruntime
@@ -24,7 +24,6 @@ WORKDIR /app
 EXPOSE 8000
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl -sf http://localhost:8000/health | grep -q '"status":"ok"' || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3).read()" || exit 1
 
-ENTRYPOINT ["tini", "--"]
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -316,12 +316,43 @@ def run_ragas(rows: list[EvalRow]) -> dict[str, Any] | None:
     try:
         from datasets import Dataset
         from ragas import evaluate
+        from ragas.llms import LangchainLLMWrapper
+        from ragas.llms.prompt import Prompt
         from ragas.metrics import answer_relevancy, context_precision, context_recall, faithfulness
         from langchain_openai import ChatOpenAI
     except Exception as exc:
         return {"skipped": f"RAGAS unavailable: {type(exc).__name__}: {exc}"}
 
-    rag_rows = [
+    class SingleCompletionFanOutLLM(LangchainLLMWrapper):
+        """Emulate multiple completions for providers that only accept n=1."""
+
+        def generate_text(self, prompt, n=1, temperature=None, stop=None, callbacks=None):
+            if n <= 1:
+                return super().generate_text(prompt, n, temperature, stop, callbacks)
+            result = self.langchain_llm.generate_prompt(
+                prompts=[prompt] * n,
+                n=1,
+                temperature=temperature,
+                stop=stop,
+                callbacks=callbacks,
+            )
+            result.generations = [[generation[0] for generation in result.generations]]
+            return result
+
+        async def agenerate_text(self, prompt, n=1, temperature=None, stop=None, callbacks=None):
+            if n <= 1:
+                return await super().agenerate_text(prompt, n, temperature, stop, callbacks)
+            result = await self.langchain_llm.agenerate_prompt(
+                prompts=[prompt] * n,
+                n=1,
+                temperature=temperature,
+                stop=stop,
+                callbacks=callbacks,
+            )
+            result.generations = [[generation[0] for generation in result.generations]]
+            return result
+
+    all_rag_rows = [
         {
             "question": r.case["question"],
             "answer": r.answer,
@@ -329,13 +360,11 @@ def run_ragas(rows: list[EvalRow]) -> dict[str, Any] | None:
             "ground_truth": r.case.get("ground_truth", ""),
         }
         for r in rows
-        if r.contexts
     ]
-    if not rag_rows:
-        return {"skipped": "No rows with contexts for RAGAS."}
+    grounded_rag_rows = [row for row in all_rag_rows if row["contexts"]]
+    if not all_rag_rows:
+        return {"skipped": "No rows for RAGAS."}
     try:
-        dataset = Dataset.from_list(rag_rows)
-        metrics = [faithfulness, context_precision, context_recall]
         kwargs: dict[str, Any] = {}
         notes: list[str] = []
 
@@ -350,13 +379,15 @@ def run_ragas(rows: list[EvalRow]) -> dict[str, Any] | None:
             base_url = (os.getenv("LLM_BASE_URL") or "https://api.deepseek.com").rstrip("/")
             if not base_url.endswith("/v1"):
                 base_url += "/v1"
-            kwargs["llm"] = ChatOpenAI(
+            deepseek_llm = ChatOpenAI(
                 api_key=os.getenv("LLM_API_KEY"),
                 base_url=base_url,
                 model=os.getenv("LLM_MODEL") or "deepseek-chat",
                 temperature=0,
                 timeout=float(os.getenv("LLM_TIMEOUT") or 60),
             )
+            kwargs["llm"] = SingleCompletionFanOutLLM(deepseek_llm)
+            notes = ["DeepSeek n=1 fan-out is enabled for answer_relevancy strictness > 1."]
         else:
             return {"skipped": "RAGAS needs OPENAI_API_KEY or LLM_API_KEY for evaluator LLM."}
 
@@ -378,21 +409,63 @@ def run_ragas(rows: list[EvalRow]) -> dict[str, Any] | None:
                     encode_kwargs={"normalize_embeddings": True},
                 )
                 try:
-                    answer_relevancy.strictness = max(1, int(os.getenv("RAGAS_ANSWER_RELEVANCY_STRICTNESS", "1")))
+                    answer_relevancy.strictness = max(1, int(os.getenv("RAGAS_ANSWER_RELEVANCY_STRICTNESS", "4")))
                 except Exception:
-                    answer_relevancy.strictness = 1
-                metrics.insert(1, answer_relevancy)
+                    answer_relevancy.strictness = 4
+                answer_relevancy.question_generation = Prompt(
+                    name="question_generation_vi",
+                    instruction=(
+                        "Từ câu trả lời và ngữ cảnh, hãy tạo đúng một câu hỏi bằng tiếng Việt mà câu trả lời "
+                        "đang giải đáp. Xác định noncommittal=1 chỉ khi câu trả lời né tránh, mơ hồ hoặc nói "
+                        "không biết; ngược lại đặt noncommittal=0. Không được tạo câu hỏi bằng tiếng Anh."
+                    ),
+                    output_format_instruction=answer_relevancy.question_generation.output_format_instruction,
+                    examples=[
+                        {
+                            "answer": "Shop hỗ trợ đổi trả trong 7 ngày nếu sản phẩm còn nguyên tem mác.",
+                            "context": "Khách được đổi trả trong 7 ngày, sản phẩm chưa qua sử dụng và còn tem mác.",
+                            "output": {"question": "Shop hỗ trợ đổi trả trong bao lâu và cần điều kiện gì?", "noncommittal": 0},
+                        },
+                        {
+                            "answer": "Mình chưa có đủ dữ liệu để xác nhận thông tin này.",
+                            "context": "",
+                            "output": {"question": "Thông tin cần xác nhận là gì?", "noncommittal": 1},
+                        },
+                    ],
+                    input_keys=["answer", "context"],
+                    output_key="output",
+                    output_type="json",
+                    language="vietnamese",
+                )
                 notes.append(f"answer_relevancy uses local HuggingFace embeddings: {embedding_model}")
+                notes.append("answer_relevancy question generation is constrained to Vietnamese.")
             except Exception as exc:
                 notes.append(f"answer_relevancy skipped because HuggingFace embeddings failed: {type(exc).__name__}: {exc}")
         elif os.getenv("OPENAI_API_KEY"):
-            metrics.insert(1, answer_relevancy)
             notes.append("answer_relevancy uses default OpenAI-compatible embeddings.")
         else:
             notes.append("answer_relevancy skipped because no embedding evaluator was configured.")
 
-        result = evaluate(dataset, metrics=metrics, **kwargs)
-        output = dict(result)
+        output: dict[str, Any] = {}
+        if "embeddings" in kwargs or os.getenv("OPENAI_API_KEY"):
+            answer_result = evaluate(
+                Dataset.from_list(all_rag_rows),
+                metrics=[answer_relevancy],
+                **kwargs,
+            )
+            output.update(dict(answer_result))
+            notes.append(f"answer_relevancy evaluated all {len(all_rag_rows)} turns.")
+
+        if grounded_rag_rows:
+            grounded_result = evaluate(
+                Dataset.from_list(grounded_rag_rows),
+                metrics=[faithfulness, context_precision, context_recall],
+                **kwargs,
+            )
+            output.update(dict(grounded_result))
+            notes.append(f"grounding metrics evaluated {len(grounded_rag_rows)} turns with evidence contexts.")
+        else:
+            notes.append("grounding metrics skipped because no turn had evidence contexts.")
         if notes:
             output["_notes"] = notes
         output.setdefault("_notes", [])
