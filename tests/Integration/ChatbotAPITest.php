@@ -114,6 +114,39 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
         }
     }
 
+    public function testProductSearchRespectsColorConstraint(): void
+    {
+        $sessionId = $this->createSession();
+        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
+        $result = $orchestrator->respond('tìm áo màu đen');
+
+        $this->assertSame('product_search', $result['primary_intent']);
+        foreach ($result['products'] as $product) {
+            $text = (string)($product['name'] ?? '') . ' ' . (string)($product['description'] ?? '');
+            $this->assertTrue(ProductAttributeNormalizer::textMatchesColor($text, 'đen'));
+        }
+        if (!empty($result['products'])) {
+            $this->assertStringNotContainsString('15 sản phẩm áo', $result['message']);
+        }
+    }
+
+    public function testProductSearchRespectsSizeColorAndStockConstraints(): void
+    {
+        $sessionId = $this->createSession();
+        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
+        $result = $orchestrator->respond('tìm áo size M màu đen còn hàng');
+
+        $this->assertSame('product_search', $result['primary_intent']);
+        $this->assertSame('final_answer', $result['response_type']);
+        $this->assertNotEmpty($result['products']);
+
+        foreach ($result['products'] as $product) {
+            $this->assertGreaterThan(0, (int)$product['stock']);
+            $this->assertContains('M', $product['available_sizes'] ?? []);
+            $this->assertContains('đen', $product['available_colors'] ?? []);
+        }
+    }
+
     public function testPipelineRoutingMetadataIsPersisted(): void
     {
         $sessionId = $this->createSession();
@@ -131,7 +164,7 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
         $routing = $metadata['pipeline']['routing'] ?? [];
         $this->assertSame('deterministic', $routing['execution_mode'] ?? '');
         $this->assertFalse((bool)($routing['llm_semantic_completion_used'] ?? true));
-        $this->assertSame('black', $routing['merged_entities']['color'] ?? null);
+        $this->assertSame('đen', $routing['merged_entities']['color'] ?? null);
         $this->assertContains('search_products', $routing['selected_tools'] ?? []);
     }
 

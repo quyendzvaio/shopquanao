@@ -12,6 +12,7 @@ require_once __DIR__ . '/ToolRegistry.php';
 require_once __DIR__ . '/llm/LLMFactory.php';
 require_once __DIR__ . '/engine.php';
 require_once __DIR__ . '/ChatbotMemory.php';
+require_once __DIR__ . '/ProductAttributeNormalizer.php';
 require_once __DIR__ . '/evaluator/AgentEvaluator.php';
 require_once __DIR__ . '/pipeline/PartialParseResult.php';
 require_once __DIR__ . '/pipeline/CapabilityRegistry.php';
@@ -25,6 +26,7 @@ require_once __DIR__ . '/pipeline/IntentAndConstraintExtractor.php';
 require_once __DIR__ . '/pipeline/ToolPlanner.php';
 require_once __DIR__ . '/pipeline/ParallelToolExecutor.php';
 require_once __DIR__ . '/pipeline/EvidenceNormalizer.php';
+require_once __DIR__ . '/pipeline/ProductConstraintVerifier.php';
 require_once __DIR__ . '/pipeline/ThoughtStateBuilder.php';
 require_once __DIR__ . '/pipeline/ObservationEvaluator.php';
 require_once __DIR__ . '/pipeline/LightweightEvidenceScorer.php';
@@ -1243,8 +1245,9 @@ PROMPT;
                     'price' => (float)($p['price'] ?? 0),
                     'stock' => (int)($p['stock'] ?? 0),
                     'stock_status' => ((int)($p['stock'] ?? 0) > 0) ? 'in_stock' : 'out_of_stock',
-                    'available_sizes' => [],
-                    'available_colors' => [],
+                    'description' => (string)($p['description'] ?? ''),
+                    'available_sizes' => ProductAttributeNormalizer::productSizes($p),
+                    'available_colors' => ProductAttributeNormalizer::extractColorsFromProduct($p),
                     'image' => $p['image'] ?? '',
                     'image_url' => $this->productImageUrl((string)($p['image'] ?? ''), (string)($p['image_url'] ?? '')),
                     'url' => $this->productUrl($pId),
@@ -1270,8 +1273,9 @@ PROMPT;
                 'price' => (float)($p['price'] ?? 0),
                 'stock' => (int)($p['stock'] ?? 0),
                 'stock_status' => ((int)($p['stock'] ?? 0) > 0) ? 'in_stock' : 'out_of_stock',
+                'description' => (string)($p['description'] ?? ''),
                 'available_sizes' => array_values(array_unique($availableSizes)),
-                'available_colors' => [],
+                'available_colors' => ProductAttributeNormalizer::extractColorsFromProduct($p),
                 'image' => $p['image'] ?? '',
                 'image_url' => $this->productImageUrl((string)($p['image'] ?? ''), (string)($p['image_url'] ?? '')),
                 'url' => $this->productUrl($pId),
@@ -1336,18 +1340,25 @@ PROMPT;
             $mentionedIds = array_unique(array_map('intval', $m[1]));
             foreach ($mentionedIds as $pid) {
                 try {
-                    $stmt = $this->pdo->prepare("SELECT id, name, price, stock, image FROM products WHERE id = ?");
+                    $stmt = $this->pdo->prepare("SELECT id, name, price, stock, image, description FROM products WHERE id = ?");
                     $stmt->execute([$pid]);
                     $p = $stmt->fetch(PDO::FETCH_ASSOC);
                     if ($p) {
+                        $sizeStmt = $this->pdo->prepare("SELECT size_name FROM product_sizes WHERE product_id = ?");
+                        $sizeStmt->execute([$pid]);
+                        $sizes = array_values(array_filter(array_map(
+                            fn($size) => ProductAttributeNormalizer::normalizeSize((string)$size),
+                            $sizeStmt->fetchAll(PDO::FETCH_COLUMN)
+                        )));
                         $products[] = [
                             'id' => (int)$p['id'],
                             'name' => $p['name'],
                             'price' => (float)$p['price'],
                             'stock' => (int)($p['stock'] ?? 0),
                             'stock_status' => ((int)($p['stock'] ?? 0) > 0) ? 'in_stock' : 'out_of_stock',
-                            'available_sizes' => [],
-                            'available_colors' => [],
+                            'description' => (string)($p['description'] ?? ''),
+                            'available_sizes' => $sizes,
+                            'available_colors' => ProductAttributeNormalizer::extractColorsFromProduct($p),
                             'image' => $p['image'] ?? '',
                             'image_url' => $this->productImageUrl((string)($p['image'] ?? '')),
                             'url' => $this->productUrl((int)$p['id']),

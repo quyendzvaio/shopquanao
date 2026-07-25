@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/../ProductAttributeNormalizer.php';
+
 class DeterministicIntentParser {
     private const PRODUCT_TYPES = [
         '/áo khoác bomber|ao khoac bomber|áo bomber|ao bomber|bomber/ui' => ['áo khoác bomber', 1, 'jacket'],
@@ -31,13 +33,17 @@ class DeterministicIntentParser {
     ];
 
     private const COLORS = [
-        '/\btrắng\b|\btrang\b|\bwhite\b/ui' => 'white',
-        '/\bđen\b|\bden\b|\bblack\b/ui' => 'black',
-        '/\bxanh\b|\bblue\b|\bgreen\b/ui' => 'blue',
-        '/\bđỏ\b|\bdo\b|\bred\b/ui' => 'red',
-        '/\bhồng\b|\bhong\b|\bpink\b/ui' => 'pink',
-        '/\bxám\b|\bxam\b|\bghi\b|\bgray\b|\bgrey\b/ui' => 'gray',
-        '/\bnâu\b|\bnau\b|\bbe\b|\bbeige\b|\bbrown\b/ui' => 'brown',
+        '/\btrắng\b|\btrang\b|\bwhite\b/ui' => 'trắng',
+        '/\bđen\b|\bden\b|\bblack\b/ui' => 'đen',
+        '/\bxanh\b|\bblue\b|\bgreen\b/ui' => 'xanh',
+        '/\bđỏ\b|\bdo\b|\bred\b/ui' => 'đỏ',
+        '/\bhồng\b|\bhong\b|\bpink\b/ui' => 'hồng',
+        '/\bxám\b|\bxam\b|\bghi\b|\bgray\b|\bgrey\b/ui' => 'xám',
+        '/\bnâu\b|\bnau\b|\bbrown\b/ui' => 'nâu',
+        '/\bbe\b|\bbeige\b|\bkem\b|\bcream\b/ui' => 'be',
+        '/\bvàng\b|\bvang\b|\byellow\b/ui' => 'vàng',
+        '/\btím\b|\btim\b|\bpurple\b/ui' => 'tím',
+        '/\bcam\b|\borange\b/ui' => 'cam',
     ];
 
     public function parse(string $message, array $memoryContext = []): PartialParseResult {
@@ -273,6 +279,7 @@ class DeterministicIntentParser {
         if ($this->isReturnExchange($lower)) return 'return_exchange';
         if ($this->isShipping($lower)) return 'shipping';
         if ($this->isPolicy($lower)) return 'policy';
+        if ($this->isConstrainedProductSearch($lower, $fields)) return 'product_search';
         if ($this->isSizeAdvice($lower)) return 'size_advice';
         if (isset($fields['product_type']) || $this->isProductIntent($lower)) return 'product_search';
         return 'unknown';
@@ -344,6 +351,27 @@ class DeterministicIntentParser {
 
     private function isProductIntent(string $text): bool {
         return (bool)preg_match('/sản phẩm|san pham|áo|ao|quần|quan|váy|vay|đầm|dam|phụ kiện|phu kien/ui', $text);
+    }
+
+    private function isConstrainedProductSearch(string $text, array $fields): bool {
+        if (!isset($fields['product_type'])) {
+            return false;
+        }
+
+        foreach (['color', 'min_price', 'max_price', 'in_stock'] as $field) {
+            if (isset($fields[$field])) {
+                return true;
+            }
+        }
+
+        if (
+            isset($fields['size'])
+            && preg_match('/tìm|tim|kiếm|kiem|có|co|còn|con|hàng|hang|mẫu|mau|sản phẩm|san pham/ui', $text)
+        ) {
+            return true;
+        }
+
+        return false;
     }
 
     private function requiresProductEvidence(string $text): bool {

@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/ProductAttributeNormalizer.php';
+
 /**
  * Conversation memory for the sales chatbot.
  *
@@ -249,12 +251,9 @@ class ChatbotMemory {
             $slots['size'] = strtoupper($m[2]);
         }
 
-        $colors = ['đen', 'trắng', 'xanh', 'đỏ', 'hồng', 'xám', 'be', 'nâu', 'vàng', 'tím', 'cam'];
-        foreach ($colors as $color) {
-            if (mb_strpos($msg, $color) !== false) {
-                $slots['color'] = $color;
-                break;
-            }
+        $color = ProductAttributeNormalizer::normalizeColor($message);
+        if ($color !== null) {
+            $slots['color'] = $color;
         }
 
         foreach (['basic', 'công sở', 'thể thao', 'vintage', 'form rộng', 'slimfit', 'ôm', 'oversize'] as $style) {

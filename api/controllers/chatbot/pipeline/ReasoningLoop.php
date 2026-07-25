@@ -12,6 +12,7 @@ class ReasoningLoop {
     private ToolPlanner $planner;
     private ParallelToolExecutor $executor;
     private EvidenceNormalizer $normalizer;
+    private ProductConstraintVerifier $constraintVerifier;
     private ObservationEvaluator $observationEvaluator;
     private LightweightEvidenceScorer $scorer;
     private ReasoningDecisionRouter $router;
@@ -25,6 +26,7 @@ class ReasoningLoop {
         $this->planner = new ToolPlanner($capabilities);
         $this->executor = new ParallelToolExecutor($toolRegistry);
         $this->normalizer = new EvidenceNormalizer();
+        $this->constraintVerifier = new ProductConstraintVerifier();
         $this->observationEvaluator = new ObservationEvaluator();
         $this->scorer = new LightweightEvidenceScorer();
         $this->router = new ReasoningDecisionRouter();
@@ -87,7 +89,7 @@ class ReasoningLoop {
                 $spans[$key] = is_numeric($value) ? (($spans[$key] ?? 0) + (int)$value) : $value;
             }
 
-            $finalNormalized = $this->normalizer->normalize($intent, $execution);
+            $finalNormalized = $this->constraintVerifier->verify($intent, $this->normalizer->normalize($intent, $execution));
             $observation = $this->observationEvaluator->evaluate($intent, $plan, $execution, $finalNormalized);
             $progress = $this->noProgress->observe($execution);
             $finalScore = $this->scorer->score($intent, $finalNormalized, $observation);

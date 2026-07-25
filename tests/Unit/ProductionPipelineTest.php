@@ -103,7 +103,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
         $this->assertSame(1, $llm->calls);
         $this->assertSame('áo sơ mi', $intent['entities']['product_type']);
-        $this->assertSame('white', $intent['entities']['color']);
+        $this->assertSame('trắng', $intent['entities']['color']);
         $this->assertSame(500000, $intent['entities']['max_price']);
         $this->assertSame('interview', $intent['entities']['occasion']);
         $this->assertSame(['youthful', 'semi_formal'], $intent['entities']['style']);
@@ -131,6 +131,68 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
         $this->assertSame('product_search', $partial['resolved_fields']['intent']['value']);
         $this->assertSame([], $actionable);
+    }
+
+    public function testRequestedProductSizeRoutesToProductSearchNotSizeAdvice(): void
+    {
+        $partial = (new DeterministicIntentParser())->parse('tìm áo size M màu đen còn hàng')->toArray();
+
+        $this->assertSame('product_search', $partial['resolved_fields']['intent']['value']);
+        $this->assertSame('M', $partial['resolved_fields']['size']['value']);
+        $this->assertSame('đen', $partial['resolved_fields']['color']['value']);
+        $this->assertTrue((bool)$partial['resolved_fields']['in_stock']['value']);
+        $this->assertSame([], $partial['missing_fields']);
+    }
+
+    public function testProductAttributeNormalizerCanonicalizesColors(): void
+    {
+        $this->assertSame('đen', ProductAttributeNormalizer::normalizeColor('black'));
+        $this->assertSame('đen', ProductAttributeNormalizer::normalizeColor('den'));
+        $this->assertSame('đen', ProductAttributeNormalizer::normalizeColor('đen'));
+        $this->assertSame('trắng', ProductAttributeNormalizer::normalizeColor('white'));
+        $this->assertSame('xám', ProductAttributeNormalizer::normalizeColor('gray'));
+        $this->assertSame('xám', ProductAttributeNormalizer::normalizeColor('ghi'));
+    }
+
+    public function testProductConstraintVerifierFiltersWrongColorCards(): void
+    {
+        $intent = (new IntentAndConstraintExtractor())->extract('tìm áo màu đen');
+        $normalized = [
+            'cards' => [
+                [
+                    'id' => 50,
+                    'name' => 'Áo Thun Cotton Basic Trắng',
+                    'description' => 'Cotton 100%',
+                    'category_id' => 1,
+                    'price' => 180000,
+                    'stock' => 10,
+                    'available_sizes' => ['M'],
+                    'available_colors' => ['trắng'],
+                ],
+                [
+                    'id' => 52,
+                    'name' => 'Áo Khoác Bomber Kaki Đen',
+                    'description' => 'Bomber kaki',
+                    'category_id' => 1,
+                    'price' => 550000,
+                    'stock' => 12,
+                    'available_sizes' => ['M'],
+                    'available_colors' => ['đen'],
+                ],
+            ],
+            'evidence' => [
+                ['source' => 'product_search', 'fact_type' => 'result_count', 'value' => 2],
+                ['source' => 'product_search', 'fact_type' => 'name', 'product_id' => 50, 'value' => 'Áo Thun Cotton Basic Trắng'],
+                ['source' => 'product_search', 'fact_type' => 'name', 'product_id' => 52, 'value' => 'Áo Khoác Bomber Kaki Đen'],
+            ],
+        ];
+
+        $verified = (new ProductConstraintVerifier())->verify($intent, $normalized);
+
+        $this->assertCount(1, $verified['cards']);
+        $this->assertSame(52, $verified['cards'][0]['id']);
+        $resultCounts = array_values(array_filter($verified['evidence'], fn($item) => ($item['fact_type'] ?? '') === 'result_count'));
+        $this->assertSame(1, (int)$resultCounts[0]['value']);
     }
 
     public function testSlotMemoryResolvesPronounProductId(): void

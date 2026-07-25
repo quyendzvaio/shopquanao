@@ -59,6 +59,11 @@ class ToolRegistryTest extends \PHPUnit\Framework\TestCase
             weight_to INTEGER,
             description TEXT
         )");
+        $this->pdo->exec("CREATE TABLE product_sizes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER,
+            size_name TEXT
+        )");
         $this->pdo->exec("CREATE TABLE orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
@@ -75,12 +80,19 @@ class ToolRegistryTest extends \PHPUnit\Framework\TestCase
             (50, 1, 'Áo Thun Cotton Basic Trắng', 180000, 10, 'Cotton 100%', 'at_01.jpg'),
             (51, 1, 'Áo Sơ Mi Linen Xanh', 320000, 5, 'Linen', 'asm_01.jpg'),
             (52, 1, 'Áo Khoác Bomber Kaki Đen', 550000, 12, 'Bomber', 'ak_01.jpg'),
+            (63, 1, 'Áo Sơ Mi Caro Đỏ Đen', 350000, 1, 'Flanel caro đỏ đen', 'asm_02.jpg'),
             (53, 1, 'Áo Len Cổ Tròn Xám', 415000, 8, 'Len', 'al_01.jpg'),
             (54, 1, 'Áo Polo Thể Thao Đỏ', 290000, 3, 'Polo', 'ap_01.jpg'),
             (58, 1, 'Áo Thun Graphic Phối Màu', 210000, 15, 'Graphic', 'atg_01.jpg'),
             (65, 2, 'Quần Jeans Slimfit Xanh', 690000, 5, 'Jeans', 'qj_01.jpg'),
             (75, 3, 'Váy Maxi Voan Hồng', 850000, 6, 'Maxi', 'vm_01.jpg')
         ");
+        foreach ([50, 51, 52, 53, 54, 58, 63, 65, 75] as $productId) {
+            foreach (['S', 'M', 'L', 'XL'] as $size) {
+                $stmt = $this->pdo->prepare("INSERT INTO product_sizes (product_id, size_name) VALUES (?, ?)");
+                $stmt->execute([$productId, $size]);
+            }
+        }
         $this->pdo->exec("INSERT INTO faqs (question, answer, category, priority) VALUES
             ('Có đổi trả được không?', 'Đổi trả trong 7 ngày nếu sản phẩm còn nguyên tem mác.', 'return', 1),
             ('Phí ship thế nào?', 'Miễn phí ship đơn từ 500,000đ.', 'shipping', 1)
@@ -150,6 +162,64 @@ class ToolRegistryTest extends \PHPUnit\Framework\TestCase
             $this->assertGreaterThanOrEqual(300000, $p['price']);
             $this->assertLessThanOrEqual(500000, $p['price']);
         }
+    }
+
+    public function testSearchProductsFiltersByVietnameseCanonicalColor(): void
+    {
+        $result = $this->registry->execute('search_products', [
+            'search' => 'áo',
+            'category_id' => 1,
+            'color' => 'black',
+        ]);
+
+        $this->assertNotEmpty($result['products']);
+        foreach ($result['products'] as $product) {
+            $this->assertSame(1, (int)$product['category_id']);
+            $this->assertTrue(ProductAttributeNormalizer::textMatchesColor($product['name'] . ' ' . $product['description'], 'đen'));
+        }
+    }
+
+    public function testSearchProductsCombinesColorAndPrice(): void
+    {
+        $result = $this->registry->execute('search_products', [
+            'search' => 'áo',
+            'category_id' => 1,
+            'color' => 'đen',
+            'max_price' => 500000,
+        ]);
+
+        $ids = array_map(fn($p) => (int)$p['id'], $result['products']);
+        $this->assertSame([63], $ids);
+    }
+
+    public function testSearchProductsCombinesColorSizeAndStock(): void
+    {
+        $result = $this->registry->execute('search_products', [
+            'search' => 'áo',
+            'category_id' => 1,
+            'color' => 'den',
+            'size' => 'm',
+            'in_stock' => true,
+        ]);
+
+        $this->assertNotEmpty($result['products']);
+        foreach ($result['products'] as $product) {
+            $this->assertGreaterThan(0, (int)$product['stock']);
+            $this->assertContains('M', ProductAttributeNormalizer::productSizes($product));
+            $this->assertTrue(ProductAttributeNormalizer::textMatchesColor($product['name'] . ' ' . $product['description'], 'đen'));
+        }
+    }
+
+    public function testSearchProductsReturnsEmptyForMissingColor(): void
+    {
+        $result = $this->registry->execute('search_products', [
+            'search' => 'áo',
+            'category_id' => 1,
+            'color' => 'tím',
+        ]);
+
+        $this->assertSame([], $result['products']);
+        $this->assertSame(0, (int)$result['pagination']['total']);
     }
 
     public function testRemovedSalesToolsThrowUnknownTool(): void

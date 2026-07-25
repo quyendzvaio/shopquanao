@@ -41,24 +41,11 @@ class OnlineValidator {
             }
         }
 
-        foreach (($intent['requested_fields'] ?? []) as $field) {
-            if ($field === 'price' && $this->hasCards($response) && !preg_match('/đ|VND|giá/ui', $answer)) {
-                $issues[] = 'price_not_mentioned';
-            }
-            if ($field === 'stock' && $this->hasCards($response) && !preg_match('/còn|hết|tồn kho|hàng/ui', $answer)) {
-                $issues[] = 'stock_not_mentioned';
-            }
-        }
-
         return [
             'passed' => $issues === [],
             'issues' => $issues,
             'safe_fallback' => $this->fallbackFor($primary, $intent),
         ];
-    }
-
-    private function hasCards(array $response): bool {
-        return isset($response['cards']) && is_array($response['cards']) && $response['cards'] !== [];
     }
 
     private function fallbackFor(string $primary, array $intent): string {

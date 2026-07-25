@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/../ProductAttributeNormalizer.php';
+
 class EvidenceNormalizer {
     public function normalize(array $intent, array $execution): array {
         $cards = [];
@@ -176,13 +178,14 @@ class EvidenceNormalizer {
         return [
             'id' => $id,
             'name' => (string)($product['name'] ?? ''),
+            'description' => (string)($product['description'] ?? ''),
             'price' => (float)($product['price'] ?? 0),
             'stock' => (int)($product['stock'] ?? 0),
             'stock_status' => ((int)($product['stock'] ?? 0) > 0) ? 'in_stock' : 'out_of_stock',
             'category_id' => isset($product['category_id']) ? (int)$product['category_id'] : null,
             'category_name' => (string)($product['category_name'] ?? ''),
             'available_sizes' => $this->extractSizes($product),
-            'available_colors' => [],
+            'available_colors' => $this->extractColors($product),
             'image' => $image,
             'image_url' => $this->productImageUrl($image, (string)($product['image_url'] ?? '')),
             'url' => $id > 0 ? '/product.php?id=' . $id : '',
@@ -217,18 +220,37 @@ class EvidenceNormalizer {
                 'confidence' => 1.0,
             ];
         }
+        if (!empty($card['available_sizes'])) {
+            $evidence[] = [
+                'source' => $source,
+                'fact_type' => 'available_sizes',
+                'product_id' => (int)$card['id'],
+                'value' => $card['available_sizes'],
+                'freshness' => date('c'),
+                'confidence' => 1.0,
+            ];
+        }
+        if (!empty($card['available_colors'])) {
+            $evidence[] = [
+                'source' => $source,
+                'fact_type' => 'available_colors',
+                'product_id' => (int)$card['id'],
+                'value' => $card['available_colors'],
+                'freshness' => date('c'),
+                'confidence' => 1.0,
+            ];
+        }
     }
 
     private function extractSizes(array $product): array {
-        $sizes = [];
-        foreach (($product['sizes'] ?? []) as $size) {
-            if (is_array($size) && isset($size['size_name'])) {
-                $sizes[] = strtoupper((string)$size['size_name']);
-            } elseif (is_string($size)) {
-                $sizes[] = strtoupper($size);
-            }
+        return ProductAttributeNormalizer::productSizes($product);
+    }
+
+    private function extractColors(array $product): array {
+        if (!empty($product['available_colors']) && is_array($product['available_colors'])) {
+            return array_values(array_unique(array_map('strval', $product['available_colors'])));
         }
-        return array_values(array_unique(array_filter($sizes)));
+        return ProductAttributeNormalizer::extractColorsFromProduct($product);
     }
 
     private function dedupeCards(array $cards): array {

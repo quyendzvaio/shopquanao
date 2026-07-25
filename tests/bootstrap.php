@@ -12,6 +12,7 @@ require_once ROOT_DIR . '/api/cache/Cache.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/engine.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMProvider.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMResponse.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/ProductAttributeNormalizer.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/ChatbotMemory.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/KnowledgeRetriever.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/ToolRegistry.php';
@@ -29,6 +30,7 @@ require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/IntentAndConstraintEx
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ToolPlanner.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ParallelToolExecutor.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/EvidenceNormalizer.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ProductConstraintVerifier.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ThoughtStateBuilder.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ObservationEvaluator.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/LightweightEvidenceScorer.php';
@@ -98,6 +100,11 @@ function initSQLiteSchema(PDO $pdo): void {
         height_to INTEGER,
         weight_from INTEGER,
         weight_to INTEGER
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS product_sizes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER,
+        size_name TEXT
     )");
     $pdo->exec("CREATE TABLE IF NOT EXISTS chat_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -178,6 +185,12 @@ function seedTestData(PDO $pdo): void {
         (66, 2, 'Quần Tây Ống Đứng Xám', 540000, 11, 'Chất vải tuyết mưa'),
         (75, 3, 'Váy Maxi Voan Tay Phồng Hồng', 850000, 6, 'Vải voan tơ mềm mại')
     ");
+    foreach ([50, 51, 52, 53, 54, 58, 64, 65, 66, 75] as $productId) {
+        foreach (['S', 'M', 'L', 'XL'] as $size) {
+            $stmt = $pdo->prepare("INSERT OR IGNORE INTO product_sizes (product_id, size_name) VALUES (?, ?)");
+            $stmt->execute([$productId, $size]);
+        }
+    }
     // FAQs
     $pdo->exec("INSERT OR IGNORE INTO faqs (id, question, answer, category, priority) VALUES
         (1, 'Thời gian giao hàng?', '2-5 ngày', 'shipping', 1),

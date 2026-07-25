@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/../ProductAttributeNormalizer.php';
+
 class LightweightEvidenceScorer {
     public const MIN_EVIDENCE_SCORE = 0.75;
     public const MIN_REQUIRED_FACT_COVERAGE = 0.75;
@@ -70,6 +72,11 @@ class LightweightEvidenceScorer {
         if (in_array('size', $requested, true) && !in_array('requested_size_evidence', $facts, true)) {
             $facts[] = 'requested_size_evidence';
         }
+        foreach (['product_type', 'color', 'material', 'style', 'occasion', 'avoid', 'semantic_query'] as $field) {
+            if (!empty($intent['entities'][$field] ?? null)) {
+                $facts[] = $field . '_constraint';
+            }
+        }
 
         return array_values(array_unique($facts));
     }
@@ -100,6 +107,13 @@ class LightweightEvidenceScorer {
             'price_constraint' => $this->priceConstraintsPass($cards, $entities),
             'stock_constraint' => $this->stockConstraintPass($cards, $entities),
             'requested_size_evidence' => $this->requestedSizeEvidence($cards, $evidence, (string)($entities['size'] ?? '')),
+            'product_type_constraint' => $this->productTypeConstraintPass($cards, $entities),
+            'color_constraint' => $this->textConstraintPass($cards, $entities, 'color'),
+            'material_constraint' => $this->textConstraintPass($cards, $entities, 'material'),
+            'style_constraint' => $this->textConstraintPass($cards, $entities, 'style'),
+            'occasion_constraint' => $this->textConstraintPass($cards, $entities, 'occasion'),
+            'semantic_query_constraint' => $this->textConstraintPass($cards, $entities, 'semantic_query'),
+            'avoid_constraint' => $this->avoidConstraintPass($cards, $entities),
             default => false,
         };
     }
@@ -189,6 +203,50 @@ class LightweightEvidenceScorer {
             }
         }
         return false;
+    }
+
+    private function productTypeConstraintPass(array $cards, array $entities): bool {
+        if ($cards === []) return false;
+        if (empty($entities['product_type'])) return true;
+        if (!empty($entities['category_id'])) {
+            foreach ($cards as $card) {
+                if ((int)($card['category_id'] ?? 0) !== (int)$entities['category_id']) return false;
+            }
+        }
+        $type = (string)$entities['product_type'];
+        if (in_array($type, ['áo', 'quần', 'váy', 'phụ kiện'], true)) return true;
+        $words = array_values(array_filter(preg_split('/\s+/u', ProductAttributeNormalizer::normalizeText($type)) ?: [], fn($word) => mb_strlen($word) >= 2));
+        foreach ($cards as $card) {
+            $name = ProductAttributeNormalizer::normalizeText((string)($card['name'] ?? ''));
+            foreach ($words as $word) {
+                if (mb_strpos($name, $word) === false) return false;
+            }
+        }
+        return true;
+    }
+
+    private function textConstraintPass(array $cards, array $entities, string $field): bool {
+        if ($cards === []) return false;
+        if (empty($entities[$field])) return true;
+        foreach ($cards as $card) {
+            if ($field === 'color') {
+                $colors = array_map('strval', $card['available_colors'] ?? []);
+                if (in_array((string)$entities[$field], $colors, true)) continue;
+                if (ProductAttributeNormalizer::textMatchesColor(ProductAttributeNormalizer::productText($card), (string)$entities[$field])) continue;
+                return false;
+            }
+            if (!ProductAttributeNormalizer::textMatchesAny(ProductAttributeNormalizer::productText($card), $entities[$field])) return false;
+        }
+        return true;
+    }
+
+    private function avoidConstraintPass(array $cards, array $entities): bool {
+        if ($cards === []) return false;
+        if (empty($entities['avoid'])) return true;
+        foreach ($cards as $card) {
+            if (ProductAttributeNormalizer::textMatchesAny(ProductAttributeNormalizer::productText($card), $entities['avoid'])) return false;
+        }
+        return true;
     }
 
     private function sourceReliability(array $normalized): float {

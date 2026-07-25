@@ -7,6 +7,7 @@
 
 require_once __DIR__ . '/../../cache/Cache.php';
 require_once __DIR__ . '/KnowledgeRetriever.php';
+require_once __DIR__ . '/ProductAttributeNormalizer.php';
 
 class ToolRegistry {
     private PDO $pdo;
@@ -21,7 +22,7 @@ class ToolRegistry {
     private const RERANK_TIMEOUT_MS = 2000;
     /** Tối đa bao nhiêu items gửi xuống reranker (phần còn lại giữ nguyên thứ tự) */
     private const RERANK_MAX_ITEMS = 20;
-    private const SEARCH_CACHE_VERSION = 2;
+    private const SEARCH_CACHE_VERSION = 3;
 
     public function __construct(PDO $pdo, ?int $userId = null) {
         $this->pdo = $pdo;
@@ -206,20 +207,25 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
             'sort' => 'price_asc',
             '_v' => self::SEARCH_CACHE_VERSION,
         ];
-        if (!empty($args['category_id'])) $queryParams['category'] = $args['category_id'];
-        if (!empty($args['min_price'])) $queryParams['min_price'] = $args['min_price'];
-        if (!empty($args['max_price'])) $queryParams['max_price'] = $args['max_price'];
+        foreach (['category_id', 'min_price', 'max_price', 'color', 'size', 'in_stock', 'material', 'style', 'occasion', 'avoid', 'semantic_query'] as $key) {
+            if (array_key_exists($key, $args) && $args[$key] !== null && $args[$key] !== '') {
+                $queryParams[$key] = is_array($args[$key])
+                    ? json_encode($args[$key], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                    : $args[$key];
+            }
+        }
 
         $cachedIds = Cache::getProductSearchIds($queryParams);
         if ($cachedIds !== null && isset($cachedIds['product_ids']) && is_array($cachedIds['product_ids'])) {
             $freshProducts = $this->fetchFreshProductsByIds(array_map('intval', $cachedIds['product_ids']));
+            $freshProducts = array_values(array_filter($freshProducts, fn($p) => ProductAttributeNormalizer::productMatchesConstraints($p, $args)));
             if (!empty($freshProducts)) {
                 return [
                     'products' => $freshProducts,
                     'pagination' => [
                         'page' => 1,
                         'limit' => null,
-                        'total' => (int)($cachedIds['total'] ?? count($freshProducts)),
+                        'total' => count($freshProducts),
                         'total_pages' => 1,
                     ],
                     'cache' => ['product_cache_hit' => true, 'cache_policy' => 'ids_only_fresh_price_stock'],
@@ -264,6 +270,9 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
             'stock' => (int)($product['stock'] ?? 0),
             'image' => (string)($product['image'] ?? ''),
             'category_name' => (string)($product['category_name'] ?? ''),
+            'description' => (string)($product['description'] ?? ''),
+            'sizes' => $product['sizes'] ?? [],
+            'available_colors' => ProductAttributeNormalizer::extractColorsFromProduct($product),
         ];
     }
 
@@ -321,7 +330,7 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         $ids = array_values(array_filter(array_unique($ids), fn($id) => $id > 0));
         if ($ids === []) return [];
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        $stmt = $this->pdo->prepare("SELECT p.id, p.category_id, p.name, p.price, p.stock, p.image, c.name as category_name
+        $stmt = $this->pdo->prepare("SELECT p.id, p.category_id, p.name, p.price, p.stock, p.image, p.description, c.name as category_name
                 FROM products p
                 LEFT JOIN categories c ON p.category_id = c.id
                 WHERE p.id IN ($placeholders)");
@@ -339,6 +348,8 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         foreach ($ids as $id) {
             if (isset($byId[$id])) $ordered[] = $byId[$id];
         }
+        $this->attachProductSizes($ordered);
+        $this->attachProductColors($ordered);
         return $ordered;
     }
 
@@ -371,6 +382,7 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
             $stmt->execute([$id]);
             $product['sizes'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Throwable $e) {}
+        $product['available_colors'] = ProductAttributeNormalizer::extractColorsFromProduct($product);
 
         try {
             $stmt = $this->pdo->prepare("SELECT AVG(rating) as avg_rating, COUNT(*) as total_reviews FROM reviews WHERE product_id = ?");
@@ -507,7 +519,7 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
 
     private function executeSearchProductsDirect(array $args): array {
         $args = $this->normalizeSearchArgs($args);
-        $sql = "SELECT p.id, p.category_id, p.name, p.price, p.stock, p.image, c.name as category_name
+        $sql = "SELECT p.id, p.category_id, p.name, p.price, p.stock, p.image, p.description, c.name as category_name
                 FROM products p
                 LEFT JOIN categories c ON p.category_id = c.id
                 WHERE 1=1";
@@ -527,6 +539,13 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         }
         if (($args['in_stock'] ?? null) === true) {
             $sql .= " AND p.stock > 0";
+        }
+        if (!empty($args['size'])) {
+            $size = ProductAttributeNormalizer::normalizeSize((string)$args['size']);
+            if ($size !== null) {
+                $sql .= " AND EXISTS (SELECT 1 FROM product_sizes ps WHERE ps.product_id = p.id AND UPPER(ps.size_name) = ?)";
+                $params[] = $size;
+            }
         }
 
         $sql .= " ORDER BY p.price ASC";
@@ -554,6 +573,10 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
             }
         }
 
+        $this->attachProductSizes($products);
+        $products = array_values(array_filter($products, fn($p) => ProductAttributeNormalizer::productMatchesConstraints($p, $args)));
+        $this->attachProductColors($products);
+
         foreach ($products as &$p) {
             $p['id'] = (int)$p['id'];
             $p['category_id'] = $p['category_id'] !== null ? (int)$p['category_id'] : null;
@@ -575,6 +598,18 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
 
     private function normalizeSearchArgs(array $args): array {
         $search = mb_strtolower(trim((string)($args['search'] ?? '')));
+        if (!empty($args['color'])) {
+            $normalizedColor = ProductAttributeNormalizer::normalizeColor((string)$args['color']);
+            if ($normalizedColor !== null) {
+                $args['color'] = $normalizedColor;
+            }
+        }
+        if (!empty($args['size'])) {
+            $normalizedSize = ProductAttributeNormalizer::normalizeSize((string)$args['size']);
+            if ($normalizedSize !== null) {
+                $args['size'] = $normalizedSize;
+            }
+        }
         if ($search === '') return $args;
 
         $aliases = [
@@ -597,6 +632,42 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         }
 
         return $args;
+    }
+
+    private function attachProductSizes(array &$products): void {
+        $ids = array_values(array_filter(array_map(fn($p) => (int)($p['id'] ?? 0), $products), fn($id) => $id > 0));
+        if ($ids === []) return;
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        try {
+            $stmt = $this->pdo->prepare("SELECT product_id, size_name FROM product_sizes WHERE product_id IN ($placeholders)");
+            $stmt->execute($ids);
+            $sizesByProduct = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $productId = (int)($row['product_id'] ?? 0);
+                $size = ProductAttributeNormalizer::normalizeSize((string)($row['size_name'] ?? ''));
+                if ($productId > 0 && $size !== null) {
+                    $sizesByProduct[$productId][] = ['size_name' => $size];
+                }
+            }
+            foreach ($products as &$product) {
+                $id = (int)($product['id'] ?? 0);
+                $product['sizes'] = array_values(array_unique($sizesByProduct[$id] ?? [], SORT_REGULAR));
+            }
+            unset($product);
+        } catch (Throwable $e) {
+            foreach ($products as &$product) {
+                $product['sizes'] = $product['sizes'] ?? [];
+            }
+            unset($product);
+        }
+    }
+
+    private function attachProductColors(array &$products): void {
+        foreach ($products as &$product) {
+            $product['available_colors'] = ProductAttributeNormalizer::extractColorsFromProduct($product);
+        }
+        unset($product);
     }
 
     private function absoluteUrl(string $path): string {

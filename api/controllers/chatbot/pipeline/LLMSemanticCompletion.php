@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/../ProductAttributeNormalizer.php';
+
 class LLMSemanticCompletion {
     private ?LLMProvider $llm;
     private string $lastPrompt = '';
@@ -41,6 +43,7 @@ class LLMSemanticCompletion {
                         'Không parse lại toàn bộ query.',
                         'Không sửa, không lặp lại, không overwrite locked_fields.',
                         'Không chọn tool và không trả prose.',
+                        'Nếu trả color, dùng canonical tiếng Việt như "đen", "trắng", "xám"; không dùng "black", "white", "gray".',
                         'Chỉ trả JSON strict theo schema:',
                         '{"inferred_fields":{"occasion":{"value":"interview","confidence":0.9}},"unresolved_remaining":[]}',
                         'Chỉ được dùng field nằm trong expected_fields.',
@@ -126,8 +129,12 @@ class LLMSemanticCompletion {
             if (!is_array($metadata)) {
                 $metadata = ['value' => $metadata, 'confidence' => 0.7];
             }
+            $value = $metadata['value'] ?? null;
+            if ((string)$field === 'color') {
+                $value = ProductAttributeNormalizer::normalizeColor(is_string($value) ? $value : '') ?? $value;
+            }
             $out[(string)$field] = [
-                'value' => $metadata['value'] ?? null,
+                'value' => $value,
                 'confidence' => isset($metadata['confidence']) ? (float)$metadata['confidence'] : 0.7,
             ];
         }
