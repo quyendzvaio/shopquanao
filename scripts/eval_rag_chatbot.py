@@ -17,6 +17,7 @@ import csv
 import json
 import os
 import statistics
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -30,6 +31,11 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CASES = ROOT / "tests" / "eval" / "rag_eval_cases.json"
 DEFAULT_OUT = ROOT / "reports" / "eval"
+EVAL_DIR = ROOT / "eval"
+if str(EVAL_DIR) not in sys.path:
+    sys.path.insert(0, str(EVAL_DIR))
+
+from ragas_compat import build_evaluator_llm, json_safe
 
 
 @dataclass
@@ -170,9 +176,16 @@ def maybe_trace_langsmith(rows: list[dict[str, Any]], project_name: str) -> dict
             dataset_name=dataset_name,
             description="Fashion Shop chatbot RAG eval dataset",
         )
-    except Exception:
-        datasets = list(client.list_datasets(dataset_name=dataset_name))
-        dataset = datasets[0] if datasets else None
+    except Exception as exc:
+        try:
+            datasets = list(client.list_datasets(dataset_name=dataset_name))
+            dataset = datasets[0] if datasets else None
+        except Exception as lookup_exc:  # noqa: BLE001
+            return {
+                "enabled": False,
+                "reason": f"langsmith dataset lookup failed after create failed: {type(lookup_exc).__name__}: {lookup_exc}",
+                "create_error": f"{type(exc).__name__}: {exc}",
+            }
     if dataset is None:
         return {"enabled": False, "reason": "could not create or find dataset"}
 
@@ -210,19 +223,16 @@ def maybe_run_ragas(rows: list[dict[str, Any]]) -> dict[str, Any]:
     try:
         from datasets import Dataset
         from ragas import evaluate
+        from ragas.llms import LangchainLLMWrapper
         from ragas.metrics import answer_relevancy, context_precision, context_recall, faithfulness
+        from langchain_openai import ChatOpenAI
     except Exception as exc:  # noqa: BLE001
         return {"enabled": False, "reason": f"ragas import failed: {exc}"}
 
-    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
-    base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("LLM_BASE_URL")
-    if not api_key:
-        return {"enabled": False, "reason": "No evaluator API key found (OPENAI_API_KEY or LLM_API_KEY)"}
-
-    if base_url:
-        os.environ.setdefault("OPENAI_API_BASE", base_url)
-        os.environ.setdefault("OPENAI_BASE_URL", base_url)
-    os.environ.setdefault("OPENAI_API_KEY", api_key)
+    try:
+        llm, evaluator_model, notes = build_evaluator_llm(ChatOpenAI, LangchainLLMWrapper)
+    except Exception as exc:  # noqa: BLE001
+        return {"enabled": False, "reason": str(exc)}
 
     dataset = Dataset.from_list([
         {
@@ -239,9 +249,15 @@ def maybe_run_ragas(rows: list[dict[str, Any]]) -> dict[str, Any]:
         result = evaluate(
             dataset,
             metrics=[faithfulness, answer_relevancy, context_precision, context_recall],
+            llm=llm,
             raise_exceptions=False,
         )
-        return {"enabled": True, "scores": result.to_pandas().to_dict(orient="records")}
+        return {
+            "enabled": True,
+            "evaluator_model": evaluator_model,
+            "notes": notes,
+            "scores": result.to_pandas().to_dict(orient="records"),
+        }
     except Exception as exc:  # noqa: BLE001
         return {"enabled": False, "reason": f"ragas evaluate failed: {exc}"}
 
@@ -260,6 +276,7 @@ def write_reports(rows: list[dict[str, Any]], summary: dict[str, Any], ragas_res
         "langsmith": langsmith_result,
         "rows": rows,
     }
+    payload = json_safe(payload)
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     latest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -292,23 +309,28 @@ def main() -> int:
     parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--project-name", default=os.getenv("LANGSMITH_PROJECT", "fashion-shop-rag-eval"))
+    parser.add_argument("--case-delay", type=float, default=float(os.getenv("EVAL_CASE_DELAY", "0")))
     parser.add_argument("--skip-ragas", action="store_true")
     parser.add_argument("--skip-langsmith", action="store_true")
     args = parser.parse_args()
 
     cases = load_cases(args.cases)
-    rows = [run_case(args.base_url, case) for case in cases]
+    rows = []
+    for idx, case in enumerate(cases):
+        rows.append(run_case(args.base_url, case))
+        if args.case_delay > 0 and idx < len(cases) - 1:
+            time.sleep(args.case_delay)
     summary = summarize(rows)
     ragas_result = {"enabled": False, "reason": "skipped by CLI"} if args.skip_ragas else maybe_run_ragas(rows)
     langsmith_result = {"enabled": False, "reason": "skipped by CLI"} if args.skip_langsmith else maybe_trace_langsmith(rows, args.project_name)
     paths = write_reports(rows, summary, ragas_result, langsmith_result, args.out_dir)
 
-    print(json.dumps({
+    print(json.dumps(json_safe({
         "summary": summary,
         "ragas": ragas_result,
         "langsmith": langsmith_result,
         "reports": paths,
-    }, ensure_ascii=False, indent=2))
+    }), ensure_ascii=False, indent=2))
     return 0
 
 

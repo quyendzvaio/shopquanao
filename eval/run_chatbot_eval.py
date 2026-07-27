@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 import statistics
 import time
@@ -19,6 +18,8 @@ from pathlib import Path
 from typing import Any
 
 import requests
+
+from ragas_compat import build_evaluator_llm, json_safe
 
 
 @dataclass
@@ -72,12 +73,25 @@ def call_chatbot(
     last_error: str | None = None
     for attempt in range(max_retries + 1):
         started = time.perf_counter()
-        response = requests.post(
-            f"{base_url.rstrip('/')}/api/chatbot",
-            json=payload,
-            headers=headers,
-            timeout=timeout,
-        )
+        try:
+            response = requests.post(
+                f"{base_url.rstrip('/')}/api/chatbot",
+                json=payload,
+                headers=headers,
+                timeout=timeout,
+            )
+        except requests.RequestException as exc:
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            last_error = f"Request failed: {type(exc).__name__}: {exc}"
+            if attempt >= max_retries:
+                return {
+                    "message": f"[EVAL_ERROR] {last_error}",
+                    "products": [],
+                    "knowledge_sources": [],
+                    "session_token": session_token,
+                }, latency_ms
+            time.sleep(retry_delay)
+            continue
         latency_ms = int((time.perf_counter() - started) * 1000)
         should_retry = response.status_code == 429 or response.status_code >= 500
         if not should_retry:
@@ -323,35 +337,6 @@ def run_ragas(rows: list[EvalRow]) -> dict[str, Any] | None:
     except Exception as exc:
         return {"skipped": f"RAGAS unavailable: {type(exc).__name__}: {exc}"}
 
-    class SingleCompletionFanOutLLM(LangchainLLMWrapper):
-        """Emulate multiple completions for providers that only accept n=1."""
-
-        def generate_text(self, prompt, n=1, temperature=None, stop=None, callbacks=None):
-            if n <= 1:
-                return super().generate_text(prompt, n, temperature, stop, callbacks)
-            result = self.langchain_llm.generate_prompt(
-                prompts=[prompt] * n,
-                n=1,
-                temperature=temperature,
-                stop=stop,
-                callbacks=callbacks,
-            )
-            result.generations = [[generation[0] for generation in result.generations]]
-            return result
-
-        async def agenerate_text(self, prompt, n=1, temperature=None, stop=None, callbacks=None):
-            if n <= 1:
-                return await super().agenerate_text(prompt, n, temperature, stop, callbacks)
-            result = await self.langchain_llm.agenerate_prompt(
-                prompts=[prompt] * n,
-                n=1,
-                temperature=temperature,
-                stop=stop,
-                callbacks=callbacks,
-            )
-            result.generations = [[generation[0] for generation in result.generations]]
-            return result
-
     all_rag_rows = [
         {
             "question": r.case["question"],
@@ -366,30 +351,7 @@ def run_ragas(rows: list[EvalRow]) -> dict[str, Any] | None:
         return {"skipped": "No rows for RAGAS."}
     try:
         kwargs: dict[str, Any] = {}
-        notes: list[str] = []
-
-        if os.getenv("OPENAI_API_KEY"):
-            kwargs["llm"] = ChatOpenAI(
-                api_key=os.getenv("OPENAI_API_KEY"),
-                model=os.getenv("OPENAI_EVAL_MODEL") or "gpt-4o-mini",
-                temperature=0,
-                timeout=float(os.getenv("LLM_TIMEOUT") or 60),
-            )
-        elif os.getenv("LLM_API_KEY"):
-            base_url = (os.getenv("LLM_BASE_URL") or "https://api.deepseek.com").rstrip("/")
-            if not base_url.endswith("/v1"):
-                base_url += "/v1"
-            deepseek_llm = ChatOpenAI(
-                api_key=os.getenv("LLM_API_KEY"),
-                base_url=base_url,
-                model=os.getenv("LLM_MODEL") or "deepseek-chat",
-                temperature=0,
-                timeout=float(os.getenv("LLM_TIMEOUT") or 60),
-            )
-            kwargs["llm"] = SingleCompletionFanOutLLM(deepseek_llm)
-            notes = ["DeepSeek n=1 fan-out is enabled for answer_relevancy strictness > 1."]
-        else:
-            return {"skipped": "RAGAS needs OPENAI_API_KEY or LLM_API_KEY for evaluator LLM."}
+        kwargs["llm"], _evaluator_model, notes = build_evaluator_llm(ChatOpenAI, LangchainLLMWrapper)
 
         embedding_provider = os.getenv("RAGAS_EMBEDDING_PROVIDER", "huggingface").lower()
         if embedding_provider in {"huggingface", "hf", "local"}:
@@ -476,15 +438,6 @@ def run_ragas(rows: list[EvalRow]) -> dict[str, Any] | None:
 
 
 def write_report(rows: list[EvalRow], ragas_result: dict[str, Any] | None, output_path: Path) -> dict[str, Any]:
-    def json_safe(value: Any) -> Any:
-        if isinstance(value, float) and not math.isfinite(value):
-            return None
-        if isinstance(value, dict):
-            return {str(k): json_safe(v) for k, v in value.items()}
-        if isinstance(value, list):
-            return [json_safe(item) for item in value]
-        return value
-
     summary = {
         "total_scenarios": len({r.scenario_id for r in rows}),
         "total": len(rows),

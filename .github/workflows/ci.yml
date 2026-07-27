@@ -56,7 +56,7 @@ jobs:
 
       - name: Python lint (reranker)
         run: |
-          python3 -m py_compile docker/reranker/app.py docker/rag-ml/app.py eval/run_chatbot_eval.py scripts/eval_rag_chatbot.py && echo "✅ Python syntax OK"
+          python3 -m py_compile docker/reranker/app.py docker/rag-ml/app.py eval/ragas_compat.py eval/run_chatbot_eval.py scripts/eval_rag_chatbot.py && echo "✅ Python syntax OK"
 
   # ============================================================
   # Job 2: Unit Tests
