@@ -4,14 +4,12 @@
  * POST /api/chatbot
  * Body: { "message": "string", "session_token": "string" }
  *
- * Architecture:
- * 1. Nếu LLM provider được cấu hình → AgenticOrchestrator (LLM + tools) - tự lưu messages
- * 2. Nếu không → Fallback về rule-based engine - tự lưu messages
+ * Architecture: deterministic PHP intent resolution and tool planning, with
+ * optional LLM entity enrichment that cannot select tools.
  */
 
 require_once __DIR__ . '/../../config.php';
-require_once __DIR__ . '/engine.php';
-require_once __DIR__ . '/AgenticOrchestrator.php';
+require_once __DIR__ . '/ChatbotService.php';
 
 /** @var PDO $pdo */
 
@@ -79,9 +77,9 @@ if ($userId) {
         ->execute([$userId, $sessionId]);
 }
 
-// Get response via orchestrator (AgenticOrchestrator tự lưu messages vào DB)
-$orchestrator = new AgenticOrchestrator($pdo, $sessionId, $userId);
-$result = $orchestrator->respond($message);
+// ChatbotService persists messages and tool diagnostics.
+$chatbot = new ChatbotService($pdo, $sessionId, $userId);
+$result = $chatbot->respond($message);
 
 $responseText = $result['message'];
 $products = $result['products'] ?? [];

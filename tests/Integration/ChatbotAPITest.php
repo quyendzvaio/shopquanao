@@ -12,27 +12,27 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
         $this->pdo = getTestPDO();
     }
 
-    // ---- AgenticOrchestrator integration ----
+    // ---- ChatbotService integration ----
 
-    public function testOrchestratorResponds(): void
+    public function testServiceResponds(): void
     {
         // Mock a session
         $sessionId = $this->createSession();
         $userId = null;
 
-        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, $userId);
-        $result = $orchestrator->respond('tìm áo thun');
+        $service = new ChatbotService($this->pdo, $sessionId, $userId);
+        $result = $service->respond('tìm áo thun');
 
         $this->assertArrayHasKey('message', $result);
         $this->assertArrayHasKey('products', $result);
         $this->assertNotEmpty($result['message']);
     }
 
-    public function testOrchestratorSavesMessages(): void
+    public function testServiceSavesMessages(): void
     {
         $sessionId = $this->createSession();
-        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
-        $orchestrator->respond('tìm áo thun');
+        $service = new ChatbotService($this->pdo, $sessionId, null);
+        $service->respond('tìm áo thun');
 
         // Check messages were saved
         $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM chat_messages WHERE session_id = ?");
@@ -42,11 +42,11 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
         $this->assertGreaterThanOrEqual(2, $count, 'Should have user + bot messages');
     }
 
-    public function testOrchestratorReturnsProducts(): void
+    public function testServiceReturnsProducts(): void
     {
         $sessionId = $this->createSession();
-        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
-        $result = $orchestrator->respond('tìm áo thun dưới 500k');
+        $service = new ChatbotService($this->pdo, $sessionId, null);
+        $result = $service->respond('tìm áo thun dưới 500k');
 
         // Should find at least one áo thun product under 500K
         if (!empty($result['products'])) {
@@ -64,8 +64,8 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
     public function testProductIdRoutesToDetailResponse(): void
     {
         $sessionId = $this->createSession();
-        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
-        $result = $orchestrator->respond('áo mã 52 xem chi tiết');
+        $service = new ChatbotService($this->pdo, $sessionId, null);
+        $result = $service->respond('áo mã 52 xem chi tiết');
 
         $this->assertSame('product_detail', $result['primary_intent']);
         $this->assertCount(1, $result['products']);
@@ -77,8 +77,8 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
     public function testSizeQuestionWithoutMeasurementsReturnsClarification(): void
     {
         $sessionId = $this->createSession();
-        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
-        $result = $orchestrator->respond('mình mặc size gì?');
+        $service = new ChatbotService($this->pdo, $sessionId, null);
+        $result = $service->respond('mình mặc size gì?');
 
         $this->assertSame('clarification', $result['response_type']);
         $this->assertContains('height', $result['missing_slots']);
@@ -88,8 +88,8 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
     public function testMixedProductPolicyCallsProductAndKnowledge(): void
     {
         $sessionId = $this->createSession();
-        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
-        $result = $orchestrator->respond('áo mã 52 còn size L không và đổi size có mất phí ship không');
+        $service = new ChatbotService($this->pdo, $sessionId, null);
+        $result = $service->respond('áo mã 52 còn size L không và đổi size có mất phí ship không');
 
         $this->assertSame('mixed_product_policy', $result['primary_intent']);
         $this->assertNotEmpty($result['products']);
@@ -101,8 +101,8 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
     public function testProductSearchFastPathReturnsNewResponseShape(): void
     {
         $sessionId = $this->createSession();
-        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
-        $result = $orchestrator->respond('áo khoác dưới 600k còn hàng');
+        $service = new ChatbotService($this->pdo, $sessionId, null);
+        $result = $service->respond('áo khoác dưới 600k còn hàng');
 
         $this->assertSame('product_search', $result['primary_intent']);
         $this->assertArrayHasKey('answer', $result);
@@ -117,8 +117,8 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
     public function testProductSearchRespectsColorConstraint(): void
     {
         $sessionId = $this->createSession();
-        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
-        $result = $orchestrator->respond('tìm áo màu đen');
+        $service = new ChatbotService($this->pdo, $sessionId, null);
+        $result = $service->respond('tìm áo màu đen');
 
         $this->assertSame('product_search', $result['primary_intent']);
         foreach ($result['products'] as $product) {
@@ -133,8 +133,8 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
     public function testProductSearchRespectsSizeColorAndStockConstraints(): void
     {
         $sessionId = $this->createSession();
-        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
-        $result = $orchestrator->respond('tìm áo size M màu đen còn hàng');
+        $service = new ChatbotService($this->pdo, $sessionId, null);
+        $result = $service->respond('tìm áo size M màu đen còn hàng');
 
         $this->assertSame('product_search', $result['primary_intent']);
         $this->assertSame('final_answer', $result['response_type']);
@@ -150,8 +150,8 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
     public function testPipelineRoutingMetadataIsPersisted(): void
     {
         $sessionId = $this->createSession();
-        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
-        $result = $orchestrator->respond('Tìm áo đen dưới 300k giúp mình với nhé.');
+        $service = new ChatbotService($this->pdo, $sessionId, null);
+        $result = $service->respond('Tìm áo đen dưới 300k giúp mình với nhé.');
 
         $this->assertSame('product_search', $result['primary_intent']);
 
@@ -162,28 +162,29 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
         $this->assertIsArray($metadata);
         $this->assertArrayHasKey('pipeline', $metadata);
         $routing = $metadata['pipeline']['routing'] ?? [];
-        $this->assertSame('deterministic', $routing['execution_mode'] ?? '');
-        $this->assertFalse((bool)($routing['llm_semantic_completion_used'] ?? true));
+        $this->assertSame('deterministic_php', $routing['execution_mode'] ?? '');
+        $this->assertSame('deterministic_php', $routing['tool_selection_mode'] ?? '');
+        $this->assertFalse((bool)($routing['llm_entity_enrichment_used'] ?? true));
         $this->assertSame('đen', $routing['merged_entities']['color'] ?? null);
         $this->assertContains('search_products', $routing['selected_tools'] ?? []);
     }
 
-    public function testOrchestratorLoadsHistory(): void
+    public function testServiceLoadsHistory(): void
     {
         $sessionId = $this->createSession();
 
         // First message
-        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
-        $orchestrator->respond('tìm áo thun');
+        $service = new ChatbotService($this->pdo, $sessionId, null);
+        $service->respond('tìm áo thun');
 
         // Second message (loads history)
-        $orchestrator2 = new AgenticOrchestrator($this->pdo, $sessionId, null);
-        $result = $orchestrator2->respond('còn áo len không');
+        $service2 = new ChatbotService($this->pdo, $sessionId, null);
+        $result = $service2->respond('còn áo len không');
 
         $this->assertNotEmpty($result['message']);
     }
 
-    public function testOrchestratorWithUserId(): void
+    public function testServiceWithUserId(): void
     {
         $userId = $this->createUser();
 
@@ -192,8 +193,8 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
         $stmt->execute([$userId, 'test_user_session_' . uniqid()]);
         $sessionId = (int)$this->pdo->lastInsertId();
 
-        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, $userId);
-        $result = $orchestrator->respond('tìm quần tây');
+        $service = new ChatbotService($this->pdo, $sessionId, $userId);
+        $result = $service->respond('tìm quần tây');
 
         $this->assertNotEmpty($result['message']);
     }
@@ -203,8 +204,8 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
     public function testToolExecutionsAreLogged(): void
     {
         $sessionId = $this->createSession();
-        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
-        $orchestrator->respond('tìm áo thun');
+        $service = new ChatbotService($this->pdo, $sessionId, null);
+        $service->respond('tìm áo thun');
 
         $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM tool_executions WHERE session_id = ?");
         $stmt->execute([$sessionId]);
@@ -220,8 +221,8 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
     public function testSearchProductsReturnsOnlyMatchingType(): void
     {
         $sessionId = $this->createSession();
-        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
-        $result = $orchestrator->respond('tìm áo khoác dưới 500k');
+        $service = new ChatbotService($this->pdo, $sessionId, null);
+        $result = $service->respond('tìm áo khoác dưới 500k');
 
         $this->assertIsArray($result['products']);
 
@@ -237,8 +238,8 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
     public function testSearchWithMultipleFilters(): void
     {
         $sessionId = $this->createSession();
-        $orchestrator = new AgenticOrchestrator($this->pdo, $sessionId, null);
-        $result = $orchestrator->respond('tìm áo từ 200k đến 500k');
+        $service = new ChatbotService($this->pdo, $sessionId, null);
+        $result = $service->respond('tìm áo từ 200k đến 500k');
 
         foreach ($result['products'] as $p) {
             $this->assertGreaterThanOrEqual(200000, $p['price']);
@@ -253,12 +254,12 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
         $sessionId = $this->createSession();
 
         // First exchange
-        $bot1 = new AgenticOrchestrator($this->pdo, $sessionId, null);
+        $bot1 = new ChatbotService($this->pdo, $sessionId, null);
         $r1 = $bot1->respond('tìm áo thun');
         $this->assertNotEmpty($r1['message']);
 
         // Second exchange (same session — should have history)
-        $bot2 = new AgenticOrchestrator($this->pdo, $sessionId, null);
+        $bot2 = new ChatbotService($this->pdo, $sessionId, null);
         $r2 = $bot2->respond('còn màu trắng không');
         $this->assertNotEmpty($r2['message']);
     }

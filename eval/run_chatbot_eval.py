@@ -19,7 +19,7 @@ from typing import Any
 
 import requests
 
-from ragas_compat import build_evaluator_llm, json_safe
+from ragas_compat import build_evaluator_embeddings, build_evaluator_llm, json_safe
 
 
 @dataclass
@@ -353,8 +353,14 @@ def run_ragas(rows: list[EvalRow]) -> dict[str, Any] | None:
         kwargs: dict[str, Any] = {}
         kwargs["llm"], _evaluator_model, notes = build_evaluator_llm(ChatOpenAI, LangchainLLMWrapper)
 
-        embedding_provider = os.getenv("RAGAS_EMBEDDING_PROVIDER", "huggingface").lower()
-        if embedding_provider in {"huggingface", "hf", "local"}:
+        embedding_provider = os.getenv("RAGAS_EMBEDDING_PROVIDER", "rag_ml").lower()
+        if embedding_provider in {"rag_ml", "rag-ml", "service"}:
+            try:
+                kwargs["embeddings"], embedding_model, embedding_notes = build_evaluator_embeddings()
+                notes.extend(embedding_notes)
+            except Exception as exc:
+                notes.append(f"answer_relevancy skipped because rag-ml embeddings failed: {type(exc).__name__}: {exc}")
+        elif embedding_provider in {"huggingface", "hf", "local"}:
             try:
                 try:
                     from langchain_huggingface import HuggingFaceEmbeddings
@@ -370,46 +376,46 @@ def run_ragas(rows: list[EvalRow]) -> dict[str, Any] | None:
                     model_kwargs={"device": os.getenv("RAGAS_EMBEDDING_DEVICE", "cpu")},
                     encode_kwargs={"normalize_embeddings": True},
                 )
-                try:
-                    answer_relevancy.strictness = max(1, int(os.getenv("RAGAS_ANSWER_RELEVANCY_STRICTNESS", "4")))
-                except Exception:
-                    answer_relevancy.strictness = 4
-                answer_relevancy.question_generation = Prompt(
-                    name="question_generation_vi",
-                    instruction=(
-                        "Từ câu trả lời và ngữ cảnh, hãy tạo đúng một câu hỏi bằng tiếng Việt mà câu trả lời "
-                        "đang giải đáp. Xác định noncommittal=1 chỉ khi câu trả lời né tránh, mơ hồ hoặc nói "
-                        "không biết; ngược lại đặt noncommittal=0. Không được tạo câu hỏi bằng tiếng Anh."
-                    ),
-                    output_format_instruction=answer_relevancy.question_generation.output_format_instruction,
-                    examples=[
-                        {
-                            "answer": "Shop hỗ trợ đổi trả trong 7 ngày nếu sản phẩm còn nguyên tem mác.",
-                            "context": "Khách được đổi trả trong 7 ngày, sản phẩm chưa qua sử dụng và còn tem mác.",
-                            "output": {"question": "Shop hỗ trợ đổi trả trong bao lâu và cần điều kiện gì?", "noncommittal": 0},
-                        },
-                        {
-                            "answer": "Mình chưa có đủ dữ liệu để xác nhận thông tin này.",
-                            "context": "",
-                            "output": {"question": "Thông tin cần xác nhận là gì?", "noncommittal": 1},
-                        },
-                    ],
-                    input_keys=["answer", "context"],
-                    output_key="output",
-                    output_type="json",
-                    language="vietnamese",
-                )
                 notes.append(f"answer_relevancy uses local HuggingFace embeddings: {embedding_model}")
-                notes.append("answer_relevancy question generation is constrained to Vietnamese.")
             except Exception as exc:
                 notes.append(f"answer_relevancy skipped because HuggingFace embeddings failed: {type(exc).__name__}: {exc}")
-        elif os.getenv("OPENAI_API_KEY"):
-            notes.append("answer_relevancy uses default OpenAI-compatible embeddings.")
         else:
-            notes.append("answer_relevancy skipped because no embedding evaluator was configured.")
+            notes.append(f"answer_relevancy skipped because embedding provider {embedding_provider!r} is unsupported.")
+
+        if "embeddings" in kwargs:
+            try:
+                answer_relevancy.strictness = max(1, int(os.getenv("RAGAS_ANSWER_RELEVANCY_STRICTNESS", "4")))
+            except Exception:
+                answer_relevancy.strictness = 4
+            answer_relevancy.question_generation = Prompt(
+                name="question_generation_vi",
+                instruction=(
+                    "Từ câu trả lời và ngữ cảnh, hãy tạo đúng một câu hỏi bằng tiếng Việt mà câu trả lời "
+                    "đang giải đáp. Xác định noncommittal=1 chỉ khi câu trả lời né tránh, mơ hồ hoặc nói "
+                    "không biết; ngược lại đặt noncommittal=0. Không được tạo câu hỏi bằng tiếng Anh."
+                ),
+                output_format_instruction=answer_relevancy.question_generation.output_format_instruction,
+                examples=[
+                    {
+                        "answer": "Shop hỗ trợ đổi trả trong 7 ngày nếu sản phẩm còn nguyên tem mác.",
+                        "context": "Khách được đổi trả trong 7 ngày, sản phẩm chưa qua sử dụng và còn tem mác.",
+                        "output": {"question": "Shop hỗ trợ đổi trả trong bao lâu và cần điều kiện gì?", "noncommittal": 0},
+                    },
+                    {
+                        "answer": "Mình chưa có đủ dữ liệu để xác nhận thông tin này.",
+                        "context": "",
+                        "output": {"question": "Thông tin cần xác nhận là gì?", "noncommittal": 1},
+                    },
+                ],
+                input_keys=["answer", "context"],
+                output_key="output",
+                output_type="json",
+                language="vietnamese",
+            )
+            notes.append("answer_relevancy question generation is constrained to Vietnamese.")
 
         output: dict[str, Any] = {}
-        if "embeddings" in kwargs or os.getenv("OPENAI_API_KEY"):
+        if "embeddings" in kwargs:
             answer_result = evaluate(
                 Dataset.from_list(all_rag_rows),
                 metrics=[answer_relevancy],

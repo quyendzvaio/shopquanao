@@ -57,6 +57,15 @@ langsmith_*.json
 test-evidence/
 postman/
 
+# Keep only the latest reviewed RAGAS/LangSmith evidence in version control.
+!reports/
+reports/*
+!reports/chatbot_ragas_latest.json
+!reports/chatbot_ragas_latest.md
+!reports/rag_ragas_latest.csv
+!reports/rag_ragas_latest.json
+!reports/ragas_langsmith_latest.md
+
 # Python
 __pycache__/
 **/__pycache__/

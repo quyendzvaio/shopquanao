@@ -1,15 +1,16 @@
 <?php
 /**
  * Tool Registry + Tool Executor
- * Định nghĩa tools cho LLM function calling + execute tool gọi API nội bộ.
+ * Định nghĩa capability contracts cho PHP ToolPlanner và thực thi tool.
  * Hỗ trợ reranking sản phẩm qua sidecar Python TF-IDF.
  */
 
 require_once __DIR__ . '/../../cache/Cache.php';
 require_once __DIR__ . '/KnowledgeRetriever.php';
 require_once __DIR__ . '/ProductAttributeNormalizer.php';
+require_once __DIR__ . '/contracts/ChatbotToolGateway.php';
 
-class ToolRegistry {
+class ToolRegistry implements ChatbotToolGateway {
     private PDO $pdo;
     private ?int $userId;
     private array $tools = [];
@@ -85,9 +86,9 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
                         'color' => ['type' => 'string', 'description' => 'Màu sắc đã chuẩn hóa nếu user nêu rõ.'],
                         'size' => ['type' => 'string', 'description' => 'Size user quan tâm nếu có.'],
                         'in_stock' => ['type' => 'boolean', 'description' => 'Chỉ ưu tiên sản phẩm còn hàng nếu user hỏi tồn kho/còn hàng.'],
-                        'occasion' => ['type' => 'string', 'description' => 'Ngữ cảnh sử dụng do semantic completion bổ sung.'],
-                        'style' => ['type' => ['string', 'array'], 'description' => 'Phong cách mong muốn do semantic completion bổ sung.'],
-                        'avoid' => ['type' => ['string', 'array'], 'description' => 'Đặc điểm cần tránh do semantic completion bổ sung.'],
+                        'occasion' => ['type' => 'string', 'description' => 'Ngữ cảnh sử dụng do entity enrichment bổ sung.'],
+                        'style' => ['type' => ['string', 'array'], 'description' => 'Phong cách mong muốn do entity enrichment bổ sung.'],
+                        'avoid' => ['type' => ['string', 'array'], 'description' => 'Đặc điểm cần tránh do entity enrichment bổ sung.'],
                         'semantic_query' => ['type' => 'string', 'description' => 'Đoạn semantic constraint không dùng làm keyword LIKE cứng.'],
                     ],
                     'required' => ['search'],
@@ -496,24 +497,17 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
     }
 
     private function executeGetCategories(array $args): array {
-        if ($this->isSqlite()) {
-            $stmt = $this->pdo->query("SELECT id, name FROM categories ORDER BY id");
-            return ['categories' => $stmt->fetchAll(PDO::FETCH_ASSOC)];
-        }
-
-        // Check cache
         $cached = Cache::getCategories();
         if ($cached !== null) {
             return $cached;
         }
 
-        $url = getInternalApiUrl() . "/api/categories";
-        $result = $this->fetchJson($url);
-
-        if (!isset($result['error'])) {
-            Cache::setCategories($result);
-        }
-
+        $stmt = $this->pdo->query("SELECT id, name FROM categories ORDER BY id");
+        $result = ['categories' => array_map(
+            fn($category) => ['id' => (int)$category['id'], 'name' => (string)$category['name']],
+            $stmt->fetchAll(PDO::FETCH_ASSOC)
+        )];
+        Cache::setCategories($result);
         return $result;
     }
 

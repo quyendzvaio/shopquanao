@@ -42,7 +42,7 @@ class DeterministicIntentParser {
         '/\bnâu\b|\bnau\b|\bbrown\b/ui' => 'nâu',
         '/\bbe\b|\bbeige\b|\bkem\b|\bcream\b/ui' => 'be',
         '/\bvàng\b|\bvang\b|\byellow\b/ui' => 'vàng',
-        '/\btím\b|\btim\b|\bpurple\b/ui' => 'tím',
+        '/\btím\b|\bpurple\b|\b(?:màu|mau)\s+tim\b/ui' => 'tím',
         '/\bcam\b|\borange\b/ui' => 'cam',
     ];
 
@@ -209,6 +209,11 @@ class DeterministicIntentParser {
             $result->addResolvedField('height_cm', ((int)$m[1] * 100) + (int)$m[2]);
             $result->addMatchedRule('height_cm');
             $matchedPatterns[] = '/(\d+)\s*m\s*(\d+)/ui';
+        } elseif (preg_match('/(\d+[.,]\d+)\s*m\b/ui', $lower, $m)) {
+            $heightCm = (int)round((float)str_replace(',', '.', $m[1]) * 100);
+            $result->addResolvedField('height_cm', $heightCm);
+            $result->addMatchedRule('height_cm');
+            $matchedPatterns[] = '/(\d+[.,]\d+)\s*m\b/ui';
         }
 
         if (preg_match('/(\d+)\s*kg/ui', $lower, $m)) {
@@ -408,6 +413,6 @@ class DeterministicIntentParser {
     }
 
     private function isCheckout(string $text): bool {
-        return (bool)preg_match('/thêm vào giỏ|them vao gio|checkout|thanh toán giúp|thanh toan giup|mua .*giúp|mua .*giup|đặt hàng giúp|dat hang giup|chốt đơn|chot don/ui', $text);
+        return (bool)preg_match('/thêm vào giỏ|them vao gio|(?:thêm|them)\s+.{1,80}?\s+(?:vào|vao)\s+(?:giỏ|gio)\b|checkout|thanh toán giúp|thanh toan giup|mua .*giúp|mua .*giup|đặt hàng giúp|dat hang giup|chốt đơn|chot don/ui', $text);
     }
 }

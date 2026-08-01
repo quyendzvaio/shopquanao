@@ -1,0 +1,364 @@
+{
+  "generated_at": "20260801T062839Z",
+  "summary": {
+    "cases": 8,
+    "retrieval_latency_ms": {
+      "avg": 6.67,
+      "p50": 5.41,
+      "p95": 13.35,
+      "max": 13.35
+    },
+    "chat_latency_ms": {
+      "avg": 385.83,
+      "p50": 23.66,
+      "p95": 1088.52,
+      "max": 1088.52
+    },
+    "avg_context_keyword_coverage": 0.75,
+    "avg_answer_keyword_coverage": 0.9688,
+    "retrieval_errors": [],
+    "chat_errors": [],
+    "unexpected_redirects": []
+  },
+  "ragas": {
+    "enabled": true,
+    "evaluator_model": "deepseek-v4-flash",
+    "embedding_model": "bkai-foundation-models/vietnamese-bi-encoder",
+    "notes": [
+      "DeepSeek n=1 fan-out is enabled for evaluator model deepseek-v4-flash.",
+      "RAGAS embeddings use rag-ml /embed with model bkai-foundation-models/vietnamese-bi-encoder.",
+      "Evaluator embeddings use the same normalized vector model as Qdrant ingestion and query retrieval."
+    ],
+    "scores": [
+      {
+        "question": "Shop đổi trả trong bao lâu?",
+        "answer": "- Đổi trả trong 7 ngày từ khi nhận hàng - Sản phẩm còn nguyên tem mác, chưa qua sử dụng - Không áp dụng cho sản phẩm sale > 50% - Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả - Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều - Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả - Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+        "contexts": [
+          "Chính sách đổi trả\n- Đổi trả trong 7 ngày từ khi nhận hàng\n- Sản phẩm còn nguyên tem mác, chưa qua sử dụng\n- Không áp dụng cho sản phẩm sale > 50%\n- Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả\n- Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều\n- Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả\n- Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+          "Có thể đổi trả sản phẩm không?\nCó, đổi trả trong vòng 7 ngày kể từ ngày nhận hàng. Sản phẩm phải còn nguyên tem mác, chưa qua sử dụng.",
+          "Đổi trả & Bảo hành\n- **Có thể đổi trả không?** Có, trong 7 ngày từ khi nhận. Sản phẩm còn nguyên tem mác, chưa qua sử dụng.\n- **Bảo hành thế nào?** Sản phẩm bảo hành 30 ngày lỗi đường may/vải. Phụ kiện bảo hành 15 ngày."
+        ],
+        "ground_truth": "Shop cho đổi trả trong 7 ngày kể từ khi nhận hàng, với điều kiện sản phẩm còn nguyên tem mác và chưa qua sử dụng.",
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.530562825984145,
+        "context_precision": 0.9999999999666667,
+        "context_recall": 1.0
+      },
+      {
+        "question": "Tôi mua sản phẩm sale 60% nhưng không vừa size thì có đổi được không?",
+        "answer": "- Đổi trả trong 7 ngày từ khi nhận hàng - Sản phẩm còn nguyên tem mác, chưa qua sử dụng - Không áp dụng cho sản phẩm sale > 50% - Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả - Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều - Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả - Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+        "contexts": [
+          "Chính sách đổi trả\n- Đổi trả trong 7 ngày từ khi nhận hàng\n- Sản phẩm còn nguyên tem mác, chưa qua sử dụng\n- Không áp dụng cho sản phẩm sale > 50%\n- Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả\n- Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều\n- Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả\n- Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+          "Có thể đổi trả sản phẩm không?\nCó, đổi trả trong vòng 7 ngày kể từ ngày nhận hàng. Sản phẩm phải còn nguyên tem mác, chưa qua sử dụng.",
+          "Đổi trả & Bảo hành\n- **Có thể đổi trả không?** Có, trong 7 ngày từ khi nhận. Sản phẩm còn nguyên tem mác, chưa qua sử dụng.\n- **Bảo hành thế nào?** Sản phẩm bảo hành 30 ngày lỗi đường may/vải. Phụ kiện bảo hành 15 ngày."
+        ],
+        "ground_truth": "Không áp dụng đổi trả cho sản phẩm sale trên 50%. Vì sản phẩm sale 60%, shop không hỗ trợ đổi size theo chính sách hiện tại.",
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.24321910631709132,
+        "context_precision": 0.9999999999,
+        "context_recall": 1.0
+      },
+      {
+        "question": "Nếu shop giao sai size thì phí vận chuyển đổi trả ai chịu?",
+        "answer": "- Đổi trả trong 7 ngày từ khi nhận hàng - Sản phẩm còn nguyên tem mác, chưa qua sử dụng - Không áp dụng cho sản phẩm sale > 50% - Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả - Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều - Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả - Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+        "contexts": [
+          "Chính sách đổi trả\n- Đổi trả trong 7 ngày từ khi nhận hàng\n- Sản phẩm còn nguyên tem mác, chưa qua sử dụng\n- Không áp dụng cho sản phẩm sale > 50%\n- Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả\n- Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều\n- Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả\n- Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+          "Có thể đổi trả sản phẩm không?\nCó, đổi trả trong vòng 7 ngày kể từ ngày nhận hàng. Sản phẩm phải còn nguyên tem mác, chưa qua sử dụng.",
+          "Đổi trả & Bảo hành\n- **Có thể đổi trả không?** Có, trong 7 ngày từ khi nhận. Sản phẩm còn nguyên tem mác, chưa qua sử dụng.\n- **Bảo hành thế nào?** Sản phẩm bảo hành 30 ngày lỗi đường may/vải. Phụ kiện bảo hành 15 ngày."
+        ],
+        "ground_truth": "Nếu shop giao sai size, sai mẫu, sai màu hoặc sản phẩm lỗi từ shop, shop chịu phí vận chuyển đổi trả.",
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.4329733042258563,
+        "context_precision": 0.9999999999,
+        "context_recall": 1.0
+      },
+      {
+        "question": "Hoàn tiền mất mấy ngày làm việc?",
+        "answer": "- Hoàn tiền áp dụng khi sản phẩm lỗi từ shop, hết hàng để đổi, hoặc shop không thể xử lý đổi trả phù hợp - Thời gian hoàn tiền dự kiến: 3-7 ngày làm việc sau khi shop xác nhận sản phẩm đủ điều kiện - Phương thức hoàn tiền theo phương thức thanh toán ban đầu hoặc chuyển khoản theo thông tin khách cung cấp",
+        "contexts": [
+          "Chính sách đổi trả\n- Đổi trả trong 7 ngày từ khi nhận hàng\n- Sản phẩm còn nguyên tem mác, chưa qua sử dụng\n- Không áp dụng cho sản phẩm sale > 50%\n- Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả\n- Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều\n- Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả\n- Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+          "Có thể đổi trả sản phẩm không?\nCó, đổi trả trong vòng 7 ngày kể từ ngày nhận hàng. Sản phẩm phải còn nguyên tem mác, chưa qua sử dụng.",
+          "Đổi trả & Bảo hành\n- **Có thể đổi trả không?** Có, trong 7 ngày từ khi nhận. Sản phẩm còn nguyên tem mác, chưa qua sử dụng.\n- **Bảo hành thế nào?** Sản phẩm bảo hành 30 ngày lỗi đường may/vải. Phụ kiện bảo hành 15 ngày."
+        ],
+        "ground_truth": "Thời gian hoàn tiền dự kiến là 3-7 ngày làm việc sau khi shop xác nhận sản phẩm đủ điều kiện.",
+        "faithfulness": 0.0,
+        "answer_relevancy": 0.4095989495468099,
+        "context_precision": 0.0,
+        "context_recall": 0.0
+      },
+      {
+        "question": "Đơn 300k giao ngoại tỉnh thì phí ship bao nhiêu?",
+        "answer": "Miễn phí giao hàng cho đơn từ 500,000đ. Đơn dưới 500,000đ phí ship là 30,000đ nội thành và 50,000đ ngoại tỉnh.",
+        "contexts": [
+          "Phí ship tính thế nào?\nMiễn phí giao hàng cho đơn từ 500,000đ. Đơn dưới 500,000đ phí ship là 30,000đ nội thành và 50,000đ ngoại tỉnh.",
+          "Chính sách giao hàng\n- Giao hàng toàn quốc\n- Miễn phí ship đơn từ 500,000đ\n- Thời gian: Nội thành 24h, ngoại tỉnh 2-5 ngày",
+          "Shop có giao hàng toàn quốc không?\nCó, chúng tôi giao hàng trên toàn quốc. Thời gian giao hàng từ 2-5 ngày tùy khu vực. Nội thành Hà Nội và TP.HCM nhận hàng trong 24h.",
+          "Vận chuyển\n- **Shop có giao hàng toàn quốc không?** Có, giao hàng trên toàn quốc. Thời gian 2-5 ngày tùy khu vực. Nội thành Hà Nội và TP.HCM nhận trong 24h.\n- **Phí ship thế nào?** Miễn phí ship cho đơn từ 500,000đ. Dưới 500,000đ: 30,000đ nội thành, 50,000đ ngoại tỉnh."
+        ],
+        "ground_truth": "Đơn dưới 500,000đ không được miễn phí ship. Phí ship ngoại tỉnh là 50,000đ.",
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.24731220445288957,
+        "context_precision": 0.9166666666361111,
+        "context_recall": 1.0
+      },
+      {
+        "question": "Có áo khoác dưới 600k không?",
+        "answer": "Mình tìm thấy 2 sản phẩm áo khoác dưới 600.000đ. Bạn có thể bấm vào thẻ sản phẩm bên dưới để xem chi tiết.",
+        "contexts": [
+          "Shop có bán sỉ không?\nCó, shop bán sỉ cho các đơn từ 10 sản phẩm trở lên. Vui lòng liên hệ hotline hoặc email để được báo giá sỉ.",
+          "Shop có giao hàng toàn quốc không?\nCó, chúng tôi giao hàng trên toàn quốc. Thời gian giao hàng từ 2-5 ngày tùy khu vực. Nội thành Hà Nội và TP.HCM nhận hàng trong 24h.",
+          "Vận chuyển\n- **Shop có giao hàng toàn quốc không?** Có, giao hàng trên toàn quốc. Thời gian 2-5 ngày tùy khu vực. Nội thành Hà Nội và TP.HCM nhận trong 24h.\n- **Phí ship thế nào?** Miễn phí ship cho đơn từ 500,000đ. Dưới 500,000đ: 30,000đ nội thành, 50,000đ ngoại tỉnh.",
+          "Bán sỉ\n- **Shop bán sỉ không?** Có, từ 10 sản phẩm. Liên hệ hotline/email để báo giá.",
+          "Hướng dẫn size S\nÁo size S: Cao 1m55-1m65, Nặng 45-55kg Cao 155-165cm, nặng 45-55kg."
+        ],
+        "ground_truth": "Chatbot nên tìm sản phẩm áo khoác dưới 600k và trả product cards nếu có.",
+        "faithfulness": 0.0,
+        "answer_relevancy": 0.7206996102096811,
+        "context_precision": 0.0,
+        "context_recall": 0.0
+      },
+      {
+        "question": "Áo bomber nếu nhận hàng bị giao sai size thì đổi thế nào?",
+        "answer": "- Đổi trả trong 7 ngày từ khi nhận hàng - Sản phẩm còn nguyên tem mác, chưa qua sử dụng - Không áp dụng cho sản phẩm sale > 50% - Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả - Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều - Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả - Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+        "contexts": [
+          "Chính sách đổi trả\n- Đổi trả trong 7 ngày từ khi nhận hàng\n- Sản phẩm còn nguyên tem mác, chưa qua sử dụng\n- Không áp dụng cho sản phẩm sale > 50%\n- Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả\n- Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều\n- Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả\n- Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+          "Đổi trả & Bảo hành\n- **Có thể đổi trả không?** Có, trong 7 ngày từ khi nhận. Sản phẩm còn nguyên tem mác, chưa qua sử dụng.\n- **Bảo hành thế nào?** Sản phẩm bảo hành 30 ngày lỗi đường may/vải. Phụ kiện bảo hành 15 ngày.",
+          "Có thể đổi trả sản phẩm không?\nCó, đổi trả trong vòng 7 ngày kể từ ngày nhận hàng. Sản phẩm phải còn nguyên tem mác, chưa qua sử dụng."
+        ],
+        "ground_truth": "Chatbot cần hiểu sản phẩm áo bomber và dùng chính sách đổi trả: nếu shop giao sai size thì shop chịu phí vận chuyển đổi trả, khách cung cấp mã đơn, hình ảnh và lý do đổi trả.",
+        "faithfulness": null,
+        "answer_relevancy": 0.36628433607986016,
+        "context_precision": 0.99999999995,
+        "context_recall": 0.0
+      },
+      {
+        "question": "Áo thun trắng phối với quần gì đẹp?",
+        "answer": "Hiện mình không hỗ trợ tư vấn phối đồ. Mình có thể hỗ trợ bạn tìm sản phẩm, xem chi tiết sản phẩm, tư vấn size và chính sách shop.",
+        "contexts": [
+          "Set cơ bản\n1. **Áo thun trắng + Quần jeans slimfit** — Set không thể thiếu trong tủ đồ\n2. **Áo sơ mi caro + Quần jeans slimfit** — Phong cách cá tính, chất chơi\n3. **Áo polo đỏ + Quần short kaki** — Năng động, thể thao",
+          "Chính sách đổi trả\n- Đổi trả trong 7 ngày từ khi nhận hàng\n- Sản phẩm còn nguyên tem mác, chưa qua sử dụng\n- Không áp dụng cho sản phẩm sale > 50%\n- Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả\n- Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều\n- Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả\n- Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+          "Quần (category_id = 2)\n| Size | Chiều cao | Cân nặng |\n|------|-----------|----------|\n| S    | 1m55-1m65 | 45-55kg  |\n| M    | 1m60-1m70 | 55-65kg  |\n| L    | 1m65-1m75 | 60-75kg  |\n| XL   | 1m70-1m85 | 70-85kg  |",
+          "Cách chọn size như thế nào?\nBạn tham khảo bảng size chi tiết ở cuối trang sản phẩm. Hoặc cung cấp chiều cao, cân nặng để chatbot tư vấn size phù hợp.",
+          "Shop có bán sỉ không?\nCó, shop bán sỉ cho các đơn từ 10 sản phẩm trở lên. Vui lòng liên hệ hotline hoặc email để được báo giá sỉ."
+        ],
+        "ground_truth": "Chatbot phải nói hiện không hỗ trợ tư vấn phối đồ, chỉ hỗ trợ tìm sản phẩm, chi tiết sản phẩm, tư vấn size và chính sách shop.",
+        "faithfulness": 0.4,
+        "answer_relevancy": 0.0,
+        "context_precision": 0.0,
+        "context_recall": 0.0
+      }
+    ]
+  },
+  "langsmith": {
+    "enabled": true,
+    "dataset_name": "fashion-shop-rag-eval-ragml-newkey-20260801-dataset",
+    "examples_created": 8
+  },
+  "rows": [
+    {
+      "id": "policy_return_window",
+      "type": "policy",
+      "question": "Shop đổi trả trong bao lâu?",
+      "category": "return",
+      "reference": "Shop cho đổi trả trong 7 ngày kể từ khi nhận hàng, với điều kiện sản phẩm còn nguyên tem mác và chưa qua sử dụng.",
+      "retrieval_status": 200,
+      "retrieval_error": null,
+      "retrieval_latency_ms": 5.68,
+      "retrieval_source": "hybrid_reranked",
+      "retrieved_contexts": [
+        "Chính sách đổi trả\n- Đổi trả trong 7 ngày từ khi nhận hàng\n- Sản phẩm còn nguyên tem mác, chưa qua sử dụng\n- Không áp dụng cho sản phẩm sale > 50%\n- Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả\n- Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều\n- Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả\n- Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+        "Có thể đổi trả sản phẩm không?\nCó, đổi trả trong vòng 7 ngày kể từ ngày nhận hàng. Sản phẩm phải còn nguyên tem mác, chưa qua sử dụng.",
+        "Đổi trả & Bảo hành\n- **Có thể đổi trả không?** Có, trong 7 ngày từ khi nhận. Sản phẩm còn nguyên tem mác, chưa qua sử dụng.\n- **Bảo hành thế nào?** Sản phẩm bảo hành 30 ngày lỗi đường may/vải. Phụ kiện bảo hành 15 ngày."
+      ],
+      "retrieved_count": 3,
+      "context_keyword_coverage": 1.0,
+      "chat_status": 200,
+      "chat_error": null,
+      "chat_latency_ms": 21.45,
+      "answer": "- Đổi trả trong 7 ngày từ khi nhận hàng - Sản phẩm còn nguyên tem mác, chưa qua sử dụng - Không áp dụng cho sản phẩm sale > 50% - Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả - Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều - Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả - Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+      "answer_keyword_coverage": 1.0,
+      "products_count": 0,
+      "has_redirect_url": false
+    },
+    {
+      "id": "policy_sale_return",
+      "type": "multi_step_policy",
+      "question": "Tôi mua sản phẩm sale 60% nhưng không vừa size thì có đổi được không?",
+      "category": "return",
+      "reference": "Không áp dụng đổi trả cho sản phẩm sale trên 50%. Vì sản phẩm sale 60%, shop không hỗ trợ đổi size theo chính sách hiện tại.",
+      "retrieval_status": 200,
+      "retrieval_error": null,
+      "retrieval_latency_ms": 5.01,
+      "retrieval_source": "hybrid_reranked",
+      "retrieved_contexts": [
+        "Chính sách đổi trả\n- Đổi trả trong 7 ngày từ khi nhận hàng\n- Sản phẩm còn nguyên tem mác, chưa qua sử dụng\n- Không áp dụng cho sản phẩm sale > 50%\n- Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả\n- Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều\n- Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả\n- Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+        "Có thể đổi trả sản phẩm không?\nCó, đổi trả trong vòng 7 ngày kể từ ngày nhận hàng. Sản phẩm phải còn nguyên tem mác, chưa qua sử dụng.",
+        "Đổi trả & Bảo hành\n- **Có thể đổi trả không?** Có, trong 7 ngày từ khi nhận. Sản phẩm còn nguyên tem mác, chưa qua sử dụng.\n- **Bảo hành thế nào?** Sản phẩm bảo hành 30 ngày lỗi đường may/vải. Phụ kiện bảo hành 15 ngày."
+      ],
+      "retrieved_count": 3,
+      "context_keyword_coverage": 1.0,
+      "chat_status": 200,
+      "chat_error": null,
+      "chat_latency_ms": 21.14,
+      "answer": "- Đổi trả trong 7 ngày từ khi nhận hàng - Sản phẩm còn nguyên tem mác, chưa qua sử dụng - Không áp dụng cho sản phẩm sale > 50% - Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả - Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều - Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả - Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+      "answer_keyword_coverage": 1.0,
+      "products_count": 0,
+      "has_redirect_url": false
+    },
+    {
+      "id": "policy_shipping_fee_return",
+      "type": "multi_step_policy",
+      "question": "Nếu shop giao sai size thì phí vận chuyển đổi trả ai chịu?",
+      "category": "return",
+      "reference": "Nếu shop giao sai size, sai mẫu, sai màu hoặc sản phẩm lỗi từ shop, shop chịu phí vận chuyển đổi trả.",
+      "retrieval_status": 200,
+      "retrieval_error": null,
+      "retrieval_latency_ms": 4.32,
+      "retrieval_source": "hybrid_reranked",
+      "retrieved_contexts": [
+        "Chính sách đổi trả\n- Đổi trả trong 7 ngày từ khi nhận hàng\n- Sản phẩm còn nguyên tem mác, chưa qua sử dụng\n- Không áp dụng cho sản phẩm sale > 50%\n- Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả\n- Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều\n- Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả\n- Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+        "Có thể đổi trả sản phẩm không?\nCó, đổi trả trong vòng 7 ngày kể từ ngày nhận hàng. Sản phẩm phải còn nguyên tem mác, chưa qua sử dụng.",
+        "Đổi trả & Bảo hành\n- **Có thể đổi trả không?** Có, trong 7 ngày từ khi nhận. Sản phẩm còn nguyên tem mác, chưa qua sử dụng.\n- **Bảo hành thế nào?** Sản phẩm bảo hành 30 ngày lỗi đường may/vải. Phụ kiện bảo hành 15 ngày."
+      ],
+      "retrieved_count": 3,
+      "context_keyword_coverage": 1.0,
+      "chat_status": 200,
+      "chat_error": null,
+      "chat_latency_ms": 914.09,
+      "answer": "- Đổi trả trong 7 ngày từ khi nhận hàng - Sản phẩm còn nguyên tem mác, chưa qua sử dụng - Không áp dụng cho sản phẩm sale > 50% - Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả - Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều - Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả - Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+      "answer_keyword_coverage": 1.0,
+      "products_count": 0,
+      "has_redirect_url": false
+    },
+    {
+      "id": "policy_refund_time",
+      "type": "policy",
+      "question": "Hoàn tiền mất mấy ngày làm việc?",
+      "category": "return",
+      "reference": "Thời gian hoàn tiền dự kiến là 3-7 ngày làm việc sau khi shop xác nhận sản phẩm đủ điều kiện.",
+      "retrieval_status": 200,
+      "retrieval_error": null,
+      "retrieval_latency_ms": 4.71,
+      "retrieval_source": "hybrid_reranked",
+      "retrieved_contexts": [
+        "Chính sách đổi trả\n- Đổi trả trong 7 ngày từ khi nhận hàng\n- Sản phẩm còn nguyên tem mác, chưa qua sử dụng\n- Không áp dụng cho sản phẩm sale > 50%\n- Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả\n- Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều\n- Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả\n- Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+        "Có thể đổi trả sản phẩm không?\nCó, đổi trả trong vòng 7 ngày kể từ ngày nhận hàng. Sản phẩm phải còn nguyên tem mác, chưa qua sử dụng.",
+        "Đổi trả & Bảo hành\n- **Có thể đổi trả không?** Có, trong 7 ngày từ khi nhận. Sản phẩm còn nguyên tem mác, chưa qua sử dụng.\n- **Bảo hành thế nào?** Sản phẩm bảo hành 30 ngày lỗi đường may/vải. Phụ kiện bảo hành 15 ngày."
+      ],
+      "retrieved_count": 3,
+      "context_keyword_coverage": 0.0,
+      "chat_status": 200,
+      "chat_error": null,
+      "chat_latency_ms": 20.47,
+      "answer": "- Hoàn tiền áp dụng khi sản phẩm lỗi từ shop, hết hàng để đổi, hoặc shop không thể xử lý đổi trả phù hợp - Thời gian hoàn tiền dự kiến: 3-7 ngày làm việc sau khi shop xác nhận sản phẩm đủ điều kiện - Phương thức hoàn tiền theo phương thức thanh toán ban đầu hoặc chuyển khoản theo thông tin khách cung cấp",
+      "answer_keyword_coverage": 1.0,
+      "products_count": 0,
+      "has_redirect_url": false
+    },
+    {
+      "id": "policy_shipping_fee_order",
+      "type": "multi_step_policy",
+      "question": "Đơn 300k giao ngoại tỉnh thì phí ship bao nhiêu?",
+      "category": "shipping",
+      "reference": "Đơn dưới 500,000đ không được miễn phí ship. Phí ship ngoại tỉnh là 50,000đ.",
+      "retrieval_status": 200,
+      "retrieval_error": null,
+      "retrieval_latency_ms": 10.35,
+      "retrieval_source": "hybrid_reranked",
+      "retrieved_contexts": [
+        "Phí ship tính thế nào?\nMiễn phí giao hàng cho đơn từ 500,000đ. Đơn dưới 500,000đ phí ship là 30,000đ nội thành và 50,000đ ngoại tỉnh.",
+        "Chính sách giao hàng\n- Giao hàng toàn quốc\n- Miễn phí ship đơn từ 500,000đ\n- Thời gian: Nội thành 24h, ngoại tỉnh 2-5 ngày",
+        "Shop có giao hàng toàn quốc không?\nCó, chúng tôi giao hàng trên toàn quốc. Thời gian giao hàng từ 2-5 ngày tùy khu vực. Nội thành Hà Nội và TP.HCM nhận hàng trong 24h.",
+        "Vận chuyển\n- **Shop có giao hàng toàn quốc không?** Có, giao hàng trên toàn quốc. Thời gian 2-5 ngày tùy khu vực. Nội thành Hà Nội và TP.HCM nhận trong 24h.\n- **Phí ship thế nào?** Miễn phí ship cho đơn từ 500,000đ. Dưới 500,000đ: 30,000đ nội thành, 50,000đ ngoại tỉnh."
+      ],
+      "retrieved_count": 4,
+      "context_keyword_coverage": 1.0,
+      "chat_status": 200,
+      "chat_error": null,
+      "chat_latency_ms": 974.26,
+      "answer": "Miễn phí giao hàng cho đơn từ 500,000đ. Đơn dưới 500,000đ phí ship là 30,000đ nội thành và 50,000đ ngoại tỉnh.",
+      "answer_keyword_coverage": 1.0,
+      "products_count": 0,
+      "has_redirect_url": false
+    },
+    {
+      "id": "product_basic_search",
+      "type": "product",
+      "question": "Có áo khoác dưới 600k không?",
+      "category": null,
+      "reference": "Chatbot nên tìm sản phẩm áo khoác dưới 600k và trả product cards nếu có.",
+      "retrieval_status": 200,
+      "retrieval_error": null,
+      "retrieval_latency_ms": 4.52,
+      "retrieval_source": "hybrid_reranked",
+      "retrieved_contexts": [
+        "Shop có bán sỉ không?\nCó, shop bán sỉ cho các đơn từ 10 sản phẩm trở lên. Vui lòng liên hệ hotline hoặc email để được báo giá sỉ.",
+        "Shop có giao hàng toàn quốc không?\nCó, chúng tôi giao hàng trên toàn quốc. Thời gian giao hàng từ 2-5 ngày tùy khu vực. Nội thành Hà Nội và TP.HCM nhận hàng trong 24h.",
+        "Vận chuyển\n- **Shop có giao hàng toàn quốc không?** Có, giao hàng trên toàn quốc. Thời gian 2-5 ngày tùy khu vực. Nội thành Hà Nội và TP.HCM nhận trong 24h.\n- **Phí ship thế nào?** Miễn phí ship cho đơn từ 500,000đ. Dưới 500,000đ: 30,000đ nội thành, 50,000đ ngoại tỉnh.",
+        "Bán sỉ\n- **Shop bán sỉ không?** Có, từ 10 sản phẩm. Liên hệ hotline/email để báo giá.",
+        "Hướng dẫn size S\nÁo size S: Cao 1m55-1m65, Nặng 45-55kg Cao 155-165cm, nặng 45-55kg."
+      ],
+      "retrieved_count": 5,
+      "context_keyword_coverage": 0.0,
+      "chat_status": 200,
+      "chat_error": null,
+      "chat_latency_ms": 23.66,
+      "answer": "Mình tìm thấy 2 sản phẩm áo khoác dưới 600.000đ. Bạn có thể bấm vào thẻ sản phẩm bên dưới để xem chi tiết.",
+      "answer_keyword_coverage": 1.0,
+      "products_count": 2,
+      "has_redirect_url": false
+    },
+    {
+      "id": "product_policy_mixed",
+      "type": "multi_step_mixed",
+      "question": "Áo bomber nếu nhận hàng bị giao sai size thì đổi thế nào?",
+      "category": "return",
+      "reference": "Chatbot cần hiểu sản phẩm áo bomber và dùng chính sách đổi trả: nếu shop giao sai size thì shop chịu phí vận chuyển đổi trả, khách cung cấp mã đơn, hình ảnh và lý do đổi trả.",
+      "retrieval_status": 200,
+      "retrieval_error": null,
+      "retrieval_latency_ms": 13.35,
+      "retrieval_source": "hybrid_reranked",
+      "retrieved_contexts": [
+        "Chính sách đổi trả\n- Đổi trả trong 7 ngày từ khi nhận hàng\n- Sản phẩm còn nguyên tem mác, chưa qua sử dụng\n- Không áp dụng cho sản phẩm sale > 50%\n- Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả\n- Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều\n- Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả\n- Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+        "Đổi trả & Bảo hành\n- **Có thể đổi trả không?** Có, trong 7 ngày từ khi nhận. Sản phẩm còn nguyên tem mác, chưa qua sử dụng.\n- **Bảo hành thế nào?** Sản phẩm bảo hành 30 ngày lỗi đường may/vải. Phụ kiện bảo hành 15 ngày.",
+        "Có thể đổi trả sản phẩm không?\nCó, đổi trả trong vòng 7 ngày kể từ ngày nhận hàng. Sản phẩm phải còn nguyên tem mác, chưa qua sử dụng."
+      ],
+      "retrieved_count": 3,
+      "context_keyword_coverage": 1.0,
+      "chat_status": 200,
+      "chat_error": null,
+      "chat_latency_ms": 1088.52,
+      "answer": "- Đổi trả trong 7 ngày từ khi nhận hàng - Sản phẩm còn nguyên tem mác, chưa qua sử dụng - Không áp dụng cho sản phẩm sale > 50% - Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả - Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều - Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả - Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+      "answer_keyword_coverage": 0.75,
+      "products_count": 0,
+      "has_redirect_url": false
+    },
+    {
+      "id": "unsupported_outfit",
+      "type": "unsupported",
+      "question": "Áo thun trắng phối với quần gì đẹp?",
+      "category": null,
+      "reference": "Chatbot phải nói hiện không hỗ trợ tư vấn phối đồ, chỉ hỗ trợ tìm sản phẩm, chi tiết sản phẩm, tư vấn size và chính sách shop.",
+      "retrieval_status": 200,
+      "retrieval_error": null,
+      "retrieval_latency_ms": 5.41,
+      "retrieval_source": "hybrid_reranked",
+      "retrieved_contexts": [
+        "Set cơ bản\n1. **Áo thun trắng + Quần jeans slimfit** — Set không thể thiếu trong tủ đồ\n2. **Áo sơ mi caro + Quần jeans slimfit** — Phong cách cá tính, chất chơi\n3. **Áo polo đỏ + Quần short kaki** — Năng động, thể thao",
+        "Chính sách đổi trả\n- Đổi trả trong 7 ngày từ khi nhận hàng\n- Sản phẩm còn nguyên tem mác, chưa qua sử dụng\n- Không áp dụng cho sản phẩm sale > 50%\n- Khách cần cung cấp mã đơn hàng, hình ảnh sản phẩm và lý do đổi trả\n- Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều\n- Nếu sản phẩm lỗi từ shop hoặc giao sai mẫu/size/màu, shop chịu phí vận chuyển đổi trả\n- Thời gian xử lý yêu cầu đổi trả: 1-3 ngày làm việc sau khi shop nhận đủ thông tin",
+        "Quần (category_id = 2)\n| Size | Chiều cao | Cân nặng |\n|------|-----------|----------|\n| S    | 1m55-1m65 | 45-55kg  |\n| M    | 1m60-1m70 | 55-65kg  |\n| L    | 1m65-1m75 | 60-75kg  |\n| XL   | 1m70-1m85 | 70-85kg  |",
+        "Cách chọn size như thế nào?\nBạn tham khảo bảng size chi tiết ở cuối trang sản phẩm. Hoặc cung cấp chiều cao, cân nặng để chatbot tư vấn size phù hợp.",
+        "Shop có bán sỉ không?\nCó, shop bán sỉ cho các đơn từ 10 sản phẩm trở lên. Vui lòng liên hệ hotline hoặc email để được báo giá sỉ."
+      ],
+      "retrieved_count": 5,
+      "context_keyword_coverage": 1.0,
+      "chat_status": 200,
+      "chat_error": null,
+      "chat_latency_ms": 23.06,
+      "answer": "Hiện mình không hỗ trợ tư vấn phối đồ. Mình có thể hỗ trợ bạn tìm sản phẩm, xem chi tiết sản phẩm, tư vấn size và chính sách shop.",
+      "answer_keyword_coverage": 1.0,
+      "products_count": 0,
+      "has_redirect_url": false
+    }
+  ]
+}

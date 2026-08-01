@@ -35,7 +35,7 @@ EVAL_DIR = ROOT / "eval"
 if str(EVAL_DIR) not in sys.path:
     sys.path.insert(0, str(EVAL_DIR))
 
-from ragas_compat import build_evaluator_llm, json_safe
+from ragas_compat import build_evaluator_embeddings, build_evaluator_llm, json_safe
 
 
 @dataclass
@@ -231,6 +231,8 @@ def maybe_run_ragas(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
     try:
         llm, evaluator_model, notes = build_evaluator_llm(ChatOpenAI, LangchainLLMWrapper)
+        embeddings, embedding_model, embedding_notes = build_evaluator_embeddings()
+        notes.extend(embedding_notes)
     except Exception as exc:  # noqa: BLE001
         return {"enabled": False, "reason": str(exc)}
 
@@ -250,11 +252,13 @@ def maybe_run_ragas(rows: list[dict[str, Any]]) -> dict[str, Any]:
             dataset,
             metrics=[faithfulness, answer_relevancy, context_precision, context_recall],
             llm=llm,
+            embeddings=embeddings,
             raise_exceptions=False,
         )
         return {
             "enabled": True,
             "evaluator_model": evaluator_model,
+            "embedding_model": embedding_model,
             "notes": notes,
             "scores": result.to_pandas().to_dict(orient="records"),
         }

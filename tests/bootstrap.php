@@ -9,7 +9,6 @@ define('ROOT_DIR', dirname(__DIR__));
 
 // Autoload helpers
 require_once ROOT_DIR . '/api/cache/Cache.php';
-require_once ROOT_DIR . '/api/controllers/chatbot/engine.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMProvider.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMResponse.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/ProductAttributeNormalizer.php';
@@ -17,29 +16,27 @@ require_once ROOT_DIR . '/api/controllers/chatbot/ChatbotMemory.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/KnowledgeRetriever.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/ToolRegistry.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMFactory.php';
-require_once ROOT_DIR . '/api/controllers/chatbot/evaluator/AgentEvaluator.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/PartialParseResult.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/CapabilityRegistry.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/DeterministicIntentParser.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ConflictDetector.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ConflictResolver.php';
-require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/LLMSemanticCompletion.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/SemanticEntityEnricher.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/MergeEngine.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/PlanValidator.php';
-require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/IntentAndConstraintExtractor.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/IntentResolver.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ToolPlanner.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ParallelToolExecutor.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/EvidenceNormalizer.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ProductConstraintVerifier.php';
-require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ThoughtStateBuilder.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ObservationEvaluator.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/LightweightEvidenceScorer.php';
-require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ReasoningDecisionRouter.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/EvidenceDecisionRouter.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/NoProgressDetector.php';
-require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ReasoningLoop.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/EvidenceExecutionLoop.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ResponseGenerator.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/OnlineValidator.php';
-require_once ROOT_DIR . '/api/controllers/chatbot/AgenticOrchestrator.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/ChatbotService.php';
 
 /**
  * Load a config-like PDO for testing (no global $pdo dependency).

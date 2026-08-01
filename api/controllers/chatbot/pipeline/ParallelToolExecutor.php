@@ -1,10 +1,10 @@
 <?php
 
 class ParallelToolExecutor {
-    private ToolRegistry $toolRegistry;
+    private ChatbotToolGateway $toolGateway;
 
-    public function __construct(ToolRegistry $toolRegistry) {
-        $this->toolRegistry = $toolRegistry;
+    public function __construct(ChatbotToolGateway $toolGateway) {
+        $this->toolGateway = $toolGateway;
     }
 
     public function execute(array $plan): array {
@@ -21,7 +21,7 @@ class ParallelToolExecutor {
 
                 $start = microtime(true);
                 try {
-                    $result = $this->toolRegistry->execute($tool, $args);
+                    $result = $this->toolGateway->execute($tool, $args);
                     $success = true;
                 } catch (Throwable $e) {
                     $result = ['error' => $e->getMessage()];

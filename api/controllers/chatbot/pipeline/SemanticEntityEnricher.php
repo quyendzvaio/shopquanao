@@ -2,7 +2,11 @@
 
 require_once __DIR__ . '/../ProductAttributeNormalizer.php';
 
-class LLMSemanticCompletion {
+/**
+ * Optionally fills unresolved descriptive entities with strict JSON from an LLM.
+ * It never selects an intent, capability, tool, or SQL query.
+ */
+class SemanticEntityEnricher {
     private ?LLMProvider $llm;
     private string $lastPrompt = '';
 
@@ -10,7 +14,7 @@ class LLMSemanticCompletion {
         $this->llm = $llm;
     }
 
-    public function complete(array $partial, array $relevantCapabilities): array {
+    public function enrich(array $partial, array $relevantCapabilities): array {
         $spans = array_values(array_filter(
             $partial['unresolved_spans'] ?? [],
             fn($span) => is_array($span) && ($span['affects_execution'] ?? false)
@@ -38,11 +42,11 @@ class LLMSemanticCompletion {
                 [
                     'role' => 'system',
                     'content' => implode("\n", [
-                        'Bạn là semantic completion module cho chatbot bán hàng.',
+                        'Bạn là module bổ sung thuộc tính ngữ nghĩa cho chatbot bán hàng.',
                         'Chỉ đọc unresolved_spans và locked_fields.',
                         'Không parse lại toàn bộ query.',
                         'Không sửa, không lặp lại, không overwrite locked_fields.',
-                        'Không chọn tool và không trả prose.',
+                        'Không chọn intent, tool, SQL và không trả prose.',
                         'Nếu trả color, dùng canonical tiếng Việt như "đen", "trắng", "xám"; không dùng "black", "white", "gray".',
                         'Chỉ trả JSON strict theo schema:',
                         '{"inferred_fields":{"occasion":{"value":"interview","confidence":0.9}},"unresolved_remaining":[]}',

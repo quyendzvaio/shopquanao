@@ -34,12 +34,20 @@ class ProductAttributeNormalizer {
     ];
 
     public static function normalizeColor(?string $color): ?string {
-        $value = self::normalizeText((string)$color);
+        $raw = mb_strtolower(trim((string)$color));
+        $value = self::normalizeText($raw);
         if ($value === '') {
             return null;
         }
 
+        if ($value === 'tim' || preg_match('/\btím\b|\bpurple\b|\b(?:màu|mau)\s+tim\b/ui', $raw)) {
+            return 'tím';
+        }
+
         foreach (self::COLOR_ALIASES as $canonical => $aliases) {
+            if ($canonical === 'tím') {
+                continue;
+            }
             foreach ($aliases as $alias) {
                 if (self::containsToken($value, self::normalizeText($alias))) {
                     return $canonical;
@@ -121,6 +129,10 @@ class ProductAttributeNormalizer {
         $canonical = self::normalizeColor($color);
         if ($canonical === null) {
             return false;
+        }
+
+        if ($canonical === 'tím') {
+            return preg_match('/\btím\b|\bpurple\b|\b(?:màu|mau)\s+tim\b/ui', mb_strtolower($text)) === 1;
         }
 
         $normalizedText = self::normalizeText($text);

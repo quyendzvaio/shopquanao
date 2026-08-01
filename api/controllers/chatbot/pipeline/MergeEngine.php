@@ -1,7 +1,7 @@
 <?php
 
 class MergeEngine {
-    public function merge(array $partial, array $semanticCompletion, array $memoryContext = [], array $conflictResolution = []): array {
+    public function merge(array $partial, array $entityEnrichment, array $memoryContext = [], array $conflictResolution = []): array {
         $fields = is_array($partial['resolved_fields'] ?? null) ? $partial['resolved_fields'] : [];
         $overwriteAttempts = [];
 
@@ -16,7 +16,7 @@ class MergeEngine {
             }
         }
 
-        foreach (($semanticCompletion['inferred_fields'] ?? []) as $field => $metadata) {
+        foreach (($entityEnrichment['inferred_fields'] ?? []) as $field => $metadata) {
             if (!is_array($metadata)) {
                 $metadata = ['value' => $metadata, 'confidence' => 0.7];
             }
@@ -31,7 +31,7 @@ class MergeEngine {
             if (!isset($fields[$field])) {
                 $fields[$field] = [
                     'value' => $metadata['value'] ?? null,
-                    'source' => 'llm_extractor',
+                    'source' => 'llm_entity_enricher',
                     'confidence' => isset($metadata['confidence']) ? (float)$metadata['confidence'] : 0.7,
                     'locked' => false,
                 ];
@@ -54,10 +54,10 @@ class MergeEngine {
             'sub_queries' => $this->subQueries($primary, $entities, (string)($partial['original_query'] ?? '')),
             'confidence' => $primary === 'unknown' ? 0.2 : 0.92,
             'partial_parse' => $partial,
-            'semantic_completion' => $semanticCompletion,
+            'entity_enrichment' => $entityEnrichment,
             'merged_fields' => $fields,
             'locked_field_overwrite_attempts' => $overwriteAttempts,
-            'execution_mode' => ($semanticCompletion['used'] ?? false) ? 'partial_llm_completion' : 'deterministic',
+            'execution_mode' => ($entityEnrichment['used'] ?? false) ? 'llm_entity_enrichment' : 'deterministic_php',
         ];
     }
 

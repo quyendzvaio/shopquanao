@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/ProductAttributeNormalizer.php';
+require_once __DIR__ . '/contracts/ChatbotMemoryStore.php';
 
 /**
  * Conversation memory for the sales chatbot.
@@ -8,11 +9,10 @@ require_once __DIR__ . '/ProductAttributeNormalizer.php';
  * Long-term memory is stored per logged-in user only.
  */
 
-class ChatbotMemory {
+class ChatbotMemory implements ChatbotMemoryStore {
     private PDO $pdo;
     private int $sessionId;
     private ?int $userId;
-    private ?LLMProvider $llm;
 
     private const DEFAULT_SLOTS = [
         'product_type' => null,
@@ -87,11 +87,10 @@ class ChatbotMemory {
         'phụ kiện' => ['product_type' => 'phụ kiện', 'category_id' => 4],
     ];
 
-    public function __construct(PDO $pdo, int $sessionId, ?int $userId = null, ?LLMProvider $llm = null) {
+    public function __construct(PDO $pdo, int $sessionId, ?int $userId = null) {
         $this->pdo = $pdo;
         $this->sessionId = $sessionId;
         $this->userId = $userId;
-        $this->llm = $llm;
     }
 
     public function ensureSchema(): void {
@@ -139,18 +138,9 @@ class ChatbotMemory {
         return $memory;
     }
 
-    public function refreshSummary(string $userMsg, string $botMsg): void {
+    public function refreshSummary(): void {
         $memory = $this->load();
-        $summary = $this->generateSummary($memory['summary'], $memory['slots'], $userMsg, $botMsg);
-        $this->saveSessionMemory($summary, $memory['slots']);
-    }
-
-    public function refreshSummaryWithoutLlm(string $userMsg, string $botMsg): void {
-        $memory = $this->load();
-        $llm = $this->llm;
-        $this->llm = null;
-        $summary = $this->generateSummary($memory['summary'], $memory['slots'], $userMsg, $botMsg);
-        $this->llm = $llm;
+        $summary = $this->generateSummary($memory['summary'], $memory['slots']);
         $this->saveSessionMemory($summary, $memory['slots']);
     }
 
@@ -176,37 +166,6 @@ class ChatbotMemory {
             'summary' => $summary,
             'slots' => $slots,
             'long_term' => $this->userId !== null ? $this->loadLongTerm() : null,
-        ];
-    }
-
-    public function buildPromptBlock(array $memory): string {
-        $lines = [
-            "MEMORY CONTEXT",
-            "- Dùng summary + slot memory dưới đây thay cho việc đọc lại toàn bộ chat.",
-            "- Short-term và slot memory áp dụng cho cả guest. Long-term memory chỉ có khi user đã đăng nhập.",
-            "- Khi gọi search_products, hãy dùng slot còn hiệu lực để bổ sung phần user đang nói thiếu, ví dụ product_type, category_id, budget/max_price.",
-            "",
-            "Conversation Summary:",
-            $memory['summary'] !== '' ? $memory['summary'] : "- Chưa có summary đáng tin cậy.",
-            "",
-            "Slot Memory:",
-            json_encode($this->compactArray($memory['slots'] ?? []), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        ];
-
-        if (!empty($memory['long_term'])) {
-            $lines[] = "";
-            $lines[] = "Long-term User Memory:";
-            $lines[] = json_encode($this->compactArray($memory['long_term']), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        }
-
-        return implode("\n", $lines);
-    }
-
-    public function getContextForEngine(array $memory): array {
-        return [
-            'summary' => $memory['summary'] ?? '',
-            'slots' => $memory['slots'] ?? self::DEFAULT_SLOTS,
-            'long_term' => $memory['long_term'] ?? null,
         ];
     }
 
@@ -241,6 +200,8 @@ class ChatbotMemory {
             $slots['height_cm'] = ((int)$m[1] * 100) + (int)$m[2];
         } elseif (preg_match('/(\d+)\s*cm/i', $message, $m)) {
             $slots['height_cm'] = (int)$m[1];
+        } elseif (preg_match('/(\d+[.,]\d+)\s*m\b/i', $message, $m)) {
+            $slots['height_cm'] = (int)round((float)str_replace(',', '.', $m[1]) * 100);
         } elseif (preg_match('/1m(\d+)/i', $message, $m)) {
             $slots['height_cm'] = 100 + (int)$m[1];
         }
@@ -403,26 +364,7 @@ class ChatbotMemory {
         }
     }
 
-    private function generateSummary(string $oldSummary, array $slots, string $userMsg, string $botMsg): string {
-        if ($this->llm !== null) {
-            try {
-                $prompt = "Tóm tắt memory hội thoại bán hàng bằng tiếng Việt, dạng bullet ngắn. "
-                    . "Chỉ giữ nhu cầu, ràng buộc, sở thích, thông tin ổn định có ích cho lần tư vấn sau. "
-                    . "Không quá 8 bullet.\n\n"
-                    . "Summary cũ:\n" . ($oldSummary ?: "- Chưa có") . "\n\n"
-                    . "Slot hiện tại:\n" . json_encode($this->compactArray($slots), JSON_UNESCAPED_UNICODE) . "\n\n"
-                    . "Tin nhắn mới của khách:\n$userMsg\n\nPhản hồi bot:\n$botMsg";
-                $response = $this->llm->chat([
-                    ['role' => 'system', 'content' => 'Bạn là bộ nén Conversation Summary cho chatbot CSKH.'],
-                    ['role' => 'user', 'content' => $prompt],
-                ], [], 'none');
-                $summary = trim($response->content);
-                if ($summary !== '') return mb_substr($summary, 0, 1200);
-            } catch (Throwable $e) {
-                error_log("LLM summary error: " . $e->getMessage());
-            }
-        }
-
+    private function generateSummary(string $oldSummary, array $slots): string {
         $slotBullets = [];
         foreach ($this->compactArray($slots) as $key => $value) {
             $slotBullets[$key] = "- $key: " . (is_array($value) ? json_encode($value, JSON_UNESCAPED_UNICODE) : $value);

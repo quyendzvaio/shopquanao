@@ -1,6 +1,6 @@
-# Fashion Shop Agentic RAG Chatbot
+# Fashion Shop Deterministic Hybrid RAG Chatbot
 
-Website bán quần áo viết bằng PHP 8.2, MariaDB và Docker Compose. Điểm chính của dự án là chatbot tư vấn bán hàng có agentic workflow: tìm sản phẩm theo điều kiện, trả lời chính sách shop bằng RAG, tư vấn size và tra cứu đơn hàng khi user đã đăng nhập.
+Website bán quần áo viết bằng PHP 8.2, MariaDB và Docker Compose. Chatbot dùng lõi quyết định deterministic bằng PHP để tìm sản phẩm, trả lời chính sách bằng RAG, tư vấn size và tra cứu đơn hàng khi user đã đăng nhập.
 
 Production path không để LLM tự viết SQL. Query của user được tách thành structured filters; PHP tự build query bằng allowlist, lọc constraint và kiểm evidence trước khi trả JSON cho UI.
 
@@ -20,7 +20,7 @@ Production path không để LLM tự viết SQL. Query của user được tác
 | Service | Vai trò |
 |---|---|
 | `nginx` | Public API gateway, reverse proxy, rate limit chatbot |
-| `app` | PHP 8.2/Apache, website, REST API, chatbot orchestrator |
+| `app` | PHP 8.2/Apache nội bộ, website, REST API và chatbot service |
 | `db` | MariaDB 10.11, lưu sản phẩm, đơn hàng, chat, memory, logs |
 | `redis` | Cache; app fallback sang file cache khi Redis không sẵn sàng |
 | `qdrant` | Vector store cho knowledge collection |
@@ -31,11 +31,15 @@ Production path không để LLM tự viết SQL. Query của user được tác
 Browser / Chat widget
   -> Nginx
   -> POST /api/chatbot
-  -> PHP AgenticOrchestrator
-      -> Memory + deterministic parser
-      -> LLM semantic completion nếu còn phần mơ hồ
-      -> ReasoningLoop
-          -> ToolPlanner + PlanValidator
+  -> PHP ChatbotService
+      -> ChatbotMemory
+      -> IntentResolver
+          -> DeterministicIntentParser
+          -> ConflictDetector + ConflictResolver
+          -> SemanticEntityEnricher (LLM tùy chọn, JSON only)
+          -> MergeEngine (không cho ghi đè field đã khóa)
+      -> ToolPlanner + PlanValidator (luật PHP)
+      -> EvidenceExecutionLoop
           -> ToolRegistry
               -> search_products / get_product_detail / suggest_size
               -> retrieve_knowledge / get_order_status / get_categories
@@ -46,6 +50,8 @@ Browser / Chat widget
       -> OnlineValidator generic
   -> JSON response về UI
 ```
+
+LLM không chọn intent, tool hoặc SQL. Khi parser còn một thuộc tính mô tả như `style`, `occasion` hoặc `avoid`, `SemanticEntityEnricher` có thể đề xuất JSON cho đúng field được cho phép; `MergeEngine` và `ToolPlanner` PHP vẫn giữ quyền quyết định.
 
 ## Search và constraint validation
 
@@ -203,8 +209,9 @@ Kết quả local gần nhất:
 |---|---|
 | PHP lint | Pass |
 | PHPStan level 1 | No errors với `memory_limit=512M` |
-| PHPUnit full | `107 tests, 366 assertions` pass |
-| Integration MariaDB thật | `17 tests, 123 assertions` pass |
+| PHPUnit full | `81 tests, 299 assertions` pass sau architecture/SOLID cleanup |
+| Integration database | Đã chạy trong full suite với SQLite fallback; MariaDB được CI chạy trên database tách biệt |
+| Characterization | Tool choice không đổi khi bật/tắt LLM; cart guardrail không gọi LLM/tool sản phẩm |
 | Python syntax | Pass |
 | Docker Compose config | Pass |
 | HTTP constraint smoke | `áo màu đen`, `áo màu trắng`, `áo size M màu đen còn hàng` pass |
@@ -236,12 +243,14 @@ Multi-turn chatbot eval:
 set -a; . ./.env; set +a
 
 RAGAS_ENABLE=1 \
+RAGAS_EMBEDDING_PROVIDER=rag_ml \
+RAGAS_EMBEDDING_URL="http://$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' shop_quan_ao_rag_ml):8000" \
 CHATBOT_BASE_URL=http://localhost \
 python3 eval/run_chatbot_eval.py \
   --base-url http://localhost \
   --cases eval/chatbot_eval_cases.jsonl \
-  --output reports/chatbot_eval_report_20260728.json \
-  --markdown-output reports/chatbot_eval_report_20260728.md \
+  --output reports/chatbot_eval_report_latest.json \
+  --markdown-output reports/chatbot_eval_report_latest.md \
   --timeout 90 \
   --turn-delay 6 \
   --max-retries 3
@@ -253,34 +262,38 @@ Retrieval/chat RAG eval:
 set -a; . ./.env; set +a
 
 EVAL_BASE_URL=http://localhost \
+RAGAS_EMBEDDING_URL="http://$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' shop_quan_ao_rag_ml):8000" \
 python3 scripts/eval_rag_chatbot.py \
   --base-url http://localhost \
   --cases tests/eval/rag_eval_cases.json \
   --out-dir reports/eval \
-  --project-name fashion-shop-rag-eval-20260728 \
+  --project-name fashion-shop-rag-eval \
   --case-delay 6
 ```
 
-Kết quả đo gần nhất ngày `2026-07-28`, target `http://localhost` qua Nginx port 80:
+Kết quả đo gần nhất ngày `2026-08-01`, target `http://localhost` qua Nginx port 80, evaluator `deepseek-v4-flash` và embedding `bkai-foundation-models/vietnamese-bi-encoder`:
 
 | Eval | Kết quả |
 |---|---:|
 | Chatbot deterministic | `9/9` pass |
-| Chatbot latency avg / p95 | `22.11 ms` / `26 ms` |
-| Chatbot RAGAS answer relevancy | `0.4934` |
-| Chatbot RAGAS faithfulness | `0.8355` |
+| Chatbot latency avg / p95 | `25.78 ms` / `38 ms` |
+| Chatbot RAGAS answer relevancy | `0.5098` |
+| Chatbot RAGAS faithfulness | `0.7167` |
 | Chatbot RAGAS context precision | `0.9861` |
-| Chatbot RAGAS context recall | `0.6667` |
+| Chatbot RAGAS context recall | `0.8333` |
 | Retrieval/chat cases | `8`, không có retrieval/chat error |
-| Retrieval latency avg / p95 | `6.69 ms` / `13.66 ms` |
-| Retrieval/chat latency avg / p95 | `489.85 ms` / `1369.14 ms` |
+| Retrieval latency avg / p95 | `6.67 ms` / `13.35 ms` |
+| Retrieval/chat latency avg / p95 | `385.83 ms` / `1088.52 ms` |
 | Retrieval/chat answer keyword coverage | `0.9688` |
-| Retrieval/chat RAGAS faithfulness | `0.6562` |
-| Retrieval/chat RAGAS context precision | `0.5938` |
-| Retrieval/chat RAGAS context recall | `0.6250` |
-| LangSmith dataset | `fashion-shop-rag-eval-20260728-dataset`, `8` examples |
+| Retrieval/chat RAGAS answer relevancy | `0.3688` (8/8 hợp lệ) |
+| Retrieval/chat RAGAS faithfulness | `0.6286` (7/8 hợp lệ) |
+| Retrieval/chat RAGAS context precision | `0.6146` |
+| Retrieval/chat RAGAS context recall | `0.5000` |
+| LangSmith dataset | `fashion-shop-rag-eval-ragml-newkey-20260801-dataset`, `8` examples |
 
-Ghi chú: `scripts/eval_rag_chatbot.py` hiện trả `answer_relevancy = null` trong lần đo với `deepseek-v4-flash` vì provider trả `404` ở một số job RAGAS. Các metric grounding còn lại vẫn được tính và report giữ nguyên lỗi này để debug, không thay bằng số giả.
+Hai bộ số không được so sánh trực tiếp: bộ chatbot dùng evidence thật gồm knowledge và product cards; bộ retrieval/chat chỉ đưa kết quả `/api/knowledge/search` vào RAGAS. Lần đo mới nhất có một faithfulness timeout trong mỗi bộ; report ghi rõ số mẫu hợp lệ, không thay null bằng số giả.
+
+SRS chuẩn hóa yêu cầu, tiêu chí nghiệm thu và traceability nằm tại [`docs/SRS_Chatbot_ISO_IEC_IEEE_29148_2018.md`](docs/SRS_Chatbot_ISO_IEC_IEEE_29148_2018.md). Báo cáo RAGAS mới nhất nằm tại `reports/ragas_langsmith_latest.md`.
 
 ## Bảo mật khi push GitHub
 
@@ -293,11 +306,18 @@ Ghi chú: `scripts/eval_rag_chatbot.py` hiện trả `answer_relevancy = null` t
 
 | Path | Vai trò |
 |---|---|
-| `api/controllers/chatbot/AgenticOrchestrator.php` | Entry orchestrator của chatbot |
+| `api/controllers/chatbot/ChatbotService.php` | Application service điều phối use case chatbot |
+| `api/controllers/chatbot/PdoChatbotConversationStore.php` | Adapter PDO lưu hội thoại và telemetry |
+| `api/controllers/chatbot/contracts/` | Contract hẹp cho tool, memory và conversation persistence |
 | `api/controllers/chatbot/ToolRegistry.php` | Tool definitions và execute tool |
 | `api/controllers/chatbot/ProductAttributeNormalizer.php` | Chuẩn hóa/match màu, size, text attributes |
+| `api/controllers/chatbot/pipeline/IntentResolver.php` | Parse, conflict resolution, optional enrichment và merge |
+| `api/controllers/chatbot/pipeline/SemanticEntityEnricher.php` | LLM JSON helper tùy chọn; không được chọn tool |
+| `api/controllers/chatbot/pipeline/ToolPlanner.php` | Chọn tool hoàn toàn bằng luật PHP |
+| `api/controllers/chatbot/pipeline/EvidenceExecutionLoop.php` | Execute/retry tool theo evidence và budget deterministic |
 | `api/controllers/chatbot/pipeline/ProductConstraintVerifier.php` | Lọc card theo constraints sau evidence normalization |
 | `api/controllers/chatbot/pipeline/ResponseGenerator.php` | Sinh message cuối từ evidence/cards |
 | `eval/run_chatbot_eval.py` | Eval multi-turn chatbot + RAGAS |
 | `scripts/eval_rag_chatbot.py` | Eval retrieval/chat RAG + LangSmith dataset |
 | `eval/ragas_compat.py` | Helper evaluator LLM cho RAGAS, gồm DeepSeek `n=1` fan-out |
+| `docs/SRS_Chatbot_ISO_IEC_IEEE_29148_2018.md` | SRS, acceptance criteria và RTM theo ISO/IEC/IEEE 29148:2018 |

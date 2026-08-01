@@ -4,7 +4,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 {
     public function testReturnIntentHasShippingAsSecondary(): void
     {
-        $extractor = new IntentAndConstraintExtractor();
+        $extractor = new IntentResolver();
         $intent = $extractor->extract('Đổi size có mất phí ship không?');
 
         $this->assertSame('return_exchange', $intent['primary_intent']);
@@ -15,7 +15,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
     public function testProductIdPlansProductDetailOnly(): void
     {
-        $extractor = new IntentAndConstraintExtractor();
+        $extractor = new IntentResolver();
         $planner = new ToolPlanner();
 
         $intent = $extractor->extract('áo mã 52 xem chi tiết');
@@ -28,7 +28,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
     public function testMissingSizeSlotsCreatesClarificationPlan(): void
     {
-        $extractor = new IntentAndConstraintExtractor();
+        $extractor = new IntentResolver();
         $planner = new ToolPlanner();
 
         $intent = $extractor->extract('mình mặc size gì?');
@@ -79,16 +79,16 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
         $this->assertSame(52, $partial['resolved_fields']['product_id']['value']);
         $this->assertSame('product_detail', $intent['primary_intent']);
-        $this->assertFalse($intent['semantic_completion']['used']);
+        $this->assertFalse($intent['entity_enrichment']['used']);
         $this->assertSame('get_product_detail', $plan['batches'][0][0]['tool']);
         $this->assertSame(52, $plan['batches'][0][0]['args']['product_id']);
     }
 
-    public function testPartialSemanticCompletionAddsOnlyUnresolvedFields(): void
+    public function testOptionalEntityEnrichmentAddsOnlyUnresolvedFields(): void
     {
         $partial = (new DeterministicIntentParser())->parse('Tìm áo sơ mi trắng dưới 500k, mặc đi phỏng vấn nhưng không quá già.')->toArray();
         $partial['conflicts'] = (new ConflictDetector())->detect($partial);
-        $llm = new FakeSemanticCompletionLlm([
+        $llm = new FakeEntityEnrichmentLlm([
             'inferred_fields' => [
                 'occasion' => ['value' => 'interview', 'confidence' => 0.91],
                 'style' => ['value' => ['youthful', 'semi_formal'], 'confidence' => 0.88],
@@ -98,8 +98,8 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
             'unresolved_remaining' => [],
         ]);
 
-        $completion = (new LLMSemanticCompletion($llm))->complete($partial, []);
-        $intent = (new MergeEngine())->merge($partial, $completion);
+        $enrichment = (new SemanticEntityEnricher($llm))->enrich($partial, []);
+        $intent = (new MergeEngine())->merge($partial, $enrichment);
 
         $this->assertSame(1, $llm->calls);
         $this->assertSame('áo sơ mi', $intent['entities']['product_type']);
@@ -108,7 +108,44 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
         $this->assertSame('interview', $intent['entities']['occasion']);
         $this->assertSame(['youthful', 'semi_formal'], $intent['entities']['style']);
         $this->assertSame(['overly_mature'], $intent['entities']['avoid']);
-        $this->assertArrayNotHasKey('max_price', $completion['inferred_fields']);
+        $this->assertArrayNotHasKey('max_price', $enrichment['inferred_fields']);
+    }
+
+    public function testLlmEntityEnrichmentCannotChangeSelectedTool(): void
+    {
+        $query = 'Tìm áo sơ mi trắng dưới 500k, mặc đi phỏng vấn nhưng không quá già.';
+        $withoutLlm = (new IntentResolver())->resolve($query);
+        $planWithoutLlm = (new ToolPlanner())->plan($withoutLlm['intent']);
+
+        $llm = new FakeEntityEnrichmentLlm([
+            'inferred_fields' => [
+                'occasion' => ['value' => 'interview', 'confidence' => 0.95],
+                'style' => ['value' => ['youthful'], 'confidence' => 0.9],
+            ],
+            'unresolved_remaining' => [],
+        ]);
+        $withLlm = (new IntentResolver($llm))->resolve($query);
+        $planWithLlm = (new ToolPlanner())->plan($withLlm['intent']);
+
+        $this->assertSame(['search_products'], $this->selectedTools($planWithoutLlm));
+        $this->assertSame($this->selectedTools($planWithoutLlm), $this->selectedTools($planWithLlm));
+        $this->assertSame('product_search', $withLlm['intent']['primary_intent']);
+        $this->assertSame([], $llm->lastTools);
+        $this->assertSame('none', $llm->lastToolChoice);
+    }
+
+    public function testUnsupportedCartActionNeverCallsLlmOrProductTools(): void
+    {
+        $llm = new FakeEntityEnrichmentLlm([
+            'inferred_fields' => ['product_id' => ['value' => 52, 'confidence' => 1]],
+            'unresolved_remaining' => [],
+        ]);
+        $resolution = (new IntentResolver($llm))->resolve('thêm áo mã 52 vào giỏ');
+        $plan = (new ToolPlanner())->plan($resolution['intent']);
+
+        $this->assertSame('unsupported_checkout', $resolution['intent']['primary_intent']);
+        $this->assertSame([], $this->selectedTools($plan));
+        $this->assertSame(0, $llm->calls);
     }
 
     public function testConflictDetectorFindsPriceConflict(): void
@@ -154,9 +191,31 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
         $this->assertSame('xám', ProductAttributeNormalizer::normalizeColor('ghi'));
     }
 
+    public function testHeartNecklineIsNotParsedOrMatchedAsPurple(): void
+    {
+        $partial = (new DeterministicIntentParser())->parse('tìm áo dài tay cổ tim')->toArray();
+
+        $this->assertArrayNotHasKey('color', $partial['resolved_fields']);
+        $this->assertNull(ProductAttributeNormalizer::normalizeColor('áo dài tay cổ tim'));
+        $this->assertFalse(ProductAttributeNormalizer::textMatchesColor('Áo Dài Tay Cổ Tim', 'tím'));
+        $this->assertTrue(ProductAttributeNormalizer::textMatchesColor('Áo len màu tím', 'tim'));
+    }
+
+    public function testDecimalMeterHeightDoesNotTriggerRepeatedSizeClarification(): void
+    {
+        $intent = (new IntentResolver())->extract(
+            'tôi là nam cao 1,62m nặng 55kg thì nên mặc áo size gì'
+        );
+
+        $this->assertSame('size_advice', $intent['primary_intent']);
+        $this->assertSame(162, $intent['entities']['height']);
+        $this->assertSame(55, $intent['entities']['weight']);
+        $this->assertSame([], $intent['missing_slots']);
+    }
+
     public function testProductConstraintVerifierFiltersWrongColorCards(): void
     {
-        $intent = (new IntentAndConstraintExtractor())->extract('tìm áo màu đen');
+        $intent = (new IntentResolver())->extract('tìm áo màu đen');
         $normalized = [
             'cards' => [
                 [
@@ -244,7 +303,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
     public function testPolicyResponseKeepsThirdSentenceFromTopRerankedChunk(): void
     {
-        $intent = (new IntentAndConstraintExtractor())->extract(
+        $intent = (new IntentResolver())->extract(
             'Shop giao hàng trong bao lâu đối với nội thành và các khu vực khác?'
         );
         $response = (new ResponseGenerator())->generate(
@@ -291,7 +350,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
     public function testPlanValidatorRequiresPolicyRetrieval(): void
     {
-        $intent = (new IntentAndConstraintExtractor())->extract('Shop đổi trả trong bao lâu?');
+        $intent = (new IntentResolver())->extract('Shop đổi trả trong bao lâu?');
         $capabilities = CapabilityRegistry::fromToolDefinitions((new ToolRegistry(getTestPDO(), null))->getDefinitions());
         $validator = new PlanValidator($capabilities);
 
@@ -307,7 +366,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
     public function testPlanValidatorRejectsProductDetailSearchRoute(): void
     {
-        $intent = (new IntentAndConstraintExtractor())->extract('cho tôi xem sản phẩm mã 52');
+        $intent = (new IntentResolver())->extract('cho tôi xem sản phẩm mã 52');
         $capabilities = CapabilityRegistry::fromToolDefinitions((new ToolRegistry(getTestPDO(), null))->getDefinitions());
         $validator = new PlanValidator($capabilities);
 
@@ -325,7 +384,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
     public function testEvidenceScorerPassesProductDetailWithCorrectId(): void
     {
-        $intent = (new IntentAndConstraintExtractor())->extract('cho tôi xem sản phẩm mã 52');
+        $intent = (new IntentResolver())->extract('cho tôi xem sản phẩm mã 52');
         $normalized = [
             'cards' => [[
                 'id' => 52,
@@ -350,7 +409,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
     public function testEvidenceScorerFailsProductDetailWithWrongId(): void
     {
-        $intent = (new IntentAndConstraintExtractor())->extract('cho tôi xem sản phẩm mã 52');
+        $intent = (new IntentResolver())->extract('cho tôi xem sản phẩm mã 52');
         $normalized = [
             'cards' => [[
                 'id' => 51,
@@ -373,7 +432,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
     public function testEvidenceScorerFailsProductSearchAboveMaxPrice(): void
     {
-        $intent = (new IntentAndConstraintExtractor())->extract('tìm áo dưới 500k');
+        $intent = (new IntentResolver())->extract('tìm áo dưới 500k');
         $normalized = [
             'cards' => [[
                 'id' => 52,
@@ -396,7 +455,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
     public function testEvidenceScorerPassesPolicyContent(): void
     {
-        $intent = (new IntentAndConstraintExtractor())->extract('Shop đổi trả trong bao lâu?');
+        $intent = (new IntentResolver())->extract('Shop đổi trả trong bao lâu?');
         $normalized = [
             'cards' => [],
             'evidence' => [[
@@ -415,7 +474,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
     public function testEvidenceScorerRejectsPolicyContentFromWrongDomain(): void
     {
-        $intent = (new IntentAndConstraintExtractor())->extract('Shop đổi trả trong bao lâu?');
+        $intent = (new IntentResolver())->extract('Shop đổi trả trong bao lâu?');
         $normalized = [
             'cards' => [],
             'evidence' => [[
@@ -435,8 +494,8 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
 
     public function testDecisionRouterRepeatsLowPolicyEvidenceThenFallsBackOnBudget(): void
     {
-        $intent = (new IntentAndConstraintExtractor())->extract('Shop đổi trả trong bao lâu?');
-        $router = new ReasoningDecisionRouter();
+        $intent = (new IntentResolver())->extract('Shop đổi trả trong bao lâu?');
+        $router = new EvidenceDecisionRouter();
 
         $repeat = $router->decide($intent, ['batches' => [[['tool' => 'retrieve_knowledge']]]], ['evidence' => []], ['hard_failures' => []], [
             'passed' => false,
@@ -480,11 +539,24 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
         $this->assertFalse($first['no_progress']);
         $this->assertTrue($second['no_progress']);
     }
+
+    private function selectedTools(array $plan): array
+    {
+        $tools = [];
+        foreach (($plan['batches'] ?? []) as $batch) {
+            foreach ($batch as $call) {
+                if (!empty($call['tool'])) $tools[] = (string)$call['tool'];
+            }
+        }
+        return array_values(array_unique($tools));
+    }
 }
 
-class FakeSemanticCompletionLlm implements LLMProvider
+class FakeEntityEnrichmentLlm implements LLMProvider
 {
     public int $calls = 0;
+    public array $lastTools = [];
+    public string $lastToolChoice = '';
     private array $response;
 
     public function __construct(array $response)
@@ -495,6 +567,8 @@ class FakeSemanticCompletionLlm implements LLMProvider
     public function chat(array $messages, array $tools = [], string $toolChoice = 'auto'): LLMResponse
     {
         $this->calls++;
+        $this->lastTools = $tools;
+        $this->lastToolChoice = $toolChoice;
         return new LLMResponse(json_encode($this->response, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     }
 }

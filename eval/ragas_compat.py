@@ -5,6 +5,8 @@ import math
 import os
 from typing import Any
 
+import requests
+
 
 def json_safe(value: Any) -> Any:
     """Convert RAGAS/pandas values into strict JSON-safe data."""
@@ -101,3 +103,60 @@ def build_evaluator_llm(
 
     notes.append(f"DeepSeek n=1 fan-out is enabled for evaluator model {evaluator_model}.")
     return SingleCompletionFanOutLLM(raw_llm), evaluator_model, notes
+
+
+def build_evaluator_embeddings() -> tuple[Any, str, list[str]]:
+    """Use the running rag-ml service so RAGAS and Qdrant share one model."""
+    try:
+        from langchain_core.embeddings import Embeddings
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"LangChain embeddings interface is unavailable: {exc}") from exc
+
+    service_url = (
+        os.getenv("RAGAS_EMBEDDING_URL")
+        or os.getenv("RAG_ML_URL")
+        or ""
+    ).rstrip("/")
+    if not service_url:
+        raise RuntimeError("RAGAS_EMBEDDING_URL or RAG_ML_URL is required for evaluator embeddings.")
+
+    timeout = float(os.getenv("RAGAS_EMBEDDING_TIMEOUT", "90"))
+    batch_size = max(1, min(64, int(os.getenv("RAGAS_EMBEDDING_BATCH_SIZE", "32"))))
+    configured_model = os.getenv(
+        "RAGAS_EMBEDDING_MODEL",
+        os.getenv("EMBEDDING_MODEL", "bkai-foundation-models/vietnamese-bi-encoder"),
+    )
+
+    class RagMlEmbeddings(Embeddings):
+        def embed_documents(self, texts: list[str]) -> list[list[float]]:
+            vectors: list[list[float]] = []
+            for offset in range(0, len(texts), batch_size):
+                batch = [str(text) for text in texts[offset:offset + batch_size]]
+                response = requests.post(
+                    f"{service_url}/embed",
+                    json={"texts": batch},
+                    timeout=timeout,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                embeddings = payload.get("embeddings")
+                if not isinstance(embeddings, list) or len(embeddings) != len(batch):
+                    raise RuntimeError("rag-ml returned an invalid embeddings payload")
+                vectors.extend([[float(value) for value in row] for row in embeddings])
+            return vectors
+
+        def embed_query(self, text: str) -> list[float]:
+            vectors = self.embed_documents([text])
+            if not vectors:
+                raise RuntimeError("rag-ml returned no query embedding")
+            return vectors[0]
+
+    health = requests.get(f"{service_url}/health", timeout=timeout)
+    health.raise_for_status()
+    payload = health.json()
+    actual_model = str(payload.get("embedding_model") or configured_model)
+    notes = [
+        f"RAGAS embeddings use rag-ml /embed with model {actual_model}.",
+        "Evaluator embeddings use the same normalized vector model as Qdrant ingestion and query retrieval.",
+    ]
+    return RagMlEmbeddings(), actual_model, notes

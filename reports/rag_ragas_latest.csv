@@ -1,0 +1,9 @@
+id,type,retrieval_status,retrieval_latency_ms,retrieval_source,retrieved_count,context_keyword_coverage,chat_status,chat_latency_ms,answer_keyword_coverage,products_count,has_redirect_url
+policy_return_window,policy,200,5.68,hybrid_reranked,3,1.0,200,21.45,1.0,0,False
+policy_sale_return,multi_step_policy,200,5.01,hybrid_reranked,3,1.0,200,21.14,1.0,0,False
+policy_shipping_fee_return,multi_step_policy,200,4.32,hybrid_reranked,3,1.0,200,914.09,1.0,0,False
+policy_refund_time,policy,200,4.71,hybrid_reranked,3,0.0,200,20.47,1.0,0,False
+policy_shipping_fee_order,multi_step_policy,200,10.35,hybrid_reranked,4,1.0,200,974.26,1.0,0,False
+product_basic_search,product,200,4.52,hybrid_reranked,5,0.0,200,23.66,1.0,2,False
+product_policy_mixed,multi_step_mixed,200,13.35,hybrid_reranked,3,1.0,200,1088.52,0.75,0,False
+unsupported_outfit,unsupported,200,5.41,hybrid_reranked,5,1.0,200,23.06,1.0,0,False

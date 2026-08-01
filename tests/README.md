@@ -7,10 +7,11 @@ tests/
 ├── README.md
 ├── bootstrap.php          # Test bootstrap + SQLite fallback
 ├── Unit/
-│   ├── CacheTest.php      # Cache set/get/delete/flush/buildKey
-│   └── ChatbotEngineTest.php  # Rule-based engine (intent, search, FAQ, size)
+│   ├── CacheTest.php
+│   ├── ProductionPipelineTest.php  # Deterministic routing + LLM boundary
+│   └── ToolRegistryTest.php
 └── Integration/
-    └── ChatbotAPITest.php  # AgenticOrchestrator (tool calls, history, sessions)
+    └── ChatbotAPITest.php  # Production service, tools, memory, persistence
 ```
 
 ## Running Tests
@@ -36,9 +37,9 @@ vendor/bin/phpunit --colors=always
 
 | Suite | File | Tests | Coverage |
 |---|---|---|---|
-| Unit | `CacheTest.php` | 14 | Cache CRUD, TTL, key consistency, search/FAQ/category shortcuts |
-| Unit | `ChatbotEngineTest.php` | 16 | Intent, search with prices, size advice, FAQ, unknown intent |
-| Integration | `ChatbotAPITest.php` | 10 | Orchestrator response, history loading, session, tool logs |
+| Unit | `ProductionPipelineTest.php` | Characterization | Parser, planner, evidence, constraints, LLM isolation |
+| Unit | `ToolRegistryTest.php` | Contract | Tool contracts, product constraints, policy retrieval |
+| Integration | `ChatbotAPITest.php` | End-to-end service | Response, memory, session, tool logs and metadata |
 
 ## CI Integration
 
