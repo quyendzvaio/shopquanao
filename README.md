@@ -1,169 +1,78 @@
-# Fashion Shop Deterministic Hybrid RAG Chatbot
+# Fashion Shop — Deterministic Hybrid RAG + Styling Agent
 
-Website bán quần áo viết bằng PHP 8.2, MariaDB và Docker Compose. Chatbot dùng lõi quyết định deterministic bằng PHP để tìm sản phẩm, trả lời chính sách bằng RAG, tư vấn size và tra cứu đơn hàng khi user đã đăng nhập.
+Ứng dụng bán quần áo chạy bằng PHP 8.2, MariaDB và Docker Compose. Chatbot dùng luật deterministic để chọn intent/tool, RAG cho chính sách, MCP stdio cho application tools, và FindMine Complete the Look cho hai use case styling.
 
-Production path không để LLM tự viết SQL. Query của user được tách thành structured filters; PHP tự build query bằng allowlist, lọc constraint và kiểm evidence trước khi trả JSON cho UI.
+LLM không tự viết SQL và không tự chọn tool. Dữ liệu trả về cho người dùng phải đi qua Product Search, evidence normalization và validation của PHP.
 
-## Chức năng chính
+## Chức năng
 
-| Nhóm | Mô tả |
-|---|---|
-| Product search | Tìm theo loại sản phẩm, category, giá, tồn kho, size, màu và text attributes suy từ `name + description` |
-| Product detail | Lấy đúng sản phẩm theo `product_id`, kèm giá, tồn kho, size và màu suy luận |
-| Size advice | Tư vấn size theo chiều cao/cân nặng từ bảng `size_guides` |
-| Policy RAG | Trả lời đổi trả, hoàn tiền, vận chuyển, bảo hành, thanh toán từ knowledge base |
-| Order status | Yêu cầu đăng nhập và chỉ trả đơn thuộc user hiện tại |
-| Guardrails | Không tư vấn phối đồ, không tự thêm giỏ hàng, không checkout hộ |
+| Nhóm | Khả năng |
+| --- | --- |
+| Product | Tìm kiếm, xem chi tiết, lọc giá/tồn kho/size/màu |
+| Size | Tư vấn theo chiều cao, cân nặng và size guide |
+| Policy RAG | Đổi trả, hoàn tiền, vận chuyển, bảo hành, thanh toán |
+| Order | Tra cứu đơn thuộc user đã xác thực; không lộ dữ liệu user khác |
+| Guardrail | Không tự checkout/thanh toán; câu phối đồ chung không có sản phẩm neo vẫn bị từ chối |
+| UC1 | Khi user yêu cầu phối một `product_id` cụ thể, gọi FindMine rồi chỉ hiển thị SKU thật từ Product Search |
+| UC2 | Sau sự kiện thêm giỏ và đủ hai user turns phù hợp, chủ động gợi ý một lần cho anchor mới nhất |
 
 ## Kiến trúc runtime
 
-| Service | Vai trò |
-|---|---|
-| `nginx` | Public API gateway, reverse proxy, rate limit chatbot |
-| `app` | PHP 8.2/Apache nội bộ, website, REST API và chatbot service |
-| MCP stdio | TypeScript MCP process nội bộ, được PHP khởi chạy khi chatbot cần gọi tool |
-| `db` | MariaDB 10.11, lưu sản phẩm, đơn hàng, chat, memory, logs |
-| `redis` | Cache; app fallback sang file cache khi Redis không sẵn sàng |
-| `qdrant` | Vector store cho knowledge collection |
-| `rag-ml` | FastAPI sidecar cho embedding và knowledge rerank |
-| `reranker` | FastAPI sidecar TF-IDF cho product search rerank |
-
 ```text
-Browser / Chat widget
+Browser
   -> Nginx
-  -> POST /api/chatbot
   -> PHP ChatbotService
-      -> ChatbotMemory
-      -> IntentResolver
-          -> DeterministicIntentParser
-          -> ConflictDetector + ConflictResolver
-          -> SemanticEntityEnricher (LLM tùy chọn, JSON only)
-          -> MergeEngine (không cho ghi đè field đã khóa)
-      -> ToolPlanner + PlanValidator (luật PHP)
-      -> EvidenceExecutionLoop
-          -> McpToolGateway -> MCP server -> PHP application services
-              -> search_products / get_product_detail / suggest_size
-              -> retrieve_knowledge / get_order_status / get_categories
-          -> EvidenceNormalizer
-          -> ProductConstraintVerifier
-          -> LightweightEvidenceScorer
-      -> ResponseGenerator
-      -> OnlineValidator generic
-  -> JSON response về UI
+      -> deterministic IntentResolver
+      -> ToolPlanner + PlanValidator
+      -> MCP stdio child process
+          -> PHP internal application services
+              -> Product / Size / Policy / Order tools
+              -> FindMine Complete the Look
+                  -> strict LLM fashion extraction
+                  -> taxonomy normalization
+                  -> bounded parallel Product Search
+      -> EvidenceNormalizer + ProductConstraintVerifier
+      -> ResponseGenerator + OnlineValidator
+
+CartService transaction
+  -> fashion_event_outbox
+  -> fashion-outbox-publisher
+  -> Redis Stream
+  -> fashion-event-consumer
+  -> proactive_styling_state
+  -> second suitable ChatbotService turn -> shared styling pipeline
 ```
 
-LLM không chọn intent, tool hoặc SQL. Khi parser còn một thuộc tính mô tả như `style`, `occasion` hoặc `avoid`, `SemanticEntityEnricher` có thể đề xuất JSON cho đúng field được cho phép; `MergeEngine` và `ToolPlanner` PHP vẫn giữ quyền quyết định.
+| Service | Vai trò |
+| --- | --- |
+| `nginx` | Public gateway và chatbot rate limit |
+| `app` | PHP/Apache, REST API, chatbot và MCP client |
+| `fashion-outbox-publisher` | Publish transactional outbox sang Redis Stream |
+| `fashion-event-consumer` | Consume idempotent và cập nhật proactive state |
+| `db` | MariaDB 10.11 |
+| `redis` | Shared cache và event stream |
+| `qdrant` | Knowledge vector store |
+| `rag-ml` | Embedding và knowledge rerank |
+| `reranker` | Product rerank sidecar |
 
-## MCP server
+MCP và FindMine đều dùng private stdio child process, không mở public MCP port. Nginx trả `404` cho `/api/internal/mcp`; app container cũng không publish port trực tiếp.
 
-MCP là transport mặc định và chỉ phục vụ PHP chatbot. `McpToolGateway` khởi chạy Node MCP server như một child process, sau đó trao đổi JSON-RPC qua stdin/stdout. Không có port MCP, route `/mcp`, OAuth endpoint hay public MCP URL.
+## Chế độ FindMine
 
-Các tool đọc: `search_products`, `get_product_detail`, `suggest_size`, `retrieve_knowledge`, `get_categories`, `get_order_status`, `list_cart`, `list_orders`, `get_order_detail`. Các tool ghi: `add_to_cart`, `update_cart`, `remove_from_cart`, `create_order`.
-
-Các mutation yêu cầu argument `confirmed: true`; `remove_from_cart` và `create_order` được đánh dấu destructive. User ID lấy từ session đăng nhập của PHP rồi truyền cho child process bằng environment riêng, không nằm trong input schema của tool. Capability phối đồ tự động và thanh toán ngoài hệ thống không được expose.
-
-Rollout transport:
+Local/demo dùng response tổng hợp chính thức của FindMine MCP, sau đó chạy extraction thật và Product Search thật của shop:
 
 ```env
-CHATBOT_TOOL_TRANSPORT=mcp       # mặc định
-# CHATBOT_TOOL_TRANSPORT=shadow  # MCP primary, so sánh output với legacy
-# CHATBOT_TOOL_TRANSPORT=internal # rollback tạm thời
-MCP_SERVICE_TOKEN=replace-with-a-long-random-secret
-MCP_STDIO_NODE=/usr/bin/node
-MCP_STDIO_SCRIPT=/opt/mcp-server/dist/stdio.js
+FASHION_PROVIDER=findmine_demo
+FINDMINE_ENABLED=true
+FINDMINE_DEMO_ENABLED=true
+FINDMINE_DEMO_MODE=true
+FINDMINE_LIVE_VERIFIED=false
+FINDMINE_APP_ID=DEMO_APP_ID
 ```
 
-`MCP_SERVICE_TOKEN` chỉ bảo vệ request loopback từ Node child process tới PHP application services. Nginx trả `404` cho `/api/internal/mcp`; container app không publish port trực tiếp. `MCP_PUBLIC_BASE_URL` không còn được sử dụng.
+Demo mode không phải bằng chứng tenant production. Live mode cần App ID thật, catalog identifier đã đồng bộ và mapping product/variant/color của tenant. Xem `docs/findmine-live-onboarding-guide.md` và `docs/findmine-provider-contract.md`.
 
-## Cache hai tầng cho chatbot và website
-
-- **Tầng 1 (client/device):** các GET công khai như sản phẩm, danh mục, FAQ, size guide và knowledge search trả `Cache-Control` cùng `ETag`, vì vậy trình duyệt hoặc app website có thể dùng cache trên thiết bị và gửi `If-None-Match` để nhận `304 Not Modified`.
-- **Tầng 2 (server):** các kết quả tool/RAG/LLM của chatbot dùng Redis chung qua `api/cache/Cache.php` (có fallback sang file cache khi Redis tạm thời không khả dụng). TTL và prefix được cấu hình bằng `REDIS_*`.
-
-Response `POST /api/chatbot` không được cache ở client vì chứa session/context cá nhân; dữ liệu mà chatbot truy vấn vẫn được hưởng server-side Redis cache. `CLIENT_CACHE_TTL` và `CLIENT_CACHE_STALE_TTL` điều chỉnh cache HTTP phía website.
-
-Kiểm thử MCP:
-
-```bash
-cd mcp-server
-npm ci
-npm test
-npm run build
-
-docker compose up -d --build
-curl -X POST http://localhost/api/chatbot \
-  -H 'Content-Type: application/json' \
-  -d '{"message":"tìm áo màu đen"}'
-```
-
-Tool contract vẫn dùng SDK MCP chính thức; transport local là stdio thay vì remote Streamable HTTP.
-
-## Search và constraint validation
-
-Search sản phẩm dùng hướng structured filters + allowlisted query:
-
-| Constraint | Cách kiểm |
-|---|---|
-| `category_id`, `min_price`, `max_price`, `in_stock` | SQL/PDO allowlist |
-| `size` | `product_sizes` bằng join/subquery |
-| `color` | `ProductAttributeNormalizer`, canonical tiếng Việt |
-| `material`, `style`, `occasion`, `avoid` | Matcher trên `products.name + products.description` |
-| `semantic_query` | Text matcher/rerank, vẫn giữ hard constraints |
-
-Màu được chuẩn hóa về canonical tiếng Việt để tránh lỗi kiểu `đen -> black` rồi không match DB tiếng Việt:
-
-| Input | Canonical |
-|---|---|
-| `black`, `den`, `đen` | `đen` |
-| `white`, `trang`, `trắng` | `trắng` |
-| `gray`, `grey`, `xam`, `ghi`, `xám` | `xám` |
-
-`ProductConstraintVerifier` chạy sau `EvidenceNormalizer`, trước `ResponseGenerator`. Nếu user hỏi `áo màu đen size M còn hàng`, từng card phải thỏa đủ loại sản phẩm, màu, size và tồn kho. Nếu không còn card phù hợp, bot phải trả không tìm thấy sản phẩm phù hợp, không được nói tìm thấy tổng số áo chung chung.
-
-Product cards/evidence có thêm `available_sizes` và `available_colors` để UI và evaluator kiểm chứng được.
-
-## API chính
-
-### Chatbot
-
-```http
-POST /api/chatbot
-Content-Type: application/json
-
-{
-  "message": "tìm áo size M màu đen còn hàng",
-  "session_token": "optional"
-}
-```
-
-Response rút gọn:
-
-```json
-{
-  "message": "Mình tìm thấy 2 sản phẩm áo...",
-  "products": [
-    {
-      "id": 52,
-      "name": "Áo Khoác Bomber Kaki Đen",
-      "price": 550000,
-      "stock": 12,
-      "available_sizes": ["S", "M", "L", "XL"],
-      "available_colors": ["đen"],
-      "url": "/product.php?id=52",
-      "image_url": "/images/ak_bomber_03.jpg"
-    }
-  ],
-  "primary_intent": "product_search",
-  "response_type": "final_answer",
-  "trace_id": "..."
-}
-```
-
-### Knowledge search
-
-```http
-GET /api/knowledge/search?q=shop%20đổi%20trả%20trong%20bao%20lâu&category=return&limit=5
-```
+Production deploy mặc định để các cờ FindMine là `false`; phải bật rõ bằng GitHub environment secrets sau khi hoàn tất onboarding hoặc khi chủ động phát hành demo mode.
 
 ## Cài đặt local
 
@@ -171,198 +80,197 @@ GET /api/knowledge/search?q=shop%20đổi%20trả%20trong%20bao%20lâu&category=
 cp .env.example .env
 ```
 
-Cấu hình tối thiểu:
+Điền ít nhất:
 
 ```env
-LLM_PROVIDER=deepseek
-LLM_API_KEY=your-deepseek-api-key
-LLM_BASE_URL=https://api.deepseek.com
-LLM_MODEL=deepseek-chat
-NGINX_HTTP_PORT=80
+LLM_PROVIDER=openai_compatible
+LLM_API_KEY=replace-me
+LLM_BASE_URL=https://your-openai-compatible-endpoint/v1
+LLM_MODEL=your-model
+MCP_SERVICE_TOKEN=replace-with-a-long-random-secret
 ```
 
-Start stack:
+Khởi động:
 
 ```bash
 docker compose up -d --build
 docker compose ps
+curl -fsS http://localhost/nginx-health
+curl -fsS 'http://localhost/api/products?limit=1'
 ```
 
-Nếu port 80 đang bận:
+Migration được khóa bằng MariaDB advisory lock và theo dõi trong `_migrations`.
+Để chạy gate giống production trước khi bật app/workers:
+
+```bash
+docker compose up -d --wait db redis
+docker compose run --rm --no-deps app php scripts/run_database_migrations.php
+```
+
+Nếu port 80 bận:
 
 ```bash
 NGINX_HTTP_PORT=8092 docker compose up -d --build
 ```
 
-Smoke test:
-
-```bash
-curl http://localhost/nginx-health
-curl 'http://localhost/api/products?limit=1'
-
-curl -X POST http://localhost/api/chatbot \
-  -H 'Content-Type: application/json' \
-  -d '{"message":"tìm áo màu đen"}'
-```
-
-Nếu chạy bằng port khác, thay `http://localhost` bằng `http://localhost:8092`.
-
-Index knowledge sau lần deploy đầu hoặc khi đổi tài liệu:
+Index lại knowledge khi thay tài liệu:
 
 ```bash
 docker compose exec -T app php scripts/ingest_knowledge.php
 ```
 
-## Docker image optimization
+## API chatbot
 
-Python sidecar images dùng multi-stage build và gom dependency vào `/install`:
+```http
+POST /api/chatbot
+Content-Type: application/json
 
-```dockerfile
-ENV PIP_NO_CACHE_DIR=1
-RUN pip install --prefix=/install ...
-COPY --from=python-deps /install /usr/local
+{
+  "message": "Sản phẩm mã 50 phối với gì?",
+  "session_token": "optional"
+}
 ```
 
-`PIP_NO_CACHE_DIR=1` tránh giữ pip cache trong image. `--prefix=/install` gom thư viện Python ở builder stage để final stage copy đúng phần runtime cần thiết.
+Response chỉ trả product cards của shop; provider identifiers bị giữ trong provenance nội bộ và không được leak ra UI.
 
-## Test và CI
-
-CI GitHub Actions hiện có:
-
-| Job | Nội dung |
-|---|---|
-| Code quality | composer validate, PHP lint, PHPCS non-blocking, PHPStan, Python syntax |
-| Unit tests | PHPUnit Unit suite |
-| Integration tests | PHPUnit Integration với MariaDB service |
-| Security | secret scan và Trivy filesystem scan |
-| Docker | build app/reranker/rag-ml images và Trivy image scan |
-| Deploy | SSH deploy khi push `main`/`master` |
-
-Lệnh local thường dùng:
+## Kiểm thử
 
 ```bash
-python3 -m py_compile docker/reranker/app.py docker/rag-ml/app.py eval/ragas_compat.py eval/run_chatbot_eval.py scripts/eval_rag_chatbot.py
+# PHP
+vendor/bin/phpstan analyse --level=1 api/ config/ --no-progress
+vendor/bin/phpunit --testsuite=Unit
+
+# MCP TypeScript
+npm --prefix mcp-server ci
+npm --prefix mcp-server test
+npm --prefix mcp-server run build
+
+# Corpus deterministic và Compose
+php scripts/run_findmine_offline_eval.php
 docker compose config --quiet
-
-docker run --rm -v "$PWD":/app -w /app -e APP_ENV=test shop_quan_ao-app:latest \
-  sh -lc 'php -d memory_limit=512M vendor/bin/phpstan analyse --level=1 api/ config/ --no-progress && vendor/bin/phpunit'
 ```
 
-Kết quả local gần nhất:
-
-| Check | Kết quả |
-|---|---|
-| PHP lint | Pass |
-| PHPStan level 1 | No errors với `memory_limit=512M` |
-| PHPUnit full | `81 tests, 299 assertions` pass sau architecture/SOLID cleanup |
-| Integration database | Đã chạy trong full suite với SQLite fallback; MariaDB được CI chạy trên database tách biệt |
-| Characterization | Tool choice không đổi khi bật/tắt LLM; cart guardrail không gọi LLM/tool sản phẩm |
-| Python syntax | Pass |
-| Docker Compose config | Pass |
-| HTTP constraint smoke | `áo màu đen`, `áo màu trắng`, `áo size M màu đen còn hàng` pass |
-
-## Offline evaluation: RAGAS và LangSmith
-
-RAGAS/LangSmith chỉ chạy offline/manual, không nằm trong production request và không phải CI gate mặc định vì cần evaluator secrets.
-
-Dependency:
-
-```bash
-pip install -r eval/requirements-eval.txt
-```
-
-Evaluator secrets phải để trong env hoặc `.env`, không commit vào source:
-
-```env
-OPENAI_EVAL_MODEL=deepseek-v4-flash
-LLM_API_KEY=your-evaluator-key
-LLM_BASE_URL=https://api.deepseek.com
-LANGSMITH_API_KEY=your-langsmith-key
-LANGSMITH_TRACING=true
-LANGSMITH_PROJECT=fashion-shop-chatbot-eval
-```
-
-Multi-turn chatbot eval:
+Agent evaluation đầy đủ gồm 50 HTTP turns cho use case hiện hữu và 20 styling cases (10 UC1 + 10 UC2):
 
 ```bash
 set -a; . ./.env; set +a
 
-RAGAS_ENABLE=1 \
-RAGAS_EMBEDDING_PROVIDER=rag_ml \
-RAGAS_EMBEDDING_URL="http://$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' shop_quan_ao_rag_ml):8000" \
-CHATBOT_BASE_URL=http://localhost \
+RAGAS_ENABLE=0 \
+LANGSMITH_TRACING=true \
+LANGSMITH_PROJECT=fashion-shop-chatbot-http-50-final-rerun-20260825 \
 python3 eval/run_chatbot_eval.py \
   --base-url http://localhost \
-  --cases eval/chatbot_eval_cases.jsonl \
-  --output reports/chatbot_eval_report_latest.json \
-  --markdown-output reports/chatbot_eval_report_latest.md \
-  --timeout 90 \
-  --turn-delay 6 \
-  --max-retries 3
+  --output reports/eval/chatbot_http_50_latest.json \
+  --csv-output reports/eval/chatbot_http_50_latest.csv \
+  --markdown-output reports/eval/chatbot_http_50_latest.md
+
+docker compose exec -T app \
+  php scripts/run_findmine_agent_eval.php \
+  --output=/tmp/findmine_agent_eval_latest.json
+
+python3 eval/build_full_agent_eval_report.py \
+  --chatbot-report reports/eval/chatbot_http_50_latest.json \
+  --styling-report reports/eval/findmine_agent_eval_latest.json \
+  --output reports/eval/full_agent_eval_70_latest.json
 ```
 
-Retrieval/chat RAG eval:
+RAGAS cho recommendation answers:
 
 ```bash
-set -a; . ./.env; set +a
-
-EVAL_BASE_URL=http://localhost \
 RAGAS_EMBEDDING_URL="http://$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' shop_quan_ao_rag_ml):8000" \
-python3 scripts/eval_rag_chatbot.py \
-  --base-url http://localhost \
-  --cases tests/eval/rag_eval_cases.json \
-  --out-dir reports/eval \
-  --project-name fashion-shop-rag-eval \
-  --case-delay 6
+OPENAI_EVAL_MODEL="$LLM_MODEL" \
+LANGSMITH_TRACING=true \
+LANGSMITH_PROJECT=fashion-shop-findmine-70-final-20260825 \
+RAGAS_MAX_WORKERS=4 \
+python3 eval/run_findmine_ragas.py \
+  --agent-report reports/eval/findmine_agent_eval_latest.json \
+  --output reports/eval/findmine_ragas_latest.json
 ```
 
-Kết quả đo gần nhất ngày `2026-08-01`, target `http://localhost` qua Nginx port 80, evaluator `deepseek-v4-flash` và embedding `bkai-foundation-models/vietnamese-bi-encoder`:
+## Kết quả cuối — 2026-08-25
 
-| Eval | Kết quả |
-|---|---:|
-| Chatbot deterministic | `9/9` pass |
-| Chatbot latency avg / p95 | `25.78 ms` / `38 ms` |
-| Chatbot RAGAS answer relevancy | `0.5098` |
-| Chatbot RAGAS faithfulness | `0.7167` |
-| Chatbot RAGAS context precision | `0.9861` |
-| Chatbot RAGAS context recall | `0.8333` |
-| Retrieval/chat cases | `8`, không có retrieval/chat error |
-| Retrieval latency avg / p95 | `6.67 ms` / `13.35 ms` |
-| Retrieval/chat latency avg / p95 | `385.83 ms` / `1088.52 ms` |
-| Retrieval/chat answer keyword coverage | `0.9688` |
-| Retrieval/chat RAGAS answer relevancy | `0.3688` (8/8 hợp lệ) |
-| Retrieval/chat RAGAS faithfulness | `0.6286` (7/8 hợp lệ) |
-| Retrieval/chat RAGAS context precision | `0.6146` |
-| Retrieval/chat RAGAS context recall | `0.5000` |
-| LangSmith dataset | `fashion-shop-rag-eval-ragml-newkey-20260801-dataset`, `8` examples |
+Environment: Docker Compose local qua Nginx port 80; LLM/evaluator `oc/mimo-v2.5-free`; embedding evaluator `bkai-foundation-models/vietnamese-bi-encoder` qua `rag-ml`.
 
-Hai bộ số không được so sánh trực tiếp: bộ chatbot dùng evidence thật gồm knowledge và product cards; bộ retrieval/chat chỉ đưa kết quả `/api/knowledge/search` vào RAGAS. Lần đo mới nhất có một faithfulness timeout trong mỗi bộ; report ghi rõ số mẫu hợp lệ, không thay null bằng số giả.
+### Agent Evaluation 70 câu
 
-SRS chuẩn hóa yêu cầu, tiêu chí nghiệm thu và traceability nằm tại [`docs/SRS_Chatbot_ISO_IEC_IEEE_29148_2018.md`](docs/SRS_Chatbot_ISO_IEC_IEEE_29148_2018.md). Báo cáo RAGAS mới nhất nằm tại `reports/ragas_langsmith_latest.md`.
+| Chỉ số | Kết quả |
+| --- | ---: |
+| Tổng | `70/70 PASS` |
+| Existing use cases qua HTTP | `50/50 PASS` |
+| UC1 explicit styling | `10/10 PASS` trong report tổng; suite styling rộng hơn `20/20 PASS` |
+| UC2 proactive after cart | `10/10 PASS` trong report tổng; suite styling rộng hơn `20/20 PASS` |
+| Stage failures | `0` ở FindMine, extraction, normalization, Product Search, response, event state và grounding |
+| Hallucinated shop products | `0` |
+| Provider-ID leakage | `0` |
+| UC2 sequencing evidence | `20/20`: 2 turns trước call, 0 call trước turn 2, 1 call sau turn 2 |
 
-## Bảo mật khi push GitHub
+Coverage của 70 câu: `policy/rag`, `product evidence`, `mixed multi-tool`, `order/auth`, `guardrail/non-rag`, `UC1_EXPLICIT_STYLING`, `UC2_PROACTIVE_AFTER_CART`.
 
-- Không commit `.env`, reports local, model cache hoặc database dump cá nhân.
-- `.gitignore` đã loại `.env` và `reports/`.
-- CI có bước scan secret dạng `sk-...`, `lsv2_...`, GitHub token và private key.
-- Nếu API key từng xuất hiện trong chat/log ngoài repo, nên rotate key trước khi public.
+### Latency cuối
 
-## File quan trọng
+Hai boundary được báo riêng vì không cùng ý nghĩa đo:
 
-| Path | Vai trò |
-|---|---|
-| `api/controllers/chatbot/ChatbotService.php` | Application service điều phối use case chatbot |
-| `api/controllers/chatbot/PdoChatbotConversationStore.php` | Adapter PDO lưu hội thoại và telemetry |
-| `api/controllers/chatbot/contracts/` | Contract hẹp cho tool, memory và conversation persistence |
-| `api/controllers/chatbot/ToolRegistry.php` | Tool definitions và execute tool |
-| `api/controllers/chatbot/ProductAttributeNormalizer.php` | Chuẩn hóa/match màu, size, text attributes |
-| `api/controllers/chatbot/pipeline/IntentResolver.php` | Parse, conflict resolution, optional enrichment và merge |
-| `api/controllers/chatbot/pipeline/SemanticEntityEnricher.php` | LLM JSON helper tùy chọn; không được chọn tool |
-| `api/controllers/chatbot/pipeline/ToolPlanner.php` | Chọn tool hoàn toàn bằng luật PHP |
-| `api/controllers/chatbot/pipeline/EvidenceExecutionLoop.php` | Execute/retry tool theo evidence và budget deterministic |
-| `api/controllers/chatbot/pipeline/ProductConstraintVerifier.php` | Lọc card theo constraints sau evidence normalization |
-| `api/controllers/chatbot/pipeline/ResponseGenerator.php` | Sinh message cuối từ evidence/cards |
-| `eval/run_chatbot_eval.py` | Eval multi-turn chatbot + RAGAS |
-| `scripts/eval_rag_chatbot.py` | Eval retrieval/chat RAG + LangSmith dataset |
-| `eval/ragas_compat.py` | Helper evaluator LLM cho RAGAS, gồm DeepSeek `n=1` fan-out |
-| `docs/SRS_Chatbot_ISO_IEC_IEEE_29148_2018.md` | SRS, acceptance criteria và RTM theo ISO/IEC/IEEE 29148:2018 |
+| Boundary | Avg | p50 | p95 | Max |
+| --- | ---: | ---: | ---: | ---: |
+| 50 HTTP turns: client → Nginx → ChatbotService | `8765.06 ms` | `4947 ms` | `41494 ms` | `53139 ms` |
+| 10 UC1 direct styling pipeline | `7930.44 ms` | `6504.57 ms` | `19627.65 ms` | `19627.65 ms` |
+| 10 UC2 direct styling pipeline | `7296.93 ms` | `7023.57 ms` | `14082.84 ms` | `14082.84 ms` |
+| 20 styling recommendation core | `7010.25 ms` | `5923 ms` | `14069 ms` | `18785 ms` |
+
+Styling stages trên 20 cases của report tổng:
+
+| Stage | Avg | p95 | Max |
+| --- | ---: | ---: | ---: |
+| FindMine demo MCP | `319.65 ms` | `399 ms` | `430 ms` |
+| LLM extraction | `771.70 ms` | `546 ms` | `11670 ms` |
+| Normalization | `8.70 ms` | `12 ms` | `16 ms` |
+| Parallel Product Search | `5910.20 ms` | `10994 ms` | `13543 ms` |
+
+Product Search là bottleneck chính. HTTP p95 cao chủ yếu do entity enrichment và một số policy turns qua evaluator gateway; xem `server_latency` trong report JSON để phân tích từng span.
+
+### RAGAS cuối
+
+RAGAS chấm đủ 40 recommendation answers có Product Search contexts; FindMine prose bị loại khỏi grounding context. Không tính `context_precision`/`context_recall` vì corpus này chưa có reference answers hoặc relevance labels.
+
+| Metric | Điểm |
+| --- | ---: |
+| Faithfulness | `0.7625` |
+| Answer relevancy | `0.1692598273` |
+
+Answer relevancy thấp là kết quả chất lượng thật: nhiều câu hỏi biến thể nhận response template dài và giống nhau. Đây là mục tiêu tối ưu tiếp theo, không phải execution failure.
+
+### LangSmith cuối
+
+| Project/trace | Kết quả |
+| --- | --- |
+| `fashion-shop-findmine-70-final-20260825` | Successful RAGAS trace `893391a9-8dfa-4563-b88d-dfa2e500ba46`: `241 runs` = `120 LLM` + `121 chain`, `0 error`, `0 pending` |
+| `fashion-shop-chatbot-http-50-final-rerun-20260825` | `76 runs` = `50 call_chatbot` + `26 call_knowledge`, `0 error`, `0 pending` |
+
+Secrets chỉ được nạp qua process environment; không được ghi vào report hoặc README.
+
+## CI/CD
+
+GitHub Actions chạy:
+
+- Composer validation, PHP lint, PSR-12 advisory, PHPStan và Python syntax.
+- MCP `npm ci`, contract tests và TypeScript build.
+- PHPUnit unit/integration, cùng gate corpus offline đúng 70 câu.
+- Secret scan, Trivy filesystem/image scan và Docker build cho app/reranker/rag-ml.
+- Deploy qua SSH cho `main`/`master`; DB/Redis được chờ healthy và migration phải PASS trước khi app/workers khởi động. FindMine production là opt-in bằng environment secrets.
+
+App và hai worker dùng cùng `${APP_IMAGE:-shop_quan_ao-app:latest}`, vì vậy đổi Compose project name không làm worker trỏ sang image khác.
+
+## Artifacts
+
+| File | Nội dung |
+| --- | --- |
+| `reports/eval/full_agent_eval_70_latest.json` | Report tổng 70 câu |
+| `reports/eval/chatbot_http_50_latest.json` | 50 HTTP turns và server spans |
+| `reports/eval/findmine_agent_eval_latest.json` | Suite styling 70 cases và stage latency |
+| `reports/eval/findmine_ragas_latest.json` | RAGAS cuối |
+| `docs/findmine-use-case-1.md` | UC1 contract |
+| `docs/findmine-use-case-2.md` | UC2 contract |
+| `docs/cart-styling-event-architecture.md` | Outbox/Redis/consumer architecture |
+| `docs/findmine-live-onboarding-guide.md` | Live tenant gate |
+
+Reports, `.env`, model cache và local database artifacts phải giữ ngoài Git. `.gitignore`/`.dockerignore` đã loại các file này khỏi commit và production image.

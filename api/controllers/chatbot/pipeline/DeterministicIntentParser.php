@@ -26,6 +26,12 @@ class DeterministicIntentParser {
         '/đồng hồ|dong ho/ui' => ['đồng hồ', 4, 'watch'],
         '/thắt lưng|that lung/ui' => ['thắt lưng', 4, 'belt'],
         '/kính mát|kinh mat/ui' => ['kính mát', 4, 'sunglasses'],
+        '/dress shoes|formal shoes|oxford shoes|derby shoes|giày tây|giay tay/ui' => ['giày tây', 5, 'footwear', 'dress_shoes'],
+        '/sneakers?|trainers?|giày sneaker|giay sneaker|giày thể thao|giay the thao/ui' => ['giày sneaker', 5, 'footwear', 'sneakers'],
+        '/loafers?|giày lười|giay luoi/ui' => ['giày loafer', 5, 'footwear', 'loafers'],
+        '/boots?|bốt/ui' => ['bốt', 5, 'footwear', 'boots'],
+        '/sandals?|dép sandal|dep sandal/ui' => ['sandal', 5, 'footwear', 'sandals'],
+        '/footwear|shoes?|giày dép|giay dep|(?<![\p{L}])giày(?![\p{L}])|(?<![a-z])giay(?![a-z])/ui' => ['giày', 5, 'footwear', 'other'],
         '/(?<![\p{L}])áo(?![\p{L}])|(?<![a-z])ao(?![a-z])/ui' => ['áo', 1, 'top'],
         '/(?<![\p{L}])quần(?![\p{L}])|(?<![a-z])quan(?![a-z])/ui' => ['quần', 2, 'bottom'],
         '/(?<![\p{L}])váy(?![\p{L}])|(?<![a-z])vay(?![a-z])/ui' => ['váy', 3, 'dress'],
@@ -93,6 +99,7 @@ class DeterministicIntentParser {
         $patterns = [
             '/(?:mã|ma|id|#|sản phẩm mã|san pham ma|product)\s*#?\s*(\d+)/ui',
             '/(?:chi tiết|thông tin|xem)\s+(?:sản phẩm\s+)?#?\s*(\d+)/ui',
+            '/(?:sản phẩm|san pham|món|mon)(?:\s+(?:mã|ma|số|so))?\s*#?\s*(\d+)/ui',
         ];
         foreach ($patterns as $pattern) {
             if (preg_match($pattern, $text, $m)) {
@@ -119,6 +126,7 @@ class DeterministicIntentParser {
                 $result->addResolvedField('product_type', $type);
                 $result->addResolvedField('category_id', $categoryId);
                 $result->addResolvedField('category', $category);
+                if (isset($metadata[3])) $result->addResolvedField('subcategory', (string)$metadata[3]);
                 $result->addMatchedRule('product_type');
                 $matchedPatterns[] = $pattern;
                 return;
@@ -271,6 +279,9 @@ class DeterministicIntentParser {
     }
 
     private function inferIntent(string $lower, array $fields): string {
+        if (isset($fields['product_id']) && $this->isComplementaryRequest($lower)) {
+            return 'suggest_complementary_products';
+        }
         if ($this->isOutfit($lower)) return 'unsupported_outfit';
         if ($this->isCheckout($lower)) return 'unsupported_checkout';
         if ($this->isOrder($lower)) return 'order_status';
@@ -355,7 +366,7 @@ class DeterministicIntentParser {
     }
 
     private function isProductIntent(string $text): bool {
-        return (bool)preg_match('/sản phẩm|san pham|áo|ao|quần|quan|váy|vay|đầm|dam|phụ kiện|phu kien/ui', $text);
+        return (bool)preg_match('/sản phẩm|san pham|áo|ao|quần|quan|váy|vay|đầm|dam|phụ kiện|phu kien|giày|giay|shoes?|sneakers?/ui', $text);
     }
 
     private function isConstrainedProductSearch(string $text, array $fields): bool {
@@ -389,7 +400,7 @@ class DeterministicIntentParser {
     }
 
     private function isReturnExchange(string $text): bool {
-        return (bool)preg_match('/đổi trả|\bđổi\b|doi|trả hàng|tra hang|hoàn hàng|hoan hang|hoàn tiền|hoan tien|refund|return|không vừa|khong vua|sale|tem mác|tem mac/ui', $text);
+        return (bool)preg_match('/đổi trả|\bđổi\b|doi|trả hàng|tra hang|trả sản phẩm|tra san pham|hoàn hàng|hoan hang|hoàn tiền|hoan tien|hoàn lại|hoan lai|refund|return|không vừa|khong vua|sale|tem mác|tem mac|sai mẫu|sai mau|giao sai/ui', $text);
     }
 
     private function isShipping(string $text): bool {
@@ -409,7 +420,30 @@ class DeterministicIntentParser {
     }
 
     private function isOutfit(string $text): bool {
-        return (bool)preg_match('/phối đồ|phoi do|phối với|phoi voi|mặc với|mac voi|outfit|set đồ|set do/ui', $text);
+        return (bool)preg_match('/phối đồ|phoi do|phối với|phoi voi|mặc với|mac voi|outfit|set đồ|set do|set\s+(?:đi chơi|di choi)|(?:gồm|gom)\s+(?:áo|ao)\s+(?:và|va)\s+(?:quần|quan)|(?:áo|ao)\s+(?:và|va)\s+(?:quần|quan)/ui', $text);
+    }
+
+    private function isComplementaryRequest(string $text): bool {
+        if (preg_match('/(?:gồm|gom)\s+(?:áo|ao)\s+(?:và|va)\s+(?:quần|quan)|(?:áo|ao)\s+(?:và|va)\s+(?:quần|quan)/ui', $text)) {
+            return false;
+        }
+        $hasProductAnchor = preg_match(
+            '/(?:sản phẩm|san pham|món|mon)(?:\s+(?:mã|ma|số|so))?\s*#?\s*\d+|(?:mã|ma)\s*#?\s*\d+/ui',
+            $text
+        );
+        $hasCompanionLanguage = preg_match(
+            '/phối|phoi|kết hợp|ket hop|mặc cùng|mac cung|mặc chung|mac chung|đi kèm|di kem|bổ trợ|bo tro|'
+            . 'hợp với|hop voi|complete the look|outfit|\bset\b|chọn thêm đồ|chon them do/ui',
+            $text
+        );
+        if ($hasProductAnchor && $hasCompanionLanguage) {
+            return true;
+        }
+        return (bool)preg_match(
+            '/phối\s+(?:với|voi)|mặc\s+với|mac\s+voi|gợi ý.{0,50}(?:hợp|phối)|goi y.{0,50}(?:hop|phoi)|'
+            . 'đi với gì|di voi gi|phối đồ với|phoi do voi|complete the look|outfit hợp/ui',
+            $text
+        );
     }
 
     private function isCheckout(string $text): bool {

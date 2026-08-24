@@ -10,12 +10,50 @@ require_once __DIR__ . '/KnowledgeRetriever.php';
 require_once __DIR__ . '/ProductAttributeNormalizer.php';
 require_once __DIR__ . '/contracts/ChatbotToolGateway.php';
 require_once __DIR__ . '/ToolDefinitionCatalog.php';
+require_once __DIR__ . '/llm/LLMFactory.php';
+require_once __DIR__ . '/../../services/Catalog/CatalogTaxonomy.php';
+require_once __DIR__ . '/../../services/Catalog/CatalogVariantHydrator.php';
+require_once __DIR__ . '/../../services/Fashion/AnchorProductRef.php';
+require_once __DIR__ . '/../../services/Fashion/ComplementaryItemRequirement.php';
+require_once __DIR__ . '/../../services/Fashion/ComplementaryPlan.php';
+require_once __DIR__ . '/../../services/Fashion/FashionProviderResult.php';
+require_once __DIR__ . '/../../services/Fashion/FashionProviderProductMapping.php';
+require_once __DIR__ . '/../../services/Fashion/FashionProvider.php';
+require_once __DIR__ . '/../../services/Fashion/FindMineConfig.php';
+require_once __DIR__ . '/../../services/Fashion/FindMineMcpClientContract.php';
+require_once __DIR__ . '/../../services/Fashion/FindMineMcpClient.php';
+require_once __DIR__ . '/../../services/Fashion/FindMineProviderException.php';
+require_once __DIR__ . '/../../services/Fashion/FindMineV3ResponseAdapter.php';
+require_once __DIR__ . '/../../services/Fashion/FashionProviderMappingRepository.php';
+require_once __DIR__ . '/../../services/Fashion/FindMineFashionProvider.php';
+require_once __DIR__ . '/../../services/Fashion/RawFashionSuggestion.php';
+require_once __DIR__ . '/../../services/Fashion/RawFashionSuggestionProvider.php';
+require_once __DIR__ . '/../../services/Fashion/FindMineDemoFashionProvider.php';
+require_once __DIR__ . '/../../services/Fashion/ExtractedFashionItem.php';
+require_once __DIR__ . '/../../services/Fashion/FashionAttributeExtractor.php';
+require_once __DIR__ . '/../../services/Fashion/FashionExtractionCache.php';
+require_once __DIR__ . '/../../services/Fashion/ApplicationFashionExtractionCache.php';
+require_once __DIR__ . '/../../services/Fashion/FashionPipelineMetrics.php';
+require_once __DIR__ . '/../../services/Fashion/StructuredLogFashionMetrics.php';
+require_once __DIR__ . '/../../services/Fashion/FashionExtractionException.php';
+require_once __DIR__ . '/../../services/Fashion/DeterministicFashionAttributeParser.php';
+require_once __DIR__ . '/../../services/Fashion/FashionExtractionSemanticValidator.php';
+require_once __DIR__ . '/../../services/Fashion/LlmFashionAttributeExtractor.php';
+require_once __DIR__ . '/../../services/Fashion/FashionRequirement.php';
+require_once __DIR__ . '/../../services/Fashion/FashionRequirementNormalizer.php';
+require_once __DIR__ . '/../../services/Fashion/ShopComplementaryRequirement.php';
+require_once __DIR__ . '/../../services/Fashion/ConcurrentProductSearchGateway.php';
+require_once __DIR__ . '/../../services/Fashion/ComplementaryProductFinder.php';
+require_once __DIR__ . '/../../services/Fashion/FashionTaxonomyNormalizer.php';
+require_once __DIR__ . '/../../services/Fashion/ParallelComplementaryProductSearcher.php';
+require_once __DIR__ . '/../../services/Fashion/InternalShopConcurrentProductSearchGateway.php';
 
 class ToolRegistry implements ChatbotToolGateway {
     private PDO $pdo;
     private ?int $userId;
     private array $tools = [];
     private KnowledgeRetriever $knowledgeRetriever;
+    private CatalogVariantHydrator $catalogVariants;
 
     /** Tối thiểu bao nhiêu kết quả thì kích hoạt rerank */
     private const RERANK_MIN_RESULTS = 5;
@@ -24,12 +62,13 @@ class ToolRegistry implements ChatbotToolGateway {
     private const RERANK_TIMEOUT_MS = 2000;
     /** Tối đa bao nhiêu items gửi xuống reranker (phần còn lại giữ nguyên thứ tự) */
     private const RERANK_MAX_ITEMS = 20;
-    private const SEARCH_CACHE_VERSION = 3;
+    private const SEARCH_CACHE_VERSION = 4;
 
     public function __construct(PDO $pdo, ?int $userId = null) {
         $this->pdo = $pdo;
         $this->userId = $userId;
         $this->knowledgeRetriever = new KnowledgeRetriever($pdo);
+        $this->catalogVariants = new CatalogVariantHydrator($pdo);
         $this->registerAll();
     }
 
@@ -79,9 +118,11 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
                         ],
                         'category_id' => [
                             'type' => 'integer',
-                            'enum' => [1, 2, 3, 4],
-                            'description' => 'Danh mục: 1=Áo, 2=Quần, 3=Váy & Đầm, 4=Phụ kiện. Chỉ dùng khi search không đủ xác định. VD: "áo" không có loại cụ thể → category_id=1',
+                            'enum' => [1, 2, 3, 4, 5],
+                            'description' => 'Danh mục: 1=Áo, 2=Quần, 3=Váy & Đầm, 4=Phụ kiện, 5=Giày dép. Chỉ dùng khi search không đủ xác định.',
                         ],
+                        'category' => ['type' => 'string', 'description' => 'Canonical category such as footwear.'],
+                        'subcategory' => ['type' => 'string', 'description' => 'Canonical product subcategory.'],
                         'min_price' => ['type' => 'number', 'description' => 'Giá thấp nhất (VNĐ)'],
                         'max_price' => ['type' => 'number', 'description' => 'Giá cao nhất (VNĐ)'],
                         'color' => ['type' => 'string', 'description' => 'Màu sắc đã chuẩn hóa nếu user nêu rõ.'],
@@ -106,6 +147,22 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
                     'type' => 'object',
                     'properties' => [
                         'product_id' => ['type' => 'integer', 'description' => 'ID sản phẩm'],
+                    ],
+                    'required' => ['product_id'],
+                ],
+            ],
+        ];
+
+        $this->tools['suggest_complementary_products'] = [
+            'type' => 'function',
+            'function' => [
+                'name' => 'suggest_complementary_products',
+                'description' => 'Tìm các sản phẩm thật trong shop có thể phối cùng một sản phẩm neo sau khi phân tích styling.',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'product_id' => ['type' => 'integer', 'description' => 'ID sản phẩm neo trong shop'],
+                        'variant_id' => ['type' => 'integer', 'description' => 'ID biến thể nếu user chỉ rõ màu/size'],
                     ],
                     'required' => ['product_id'],
                 ],
@@ -209,7 +266,7 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
             'sort' => 'price_asc',
             '_v' => self::SEARCH_CACHE_VERSION,
         ];
-        foreach (['category_id', 'min_price', 'max_price', 'color', 'size', 'in_stock', 'material', 'style', 'occasion', 'avoid', 'semantic_query'] as $key) {
+        foreach (['category_id', 'category', 'subcategory', 'min_price', 'max_price', 'color', 'size', 'in_stock', 'material', 'style', 'occasion', 'avoid', 'semantic_query'] as $key) {
             if (array_key_exists($key, $args) && $args[$key] !== null && $args[$key] !== '') {
                 $queryParams[$key] = is_array($args[$key])
                     ? json_encode($args[$key], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
@@ -252,6 +309,47 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         return $result;
     }
 
+    private function executeSuggestComplementaryProducts(array $args): array {
+        $productId = (int) ($args['product_id'] ?? 0);
+        $variantId = isset($args['variant_id']) ? (int) $args['variant_id'] : null;
+        if ($productId <= 0) {
+            throw new InvalidArgumentException('product_id is required');
+        }
+        $config = FindMineConfig::fromEnvironment();
+        if (!$config->configured()) {
+            return [
+                'status' => 'provider_unavailable',
+                'provider_error' => 'findmine_not_configured',
+                'products' => [],
+                'groups' => [],
+            ];
+        }
+        if (!$config->demoMode || strtolower((string) (getenv('FASHION_PROVIDER') ?: 'findmine_demo')) !== 'findmine_demo') {
+            return [
+                'status' => 'provider_unavailable',
+                'provider_error' => 'findmine_demo_not_enabled',
+                'products' => [],
+                'groups' => [],
+            ];
+        }
+        $llm = LLMFactory::fashionExtractionFromEnv();
+        if ($llm === null) {
+            return [
+                'status' => 'extraction_failure',
+                'provider_error' => 'fashion_extraction_llm_not_configured',
+                'products' => [],
+                'groups' => [],
+            ];
+        }
+        $finder = new ComplementaryProductFinder(
+            new FindMineDemoFashionProvider(new FindMineMcpClient($config)),
+            new LlmFashionAttributeExtractor($llm),
+            new FashionRequirementNormalizer(),
+            new ParallelComplementaryProductSearcher(new InternalShopConcurrentProductSearchGateway())
+        );
+        return $finder->find($productId, $variantId);
+    }
+
     private function extractSearchProductId(array $args): ?int {
         $search = trim((string)($args['search'] ?? ''));
         if ($search === '') return null;
@@ -274,7 +372,13 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
             'category_name' => (string)($product['category_name'] ?? ''),
             'description' => (string)($product['description'] ?? ''),
             'sizes' => $product['sizes'] ?? [],
-            'available_colors' => ProductAttributeNormalizer::extractColorsFromProduct($product),
+            'available_sizes' => $product['available_sizes'] ?? ProductAttributeNormalizer::productSizes($product),
+            'available_colors' => $product['available_colors'] ?? ProductAttributeNormalizer::extractColorsFromProduct($product),
+            'canonical_colors' => $product['canonical_colors'] ?? [],
+            'colors' => $product['colors'] ?? [],
+            'variants' => $product['variants'] ?? [],
+            'subcategory' => $product['subcategory'] ?? null,
+            'subcategory_name' => $product['subcategory_name'] ?? null,
         ];
     }
 
@@ -297,6 +401,8 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         }
 
         $product = array_merge($static['product'] ?? [], $fresh);
+        $enriched = $this->catalogVariants->enrich([$product]);
+        $product = $enriched[0] ?? $product;
         return [
             'product' => $product,
             'cache' => [
@@ -332,9 +438,12 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         $ids = array_values(array_filter(array_unique($ids), fn($id) => $id > 0));
         if ($ids === []) return [];
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        $stmt = $this->pdo->prepare("SELECT p.id, p.category_id, p.name, p.price, p.stock, p.image, p.description, c.name as category_name
+        $stmt = $this->pdo->prepare("SELECT p.id, p.category_id, p.subcategory_id, p.name, p.price, p.stock,
+                    p.image, p.description, c.name as category_name, c.canonical_key as category,
+                    sc.canonical_key as subcategory, sc.display_name as subcategory_name
                 FROM products p
                 LEFT JOIN categories c ON p.category_id = c.id
+                LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.id
                 WHERE p.id IN ($placeholders)");
         $stmt->execute($ids);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -351,8 +460,7 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
             if (isset($byId[$id])) $ordered[] = $byId[$id];
         }
         $this->attachProductSizes($ordered);
-        $this->attachProductColors($ordered);
-        return $ordered;
+        return $this->catalogVariants->enrich($ordered);
     }
 
     private function fetchProductFreshById(int $id): ?array {
@@ -368,9 +476,12 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
     }
 
     private function fetchProductDetailStatic(int $id): array {
-        $stmt = $this->pdo->prepare("SELECT p.id, p.category_id, p.name, p.description, p.image, c.name as category_name
+        $stmt = $this->pdo->prepare("SELECT p.id, p.category_id, p.subcategory_id, p.name, p.description, p.image,
+                    c.name as category_name, c.canonical_key as category,
+                    sc.canonical_key as subcategory, sc.display_name as subcategory_name
                 FROM products p
                 LEFT JOIN categories c ON p.category_id = c.id
+                LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.id
                 WHERE p.id = ?");
         $stmt->execute([$id]);
         $product = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -503,9 +614,14 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
             return $cached;
         }
 
-        $stmt = $this->pdo->query("SELECT id, name FROM categories ORDER BY id");
+        $stmt = $this->pdo->query("SELECT id, name, canonical_key, family FROM categories ORDER BY id");
         $result = ['categories' => array_map(
-            fn($category) => ['id' => (int)$category['id'], 'name' => (string)$category['name']],
+            fn($category) => [
+                'id' => (int)$category['id'],
+                'name' => (string)$category['name'],
+                'canonical_key' => (string)$category['canonical_key'],
+                'family' => (string)$category['family'],
+            ],
             $stmt->fetchAll(PDO::FETCH_ASSOC)
         )];
         Cache::setCategories($result);
@@ -514,15 +630,22 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
 
     private function executeSearchProductsDirect(array $args): array {
         $args = $this->normalizeSearchArgs($args);
-        $sql = "SELECT p.id, p.category_id, p.name, p.price, p.stock, p.image, p.description, c.name as category_name
+        $sql = "SELECT p.id, p.category_id, p.subcategory_id, p.name, p.price, p.stock, p.image, p.description,
+                       c.name as category_name, c.canonical_key as category,
+                       sc.canonical_key as subcategory, sc.display_name as subcategory_name
                 FROM products p
                 LEFT JOIN categories c ON p.category_id = c.id
+                LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.id
                 WHERE 1=1";
         $params = [];
 
         if (!empty($args['category_id'])) {
             $sql .= " AND p.category_id = ?";
             $params[] = (int)$args['category_id'];
+        }
+        if (!empty($args['subcategory'])) {
+            $sql .= " AND sc.canonical_key = ?";
+            $params[] = (string)$args['subcategory'];
         }
         if (!empty($args['min_price'])) {
             $sql .= " AND p.price >= ?";
@@ -533,13 +656,35 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
             $params[] = (float)$args['max_price'];
         }
         if (($args['in_stock'] ?? null) === true) {
-            $sql .= " AND p.stock > 0";
+            $sql .= " AND (p.stock > 0 OR EXISTS (
+                SELECT 1 FROM product_variants av
+                WHERE av.product_id = p.id AND av.is_active = 1 AND COALESCE(av.stock, p.stock) > 0
+            ))";
         }
         if (!empty($args['size'])) {
             $size = ProductAttributeNormalizer::normalizeSize((string)$args['size']);
             if ($size !== null) {
-                $sql .= " AND EXISTS (SELECT 1 FROM product_sizes ps WHERE ps.product_id = p.id AND UPPER(ps.size_name) = ?)";
+                $sql .= " AND (EXISTS (
+                    SELECT 1 FROM product_variants sv
+                    WHERE sv.product_id = p.id AND sv.is_active = 1 AND UPPER(sv.size) = ?
+                ) OR EXISTS (
+                    SELECT 1 FROM product_sizes ps WHERE ps.product_id = p.id AND UPPER(ps.size_name) = ?
+                ))";
                 $params[] = $size;
+                $params[] = $size;
+            }
+        }
+        if (!empty($args['color'])) {
+            $canonicalColor = ProductAttributeNormalizer::normalizeCanonicalColor((string)$args['color']);
+            if ($canonicalColor !== null) {
+                $sql .= " AND (EXISTS (
+                    SELECT 1 FROM product_variants cv
+                    JOIN colors cc ON cc.id = cv.color_id
+                    WHERE cv.product_id = p.id AND cv.is_active = 1 AND cc.canonical_key = ?
+                ) OR NOT EXISTS (
+                    SELECT 1 FROM product_variants nv WHERE nv.product_id = p.id AND nv.is_active = 1
+                ))";
+                $params[] = $canonicalColor;
             }
         }
 
@@ -569,8 +714,8 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         }
 
         $this->attachProductSizes($products);
+        $products = $this->catalogVariants->enrich($products);
         $products = array_values(array_filter($products, fn($p) => ProductAttributeNormalizer::productMatchesConstraints($p, $args)));
-        $this->attachProductColors($products);
 
         foreach ($products as &$p) {
             $p['id'] = (int)$p['id'];
@@ -592,9 +737,10 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
     }
 
     private function normalizeSearchArgs(array $args): array {
+        $args = CatalogTaxonomy::normalizeSearchArguments($args);
         $search = mb_strtolower(trim((string)($args['search'] ?? '')));
         if (!empty($args['color'])) {
-            $normalizedColor = ProductAttributeNormalizer::normalizeColor((string)$args['color']);
+            $normalizedColor = ProductAttributeNormalizer::normalizeCanonicalColor((string)$args['color']);
             if ($normalizedColor !== null) {
                 $args['color'] = $normalizedColor;
             }
@@ -656,13 +802,6 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
             }
             unset($product);
         }
-    }
-
-    private function attachProductColors(array &$products): void {
-        foreach ($products as &$product) {
-            $product['available_colors'] = ProductAttributeNormalizer::extractColorsFromProduct($product);
-        }
-        unset($product);
     }
 
     private function absoluteUrl(string $path): string {

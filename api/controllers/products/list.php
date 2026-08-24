@@ -7,11 +7,21 @@
  * Vietnamese words like "áo" (2 char) use LIKE fallback.
  */
 require_once __DIR__ . '/../../config.php';
+require_once __DIR__ . '/../../services/Catalog/CatalogTaxonomy.php';
+require_once __DIR__ . '/../../services/Catalog/CatalogVariantHydrator.php';
 
 global $pdo;
 
-$search   = $_GET['search'] ?? '';
-$category = $_GET['category'] ?? '';
+$normalizedSearch = CatalogTaxonomy::normalizeSearchArguments([
+    'search' => $_GET['search'] ?? '',
+    'category' => $_GET['category'] ?? '',
+    'subcategory' => $_GET['subcategory'] ?? '',
+]);
+$search   = $normalizedSearch['search'] ?? '';
+$category = $_GET['category'] ?? ($normalizedSearch['category_id'] ?? '');
+$categoryKey = $normalizedSearch['category'] ?? '';
+$subcategory = $normalizedSearch['subcategory'] ?? '';
+$color = ProductAttributeNormalizer::normalizeCanonicalColor((string)($_GET['color'] ?? ''));
 $minPrice = $_GET['min_price'] ?? '';
 $maxPrice = $_GET['max_price'] ?? '';
 $inStock  = $_GET['in_stock'] ?? '';
@@ -60,8 +70,20 @@ if ($search !== '') {
 }
 
 if ($category !== '') {
-    $where[] = "p.category_id = ?";
-    $params[] = (int)$category;
+    if (is_numeric($category)) {
+        $where[] = "p.category_id = ?";
+        $params[] = (int)$category;
+    } else {
+        $where[] = "c.canonical_key = ?";
+        $params[] = (string)$category;
+    }
+} elseif ($categoryKey !== '') {
+    $where[] = "c.canonical_key = ?";
+    $params[] = $categoryKey;
+}
+if ($subcategory !== '') {
+    $where[] = "sc.canonical_key = ?";
+    $params[] = $subcategory;
 }
 if ($minPrice !== '') {
     $where[] = "p.price >= ?";
@@ -72,13 +94,26 @@ if ($maxPrice !== '') {
     $params[] = (float)$maxPrice;
 }
 if ($inStock === '1') {
-    $where[] = "p.stock > 0";
+    $where[] = "(p.stock > 0 OR EXISTS (
+        SELECT 1 FROM product_variants av
+        WHERE av.product_id = p.id AND av.is_active = 1 AND COALESCE(av.stock, p.stock) > 0
+    ))";
+}
+if ($color !== null) {
+    $where[] = "EXISTS (
+        SELECT 1 FROM product_variants cv
+        JOIN colors cc ON cc.id = cv.color_id
+        WHERE cv.product_id = p.id AND cv.is_active = 1 AND cc.canonical_key = ?
+    )";
+    $params[] = $color;
 }
 
 $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
 
 // Count
-$sqlCount = "SELECT COUNT(*) FROM products p" . $whereClause;
+$sqlCount = "SELECT COUNT(*) FROM products p
+             LEFT JOIN categories c ON p.category_id = c.id
+             LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.id" . $whereClause;
 $stmt = $pdo->prepare($sqlCount);
 $stmt->execute($params);
 $total = (int)$stmt->fetchColumn();
@@ -92,9 +127,12 @@ switch ($sort) {
 }
 
 // Data query — SELECT only needed columns (omit description for list perf)
-$sqlData = "SELECT p.id, p.category_id, p.name, p.price, p.stock, p.image, c.name as category_name
+$sqlData = "SELECT p.id, p.category_id, p.subcategory_id, p.name, p.price, p.stock, p.image,
+                   c.name as category_name, c.canonical_key as category,
+                   sc.canonical_key as subcategory, sc.display_name as subcategory_name
             FROM products p
             LEFT JOIN categories c ON p.category_id = c.id"
+            . " LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.id"
             . $whereClause . $orderBy;
 
 if ($limit !== null) {
@@ -113,6 +151,7 @@ foreach ($products as &$p) {
     $p['category_id'] = $p['category_id'] ? (int)$p['category_id'] : null;
 }
 unset($p);
+$products = (new CatalogVariantHydrator($pdo))->enrich($products);
 
 jsonResponse([
     'products' => $products,

@@ -13,6 +13,14 @@ class ToolPlanner {
         $calls = [];
 
         switch ($primary) {
+            case 'suggest_complementary_products':
+                if (empty($entities['product_id'])) {
+                    return ['batches' => [], 'response_type' => 'clarification'];
+                }
+                $args = ['product_id' => (int) $entities['product_id']];
+                if (!empty($entities['variant_id'])) $args['variant_id'] = (int) $entities['variant_id'];
+                $calls[] = ['tool' => 'suggest_complementary_products', 'args' => $args, 'id' => 'complementary_products'];
+                break;
             case 'unsupported_outfit':
             case 'unsupported_checkout':
             case 'unknown':
@@ -37,10 +45,7 @@ class ToolPlanner {
 
             case 'product_search':
                 if (empty($entities['product_type'])) return ['batches' => [], 'response_type' => 'fallback'];
-                $args = ['search' => (string)$entities['product_type']];
-                foreach (['min_price', 'max_price', 'category_id', 'color', 'size', 'in_stock', 'occasion', 'style', 'avoid', 'semantic_query'] as $key) {
-                    if (isset($entities[$key])) $args[$key] = $entities[$key];
-                }
+                $args = $this->searchArgs($entities);
                 $calls[] = ['tool' => 'search_products', 'args' => $args, 'id' => 'product_search'];
                 break;
 
@@ -54,10 +59,7 @@ class ToolPlanner {
                 if (!empty($entities['product_id'])) {
                     $calls[] = ['tool' => 'get_product_detail', 'args' => ['product_id' => (int)$entities['product_id']], 'id' => 'product_detail'];
                 } elseif (!empty($entities['product_type'])) {
-                    $args = ['search' => (string)$entities['product_type']];
-                    foreach (['min_price', 'max_price', 'category_id', 'color', 'size', 'in_stock', 'occasion', 'style', 'avoid', 'semantic_query'] as $key) {
-                        if (isset($entities[$key])) $args[$key] = $entities[$key];
-                    }
+                    $args = $this->searchArgs($entities);
                     $calls[] = ['tool' => 'search_products', 'args' => $args, 'id' => 'product_search'];
                 }
                 $calls[] = ['tool' => 'retrieve_knowledge', 'args' => $this->knowledgeArgs($intent), 'id' => 'knowledge'];
@@ -84,6 +86,31 @@ class ToolPlanner {
         $args = ['query' => $query, 'limit' => 5];
         $category = $this->knowledgeCategory($intent);
         if ($category !== null) $args['category'] = $category;
+        return $args;
+    }
+
+    /** Build MCP-valid search arguments from the parser's finer-grained taxonomy. */
+    private function searchArgs(array $entities): array {
+        $args = ['search' => (string)($entities['product_type'] ?? '')];
+        foreach (['min_price', 'max_price', 'category_id', 'subcategory', 'color', 'size', 'in_stock', 'occasion', 'style', 'avoid', 'semantic_query'] as $key) {
+            if (isset($entities[$key])) $args[$key] = $entities[$key];
+        }
+        $category = strtolower(trim((string)($entities['category'] ?? '')));
+        $categoryMap = [
+            'tops' => 'tops', 'top' => 'tops', 'shirt' => 'tops', 't_shirt' => 'tops', 'jacket' => 'tops',
+            'hoodie' => 'tops', 'polo' => 'tops', 'sweater' => 'tops', 'vest' => 'tops', 'blazer' => 'tops',
+            'bottoms' => 'bottoms', 'bottom' => 'bottoms', 'jeans' => 'bottoms', 'trousers' => 'bottoms',
+            'shorts' => 'bottoms', 'joggers' => 'bottoms',
+            'dresses_skirts' => 'dresses_skirts', 'dress' => 'dresses_skirts', 'skirt' => 'dresses_skirts', 'maxi_dress' => 'dresses_skirts',
+            'accessories' => 'accessories', 'accessory' => 'accessories', 'bag' => 'accessories', 'watch' => 'accessories', 'belt' => 'accessories', 'sunglasses' => 'accessories',
+            'footwear' => 'footwear',
+        ];
+        if (isset($categoryMap[$category])) {
+            $args['category'] = $categoryMap[$category];
+        } elseif (isset($args['category_id'])) {
+            $args['category'] = [1 => 'tops', 2 => 'bottoms', 3 => 'dresses_skirts', 4 => 'accessories', 5 => 'footwear'][(int)$args['category_id']] ?? null;
+            if ($args['category'] === null) unset($args['category']);
+        }
         return $args;
     }
 

@@ -12,11 +12,60 @@ require_once ROOT_DIR . '/api/cache/Cache.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMProvider.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMResponse.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/ProductAttributeNormalizer.php';
+require_once ROOT_DIR . '/api/services/Catalog/CatalogTaxonomy.php';
+require_once ROOT_DIR . '/api/services/Catalog/CatalogColor.php';
+require_once ROOT_DIR . '/api/services/Catalog/ProductVariant.php';
+require_once ROOT_DIR . '/api/services/Catalog/CatalogVariantHydrator.php';
+require_once ROOT_DIR . '/api/services/Catalog/CatalogVariantBackfill.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/ChatbotMemory.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/KnowledgeRetriever.php';
-require_once ROOT_DIR . '/api/controllers/chatbot/ToolRegistry.php';
+require_once ROOT_DIR . '/api/services/Fashion/FashionProvider.php';
 require_once ROOT_DIR . '/api/services/CartService.php';
 require_once ROOT_DIR . '/api/services/OrderService.php';
+require_once ROOT_DIR . '/api/services/Fashion/AnchorProductRef.php';
+require_once ROOT_DIR . '/api/services/Fashion/ComplementaryItemRequirement.php';
+require_once ROOT_DIR . '/api/services/Fashion/ComplementaryPlan.php';
+require_once ROOT_DIR . '/api/services/Fashion/FindMineProviderException.php';
+require_once ROOT_DIR . '/api/services/Fashion/FindMineV3ResponseAdapter.php';
+require_once ROOT_DIR . '/api/services/Fashion/FindMineConfig.php';
+require_once ROOT_DIR . '/api/services/Fashion/FindMineMcpClientContract.php';
+require_once ROOT_DIR . '/api/services/Fashion/FindMineMcpClient.php';
+require_once ROOT_DIR . '/api/services/Fashion/RawFashionSuggestion.php';
+require_once ROOT_DIR . '/api/services/Fashion/RawFashionSuggestionProvider.php';
+require_once ROOT_DIR . '/api/services/Fashion/FindMineDemoFashionProvider.php';
+require_once ROOT_DIR . '/api/services/Fashion/ExtractedFashionItem.php';
+require_once ROOT_DIR . '/api/services/Fashion/FashionAttributeExtractor.php';
+require_once ROOT_DIR . '/api/services/Fashion/FashionExtractionCache.php';
+require_once ROOT_DIR . '/api/services/Fashion/ApplicationFashionExtractionCache.php';
+require_once ROOT_DIR . '/api/services/Fashion/FashionPipelineMetrics.php';
+require_once ROOT_DIR . '/api/services/Fashion/StructuredLogFashionMetrics.php';
+require_once ROOT_DIR . '/api/services/Fashion/FashionExtractionException.php';
+require_once ROOT_DIR . '/api/services/Fashion/DeterministicFashionAttributeParser.php';
+require_once ROOT_DIR . '/api/services/Fashion/FashionExtractionSemanticValidator.php';
+require_once ROOT_DIR . '/api/services/Fashion/LlmFashionAttributeExtractor.php';
+require_once ROOT_DIR . '/api/services/Fashion/FindMineFashionProvider.php';
+require_once ROOT_DIR . '/api/services/Fashion/FashionProviderResult.php';
+require_once ROOT_DIR . '/api/services/Fashion/FashionProviderProductMapping.php';
+require_once ROOT_DIR . '/api/services/Fashion/FashionProviderMappingRepository.php';
+require_once ROOT_DIR . '/api/services/Fashion/FashionRequirement.php';
+require_once ROOT_DIR . '/api/services/Fashion/ShopComplementaryRequirement.php';
+require_once ROOT_DIR . '/api/services/Fashion/FashionTaxonomyNormalizer.php';
+require_once ROOT_DIR . '/api/services/Fashion/FashionRequirementNormalizer.php';
+require_once ROOT_DIR . '/api/services/Fashion/ConcurrentProductSearchGateway.php';
+require_once ROOT_DIR . '/api/services/Fashion/InternalShopConcurrentProductSearchGateway.php';
+require_once ROOT_DIR . '/api/services/Fashion/ParallelComplementaryProductSearcher.php';
+require_once ROOT_DIR . '/api/services/Fashion/ComplementaryProductFinder.php';
+require_once ROOT_DIR . '/api/services/Fashion/ProactiveStylingStateMachine.php';
+require_once ROOT_DIR . '/api/services/Fashion/ProactiveStylingStateStore.php';
+require_once ROOT_DIR . '/api/services/Fashion/CartItemAddedOutbox.php';
+require_once ROOT_DIR . '/api/services/Fashion/FashionEventBus.php';
+require_once ROOT_DIR . '/api/services/Fashion/RedisFashionEventBus.php';
+require_once ROOT_DIR . '/api/services/Fashion/FashionOutboxPublisher.php';
+require_once ROOT_DIR . '/api/services/Fashion/CartItemAddedConsumer.php';
+require_once ROOT_DIR . '/api/services/Fashion/ProactiveChatTurnService.php';
+require_once ROOT_DIR . '/api/services/Fashion/ProactiveCartStylingService.php';
+require_once ROOT_DIR . '/api/controllers/chatbot/ToolRegistry.php';
+require_once ROOT_DIR . '/api/services/Fashion/OfflineFashionMappingImporter.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMFactory.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/PartialParseResult.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/CapabilityRegistry.php';
@@ -73,6 +122,7 @@ function initSQLiteSchema(PDO $pdo): void {
     $pdo->exec("CREATE TABLE IF NOT EXISTS products (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         category_id INTEGER,
+        subcategory_id INTEGER,
         name TEXT NOT NULL,
         price REAL NOT NULL,
         stock INTEGER DEFAULT 0,
@@ -81,7 +131,38 @@ function initSQLiteSchema(PDO $pdo): void {
     )");
     $pdo->exec("CREATE TABLE IF NOT EXISTS categories (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL
+        name TEXT NOT NULL,
+        canonical_key TEXT NOT NULL UNIQUE,
+        family TEXT NOT NULL
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS product_subcategories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category_id INTEGER NOT NULL,
+        canonical_key TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        UNIQUE(category_id, canonical_key)
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS colors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        canonical_key TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL,
+        external_code TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS product_variants (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL,
+        variant_key TEXT NOT NULL,
+        sku TEXT UNIQUE,
+        color_id INTEGER,
+        size TEXT,
+        price REAL,
+        stock INTEGER,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(product_id, variant_key)
     )");
     $pdo->exec("CREATE TABLE IF NOT EXISTS faqs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -180,12 +261,50 @@ function initSQLiteSchema(PDO $pdo): void {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS fashion_provider_product_mapping (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        shop_product_id INTEGER NOT NULL,
+        shop_variant_id INTEGER,
+        mapping_scope TEXT NOT NULL DEFAULT 'product',
+        provider TEXT NOT NULL,
+        provider_product_id TEXT NOT NULL,
+        provider_variant_id TEXT NOT NULL DEFAULT '',
+        provider_color_id TEXT NOT NULL DEFAULT '',
+        provider_identifiers TEXT,
+        sync_status TEXT NOT NULL DEFAULT 'pending',
+        sync_version TEXT,
+        last_synced_at DATETIME,
+        last_error TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(provider, shop_product_id, mapping_scope),
+        UNIQUE(provider, provider_product_id, provider_variant_id, provider_color_id)
+    )");
     seedTestData($pdo);
 }
 
 function seedTestData(PDO $pdo): void {
     // Categories
-    $pdo->exec("INSERT OR IGNORE INTO categories (id, name) VALUES (1, 'Áo'), (2, 'Quần'), (3, 'Váy & Đầm'), (4, 'Phụ kiện')");
+    $pdo->exec("INSERT OR IGNORE INTO categories (id, name, canonical_key, family) VALUES
+        (1, 'Áo', 'tops', 'apparel'),
+        (2, 'Quần', 'bottoms', 'apparel'),
+        (3, 'Váy & Đầm', 'dresses_skirts', 'apparel'),
+        (4, 'Phụ kiện', 'accessories', 'accessory'),
+        (5, 'Giày dép', 'footwear', 'footwear')");
+    $pdo->exec("INSERT OR IGNORE INTO product_subcategories (id, category_id, canonical_key, display_name) VALUES
+        (501, 5, 'sneakers', 'Giày sneaker'),
+        (502, 5, 'dress_shoes', 'Giày tây'),
+        (503, 5, 'loafers', 'Giày loafer'),
+        (504, 5, 'boots', 'Bốt'),
+        (505, 5, 'sandals', 'Dép sandal'),
+        (506, 5, 'other', 'Giày dép khác')");
+    $pdo->exec("INSERT OR IGNORE INTO colors (id, canonical_key, display_name) VALUES
+        (1, 'black', 'Đen'), (2, 'white', 'Trắng'), (3, 'gray', 'Xám'),
+        (4, 'navy', 'Xanh navy'), (5, 'blue', 'Xanh dương'), (6, 'brown', 'Nâu'),
+        (7, 'beige', 'Be'), (8, 'khaki', 'Kaki'), (9, 'green', 'Xanh lá'),
+        (10, 'red', 'Đỏ'), (11, 'pink', 'Hồng'), (12, 'purple', 'Tím'),
+        (13, 'yellow', 'Vàng'), (14, 'orange', 'Cam'), (15, 'cream', 'Kem'),
+        (16, 'multi', 'Đa màu'), (17, 'other', 'Khác')");
     // Products
     $pdo->exec("INSERT OR IGNORE INTO products (id, category_id, name, price, stock, description) VALUES
         (50, 1, 'Áo Thun Cotton Basic Trắng', 180000, 10, 'Chất liệu cotton 100%'),

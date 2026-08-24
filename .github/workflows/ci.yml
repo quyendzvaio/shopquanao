@@ -36,6 +36,20 @@ jobs:
       - name: Install dependencies
         run: composer install --no-interaction --no-progress
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mcp-server/package-lock.json
+
+      - name: MCP contract tests and build
+        working-directory: mcp-server
+        run: |
+          npm ci
+          npm test
+          npm run build
+
       - name: PHP Lint
         run: |
           ERRORS=0
@@ -56,7 +70,7 @@ jobs:
 
       - name: Python lint (reranker)
         run: |
-          python3 -m py_compile docker/reranker/app.py docker/rag-ml/app.py eval/ragas_compat.py eval/run_chatbot_eval.py scripts/eval_rag_chatbot.py && echo "✅ Python syntax OK"
+          python3 -m py_compile docker/reranker/app.py docker/rag-ml/app.py eval/ragas_compat.py eval/run_chatbot_eval.py eval/run_findmine_ragas.py eval/build_full_agent_eval_report.py scripts/eval_rag_chatbot.py && echo "✅ Python syntax OK"
 
   # ============================================================
   # Job 2: Unit Tests
@@ -82,6 +96,9 @@ jobs:
         run: vendor/bin/phpunit --testsuite=Unit --colors=always --display-warnings
         env:
           APP_ENV: test
+
+      - name: Validate 70-question agent corpus
+        run: php scripts/run_findmine_offline_eval.php
 
   # ============================================================
   # Job 3: Integration Tests
@@ -344,11 +361,28 @@ jobs:
             echo "RAG_ML_WARMUP_ON_START=${{ secrets.RAG_ML_WARMUP_ON_START || 'false' }}" >> .env
             echo "CHATBOT_TOOL_TRANSPORT=mcp" >> .env
             echo "MCP_SERVICE_TOKEN=${{ secrets.MCP_SERVICE_TOKEN }}" >> .env
-            echo "MCP_REQUEST_TIMEOUT_MS=30000" >> .env
-            echo "MCP_REQUEST_TIMEOUT=35" >> .env
+            echo "MCP_REQUEST_TIMEOUT_MS=80000" >> .env
+            echo "MCP_REQUEST_TIMEOUT=85" >> .env
             echo "REDIS_TIMEOUT=0.15" >> .env
             echo "CLIENT_CACHE_TTL=60" >> .env
             echo "CLIENT_CACHE_STALE_TTL=30" >> .env
+            echo "FASHION_PROVIDER=${{ secrets.FASHION_PROVIDER || 'findmine_demo' }}" >> .env
+            echo "FINDMINE_ENABLED=${{ secrets.FINDMINE_ENABLED || 'false' }}" >> .env
+            echo "FINDMINE_DEMO_ENABLED=${{ secrets.FINDMINE_DEMO_ENABLED || 'false' }}" >> .env
+            echo "FINDMINE_DEMO_MODE=${{ secrets.FINDMINE_DEMO_MODE || 'false' }}" >> .env
+            echo "FINDMINE_LIVE_VERIFIED=${{ secrets.FINDMINE_LIVE_VERIFIED || 'false' }}" >> .env
+            echo "FINDMINE_API_URL=${{ secrets.FINDMINE_API_URL || 'https://api.findmine.com' }}" >> .env
+            echo "FINDMINE_APP_ID=${{ secrets.FINDMINE_APP_ID || '' }}" >> .env
+            echo "FINDMINE_API_VERSION=${{ secrets.FINDMINE_API_VERSION || 'v3' }}" >> .env
+            echo "FINDMINE_DEFAULT_REGION=${{ secrets.FINDMINE_DEFAULT_REGION || 'us' }}" >> .env
+            echo "FINDMINE_DEFAULT_LANGUAGE=${{ secrets.FINDMINE_DEFAULT_LANGUAGE || 'en' }}" >> .env
+            echo "FINDMINE_STARTUP_TIMEOUT_MS=${{ secrets.FINDMINE_STARTUP_TIMEOUT_MS || '5000' }}" >> .env
+            echo "FINDMINE_REQUEST_TIMEOUT_MS=${{ secrets.FINDMINE_REQUEST_TIMEOUT_MS || '15000' }}" >> .env
+            echo "FINDMINE_RETRY_ATTEMPTS=${{ secrets.FINDMINE_RETRY_ATTEMPTS || '1' }}" >> .env
+            echo "FINDMINE_PRODUCT_IDENTIFIER_KEY=${{ secrets.FINDMINE_PRODUCT_IDENTIFIER_KEY || 'product_id' }}" >> .env
+            echo "FINDMINE_COLOR_IDENTIFIER_KEY=${{ secrets.FINDMINE_COLOR_IDENTIFIER_KEY || 'product_color_id' }}" >> .env
+            echo "FASHION_EVENT_STREAM=${{ secrets.FASHION_EVENT_STREAM || 'fashion:events' }}" >> .env
+            echo "FASHION_EVENT_GROUP=${{ secrets.FASHION_EVENT_GROUP || 'proactive-styling' }}" >> .env
             echo ".env written ($(wc -l < .env) lines)"
 
             echo "Stopping current stack before cleanup..."
@@ -391,8 +425,15 @@ jobs:
             echo "Pulling runtime base images..."
             docker compose pull nginx db redis qdrant
 
+            # Apply migrations before app/workers are allowed to start. The
+            # named DB volume is preserved by the cleanup above.
+            echo "Starting migration dependencies..."
+            docker compose up -d --wait db redis
+            echo "Applying database migrations..."
+            docker compose run --rm --no-deps app php scripts/run_database_migrations.php
+
             # Deploy
-            echo "Starting containers..."
+            echo "Starting application containers..."
             docker compose up -d --remove-orphans
 
             # Healthcheck with extended timeout for rag-ml model warmup.

@@ -16,7 +16,9 @@ final class ToolDefinitionCatalog
                 'type' => 'object',
                 'properties' => [
                     'search' => ['type' => 'string', 'description' => 'Cụm từ tên sản phẩm đầy đủ do người dùng cung cấp.'],
-                    'category_id' => ['type' => 'integer', 'enum' => [1, 2, 3, 4]],
+                    'category_id' => ['type' => 'integer', 'enum' => [1, 2, 3, 4, 5]],
+                    'category' => ['type' => 'string'],
+                    'subcategory' => ['type' => 'string'],
                     'min_price' => ['type' => 'number'],
                     'max_price' => ['type' => 'number'],
                     'color' => ['type' => 'string'],
@@ -32,6 +34,14 @@ final class ToolDefinitionCatalog
             self::definition('get_product_detail', 'Lấy mô tả, giá, tồn kho, kích cỡ và đánh giá của một sản phẩm.', [
                 'type' => 'object',
                 'properties' => ['product_id' => ['type' => 'integer']],
+                'required' => ['product_id'],
+            ]),
+            self::definition('suggest_complementary_products', 'Gọi styling provider đã mapping rồi tìm các SKU thật của shop theo từng nhóm phối đồ.', [
+                'type' => 'object',
+                'properties' => [
+                    'product_id' => ['type' => 'integer'],
+                    'variant_id' => ['type' => 'integer'],
+                ],
                 'required' => ['product_id'],
             ]),
             self::definition('suggest_size', 'Tư vấn size dựa trên chiều cao, cân nặng và danh mục.', [

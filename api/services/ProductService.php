@@ -26,4 +26,9 @@ final class ProductService
     {
         return $this->legacy->execute('get_categories', []);
     }
+
+    public function suggestComplementary(array $arguments): array
+    {
+        return $this->legacy->execute('suggest_complementary_products', $arguments);
+    }
 }

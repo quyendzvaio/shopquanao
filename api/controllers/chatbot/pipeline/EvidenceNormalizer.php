@@ -7,6 +7,7 @@ class EvidenceNormalizer {
         $cards = [];
         $knowledgeSources = [];
         $evidence = [];
+        $complementaryGroups = [];
         $toolResults = [];
 
         foreach (($execution['results'] ?? []) as $id => $entry) {
@@ -28,6 +29,8 @@ class EvidenceNormalizer {
                 $this->normalizeSize($result, $evidence);
             } elseif ($tool === 'get_order_status') {
                 $this->normalizeOrder($result, $evidence);
+            } elseif ($tool === 'suggest_complementary_products') {
+                $this->normalizeComplementary($result, $cards, $evidence, $complementaryGroups);
             }
         }
 
@@ -35,6 +38,7 @@ class EvidenceNormalizer {
             'cards' => $this->dedupeCards($cards),
             'knowledge_sources' => $this->dedupeKnowledgeSources($knowledgeSources),
             'evidence' => $evidence,
+            'complementary_groups' => $complementaryGroups,
             'tool_results' => $toolResults,
         ];
     }
@@ -172,6 +176,28 @@ class EvidenceNormalizer {
         }
     }
 
+    private function normalizeComplementary(array $result, array &$cards, array &$evidence, array &$groups): void {
+        $groups = is_array($result['groups'] ?? null) ? $result['groups'] : [];
+        foreach ($groups as $group) {
+            if (!is_array($group)) continue;
+            $products = is_array($group['products'] ?? null) ? $group['products'] : [];
+            foreach ($products as $product) {
+                if (!is_array($product)) continue;
+                $card = $this->productCard($product);
+                if ((int) $card['id'] <= 0) continue;
+                $cards[] = $card;
+                $this->addProductFacts($card, $evidence, 'complementary_product_search');
+            }
+        }
+        $evidence[] = [
+            'source' => 'complementary_product_search',
+            'fact_type' => 'complementary_groups',
+            'value' => $groups,
+            'freshness' => date('c'),
+            'confidence' => 1.0,
+        ];
+    }
+
     private function productCard(array $product): array {
         $id = (int)($product['id'] ?? 0);
         $image = (string)($product['image'] ?? '');
@@ -186,6 +212,11 @@ class EvidenceNormalizer {
             'category_name' => (string)($product['category_name'] ?? ''),
             'available_sizes' => $this->extractSizes($product),
             'available_colors' => $this->extractColors($product),
+            'canonical_colors' => is_array($product['canonical_colors'] ?? null) ? $product['canonical_colors'] : [],
+            'colors' => is_array($product['colors'] ?? null) ? $product['colors'] : [],
+            'variants' => is_array($product['variants'] ?? null) ? $product['variants'] : [],
+            'subcategory' => isset($product['subcategory']) ? (string)$product['subcategory'] : null,
+            'subcategory_name' => isset($product['subcategory_name']) ? (string)$product['subcategory_name'] : null,
             'image' => $image,
             'image_url' => $this->productImageUrl($image, (string)($product['image_url'] ?? '')),
             'url' => $id > 0 ? '/product.php?id=' . $id : '',

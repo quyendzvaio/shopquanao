@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../middleware.php';
+require_once __DIR__ . '/../../services/Catalog/CatalogVariantHydrator.php';
 
 requireAdmin();
 
@@ -14,5 +15,7 @@ foreach ($products as &$p) {
     $p['stock'] = (int)$p['stock'];
     $p['category_id'] = $p['category_id'] ? (int)$p['category_id'] : null;
 }
+unset($p);
+$products = (new CatalogVariantHydrator($pdo))->enrich($products);
 
 jsonResponse(['products' => $products]);

@@ -16,6 +16,22 @@ COPY mcp-server/package.json mcp-server/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=mcp-build /build/dist/src ./dist
 
+FROM node:22-bookworm-slim AS findmine-build
+ARG FINDMINE_MCP_SHA=28a15b86ac0a7b212336748005393f88bcbfdad1
+WORKDIR /build/findmine-mcp
+RUN apt-get update -qq \
+    && apt-get install -y -qq --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && git clone --quiet https://github.com/findmine/findmine-mcp.git . \
+    && git checkout --quiet "$FINDMINE_MCP_SHA"
+COPY docker/findmine-mcp-shopquanao.patch /tmp/findmine-mcp-shopquanao.patch
+RUN git apply --check /tmp/findmine-mcp-shopquanao.patch \
+    && git apply /tmp/findmine-mcp-shopquanao.patch
+RUN npm ci \
+    && npm run build \
+    && npm prune --omit=dev \
+    && npm cache clean --force
+
 FROM php:8.2-apache AS php-extensions
 
 # Compile extensions in a throw-away stage. The runtime image receives only
@@ -59,6 +75,7 @@ WORKDIR /var/www/html
 
 # Private MCP stdio runtime. No network listener is started.
 COPY --from=mcp-runtime /opt/mcp-server /opt/mcp-server
+COPY --from=findmine-build /build/findmine-mcp /opt/findmine-mcp
 
 # Copy application files (chained to single layer)
 COPY api/ api/
@@ -68,6 +85,18 @@ COPY css/ css/
 COPY sql/ sql/
 COPY knowledge/ knowledge/
 COPY scripts/ingest_knowledge.php scripts/ingest_knowledge.php
+COPY scripts/run_database_migrations.php scripts/run_database_migrations.php
+COPY scripts/publish_fashion_outbox.php scripts/publish_fashion_outbox.php
+COPY scripts/consume_fashion_events.php scripts/consume_fashion_events.php
+COPY scripts/findmine_live_inspect.php scripts/findmine_live_inspect.php
+COPY scripts/run_fashion_extraction_eval.php scripts/run_fashion_extraction_eval.php
+COPY tests/fixtures/findmine/fashion-extraction-cases.php tests/fixtures/findmine/fashion-extraction-cases.php
+COPY scripts/smoke_findmine_demo.php scripts/smoke_findmine_demo.php
+COPY scripts/smoke_proactive_demo_live.php scripts/smoke_proactive_demo_live.php
+COPY scripts/run_findmine_agent_eval.php scripts/run_findmine_agent_eval.php
+COPY eval/findmine_agent_eval_cases.php eval/findmine_agent_eval_cases.php
+COPY scripts/smoke_cart_event_pipeline.php scripts/smoke_cart_event_pipeline.php
+COPY scripts/smoke_proactive_chat_turns.php scripts/smoke_proactive_chat_turns.php
 COPY images/ images/
 COPY *.php ./
 COPY admin/*.php admin/

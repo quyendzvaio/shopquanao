@@ -29,6 +29,7 @@ final class ToolApplicationService
             'search_products' => $this->products->search($arguments),
             'get_product_detail' => $this->products->detail($arguments),
             'get_categories' => $this->products->categories(),
+            'suggest_complementary_products' => $this->products->suggestComplementary($arguments),
             'suggest_size' => $this->sizes->suggest($arguments),
             'retrieve_knowledge' => $this->knowledge->retrieve($arguments),
             'get_order_status' => $this->orders->status($this->userId, $arguments),

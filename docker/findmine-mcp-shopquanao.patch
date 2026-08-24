@@ -1,0 +1,306 @@
+diff --git a/src/api/findmine-client.ts b/src/api/findmine-client.ts
+index b491e1f..a02bf30 100644
+--- a/src/api/findmine-client.ts
++++ b/src/api/findmine-client.ts
+@@ -56,6 +56,7 @@ export interface FindMineClientConfig {
+   defaultLanguage?: string;
+   retryCount?: number;
+   retryDelayMs?: number;
++  requestTimeoutMs?: number;
+ }
+ 
+ /**
+@@ -70,6 +71,7 @@ export class FindMineClient {
+       apiVersion: config.apiVersion ?? 'v3',
+       retryCount: config.retryCount ?? 3,
+       retryDelayMs: config.retryDelayMs ?? 1000,
++      requestTimeoutMs: config.requestTimeoutMs ?? 15000,
+     };
+   }
+ 
+@@ -125,6 +127,7 @@ export class FindMineClient {
+             Accept: 'application/json',
+           },
+           body: method === 'POST' ? body : undefined,
++          signal: AbortSignal.timeout(this.config.requestTimeoutMs ?? 15000),
+         });
+ 
+         // Get response as text first to help with debugging
+@@ -244,17 +247,19 @@ export class FindMineClient {
+       returnPdpItem?: boolean;
+       gender?: 'M' | 'W' | 'U';
+       apiVersion?: string;
++      productIdentifiers?: Record<string, string>;
++      fakeResult?: boolean;
+     } = {}
+   ): Promise<CompleteTheLookResponse> {
+     const apiVersion = options.apiVersion ?? this.config.apiVersion ?? 'v3';
+     // Create request parameters, only including gender if explicitly provided
+     const params: CompleteTheLookRequest = {
+       ...this.createBaseRequest(sessionId, options.customerId),
+-      product_id: productId,
+-      product_color_id: options.colorId,
++      ...(options.productIdentifiers ?? { product_id: productId, product_color_id: options.colorId }),
+       product_in_stock: inStock,
+       product_on_sale: onSale,
+       return_pdp_item: options.returnPdpItem,
++      fake_result: options.fakeResult,
+     };
+ 
+     // Only add gender param if explicitly provided
+diff --git a/src/config.ts b/src/config.ts
+index a726975..0ac774b 100644
+--- a/src/config.ts
++++ b/src/config.ts
+@@ -34,6 +34,9 @@ export interface ServerConfig {
+      * Default language (optional)
+      */
+     defaultLanguage?: string;
++
++    /** Finite timeout for each downstream FindMine HTTP request. */
++    requestTimeoutMs: number;
+   };
+ 
+   /**
+@@ -87,6 +90,10 @@ export const config: ServerConfig = {
+     apiVersion: process.env.FINDMINE_API_VERSION || 'v3',
+     defaultRegion: process.env.FINDMINE_DEFAULT_REGION || 'us',
+     defaultLanguage: process.env.FINDMINE_DEFAULT_LANGUAGE || 'en',
++    requestTimeoutMs: Math.max(
++      500,
++      parseInt(process.env.FINDMINE_REQUEST_TIMEOUT_MS || '15000', 10)
++    ),
+   },
+   session: {
+     defaultSessionId: process.env.FINDMINE_DEFAULT_SESSION_ID || 'mcp-default-session',
+diff --git a/src/handlers/tools.ts b/src/handlers/tools.ts
+index d15bccd..f3c9a42 100644
+--- a/src/handlers/tools.ts
++++ b/src/handlers/tools.ts
+@@ -18,4 +18,5 @@ import {
+ import { findMineService } from '../services/findmine-service.js';
+ import { createProductUri, createLookUri } from '../types/mcp.js';
+ import { styleGuides, getOccasionAdvice, getSeasonAdvice } from '../content/style-guides.js';
++import { sampleCompleteTheLookResponse } from '../utils/mock-data.js';
+ 
+@@ -134,6 +134,18 @@ async function handleGetCompleteTheLook(args: GetCompleteTheLookInput): Promise<
+   const customerId = args.customer_id;
+   const gender = args.customer_gender;
+   const apiVersion = args.api_version;
++  const productIdentifiers = args.product_identifiers;
++  const fakeResult = args.fake_result;
++
++  // Explicit shopquanao demo mode uses the repository's documented sample
++  // response while keeping the normal MCP stdio lifecycle and production
++  // process environment. It never calls the tenant API or represents shop IDs.
++  if (process.env.FINDMINE_DEMO_MODE === 'true') {
++    return {
++      success: true,
++      content: [{ type: 'text', text: JSON.stringify(sampleCompleteTheLookResponse) }],
++    };
++  }
+ 
+   logger.error(
+     `Getting complete the look for product ${productId}${colorId ? ` (color: ${colorId})` : ''}`
+@@ -147,6 +149,8 @@ async function handleGetCompleteTheLook(args: GetCompleteTheLookInput): Promise<
+     returnPdpItem,
+     gender,
+     apiVersion,
++    productIdentifiers,
++    fakeResult,
+   });
+ 
+   // Process looks data with null safety
+@@ -172,7 +174,14 @@ async function handleGetCompleteTheLook(args: GetCompleteTheLookInput): Promise<
+ 
+                 return {
+                   product_id: pid,
++                  item_id: pid,
+                   name: product?.name || '',
++                  title: product?.name || '',
++                  item_url: product?.url || '',
++                  image_url: product?.imageUrl || '',
++                  price: product?.price,
++                  category: product?.category,
++                  attributes: product?.attributes,
+                   uri: productUri,
+                 };
+               })
+@@ -202,6 +211,7 @@ async function handleGetCompleteTheLook(args: GetCompleteTheLookInput): Promise<
+         type: 'text',
+         text: JSON.stringify(
+           {
++            response_uuid: result.responseUuid,
+             product: productInfo,
+             looks: lookItems,
+             total_looks: lookItems.length,
+diff --git a/src/schemas/tool-inputs.ts b/src/schemas/tool-inputs.ts
+index 25538b3..96d1ff4 100644
+--- a/src/schemas/tool-inputs.ts
++++ b/src/schemas/tool-inputs.ts
+@@ -53,6 +53,13 @@ export const GetCompleteTheLookInputSchema = z.object({
+ 
+   product_color_id: ColorIdSchema.describe('Color ID of the product (if applicable)'),
+ 
++  product_identifiers: z.record(z.string(), z.string()).optional().refine(
++    (value) => value === undefined || Object.keys(value).every((key) => /^product_[a-z0-9_]+$/.test(key)),
++    'All tenant identifier keys must start with product_'
++  ),
++
++  fake_result: z.boolean().default(false).describe('Request FindMine synthetic demo recommendations'),
++
+   in_stock: z.boolean().default(true).describe('Whether the product is in stock'),
+ 
+   on_sale: z.boolean().default(false).describe('Whether the product is on sale'),
+diff --git a/src/services/findmine-service.ts b/src/services/findmine-service.ts
+index b64f775..47dc1c1 100644
+--- a/src/services/findmine-service.ts
++++ b/src/services/findmine-service.ts
+@@ -35,6 +35,10 @@ export class FindMineService {
+       apiVersion: config.findmine.apiVersion,
+       defaultRegion: config.findmine.defaultRegion,
+       defaultLanguage: config.findmine.defaultLanguage,
++      requestTimeoutMs: config.findmine.requestTimeoutMs,
++      // The shop adapter owns bounded transient retries. Disable the upstream
++      // client's broad retry loop so auth/validation failures are never replayed.
++      retryCount: 0,
+     });
+ 
+     // Initialize caches
+@@ -57,10 +61,13 @@ export class FindMineService {
+       gender?: 'M' | 'W' | 'U';
+       useCache?: boolean;
+       apiVersion?: string;
++      productIdentifiers?: Record<string, string>;
++      fakeResult?: boolean;
+     } = {}
+   ): Promise<{
+     product?: ProductResource;
+     looks: LookResource[];
++    responseUuid?: string;
+   }> {
+     const sessionId = options.sessionId || config.session.defaultSessionId;
+     const useCache = options.useCache !== false && config.cache.enabled;
+@@ -73,6 +80,7 @@ export class FindMineService {
+       String(inStock),
+       String(onSale),
+       String(options.returnPdpItem),
++      String(options.fakeResult),
+     ]);
+ 
+     // Try to get from cache
+@@ -88,6 +96,8 @@ export class FindMineService {
+           returnPdpItem: options.returnPdpItem,
+           gender: options.gender,
+           apiVersion: options.apiVersion,
++          productIdentifiers: options.productIdentifiers,
++          fakeResult: options.fakeResult,
+         });
+ 
+         // Store in cache
+@@ -100,6 +110,8 @@ export class FindMineService {
+         returnPdpItem: options.returnPdpItem,
+         gender: options.gender,
+         apiVersion: options.apiVersion,
++        productIdentifiers: options.productIdentifiers,
++        fakeResult: options.fakeResult,
+       });
+     }
+ 
+@@ -123,7 +127,7 @@ export class FindMineService {
+         if (Array.isArray(products)) {
+           for (const product of products) {
+             try {
+-              if (product.product_id) {
++              if (product.product_id || product.item_id) {
+                 const productResource = mapProductToResource(product);
+                 this.resources.products[productResource.id] = productResource;
+               }
+@@ -149,6 +153,7 @@ export class FindMineService {
+     return {
+       product,
+       looks,
++      responseUuid: response.response_uuid,
+     };
+   }
+ 
+diff --git a/src/tools/index.ts b/src/tools/index.ts
+index 2841ed3..1e30a60 100644
+--- a/src/tools/index.ts
++++ b/src/tools/index.ts
+@@ -98,6 +98,15 @@ export const getCompleteTheLookTool: ToolDefinition = {
+         type: 'string',
+         description: 'Color ID of the product (if applicable)',
+       },
++      product_identifiers: {
++        type: 'object',
++        description: 'Tenant-configured product_* identifier key/value pairs forwarded to FindMine',
++      },
++      fake_result: {
++        type: 'boolean',
++        description: 'Request synthetic demo recommendations from FindMine',
++        default: false,
++      },
+       in_stock: {
+         type: 'boolean',
+         description: 'Whether the product is in stock',
+diff --git a/src/types/findmine-api.ts b/src/types/findmine-api.ts
+index c3a74da..5d0d83f 100644
+--- a/src/types/findmine-api.ts
++++ b/src/types/findmine-api.ts
+@@ -23,9 +23,10 @@ export interface FindMineBaseRequest {
+  */
+ export interface CompleteTheLookRequest extends FindMineBaseRequest {
+   [key: string]: unknown;
+-  product_id: string;
++  product_id?: string;
+   product_color_id?: string;
+   product_in_stock: boolean;
+   product_on_sale: boolean;
+   return_pdp_item?: boolean;
++  fake_result?: boolean;
+ }
+@@ -77,6 +78,8 @@ export interface AnalyticsRequest extends FindMineBaseRequest {
+ export interface FindMineProduct {
+   product_id: string;
+   item_id?: string; // Alternative name for product_id
++  title?: string;
++  item_url?: string;
+   product_color_id?: string;
+   name: string;
+   description?: string;
+@@ -119,6 +122,7 @@ export interface FindMineLook {
+  * Response from the Complete The Look API
+  */
+ export interface CompleteTheLookResponse {
++  response_uuid?: string;
+   pdp_item?: FindMineProduct;
+   looks: FindMineLook[];
+ }
+diff --git a/src/utils/resource-mapper.ts b/src/utils/resource-mapper.ts
+index 70b27c8..4170d32 100644
+--- a/src/utils/resource-mapper.ts
++++ b/src/utils/resource-mapper.ts
+@@ -10,17 +10,19 @@ import { formatPrice } from './formatters.js';
+  * Convert a FindMine product to an MCP product resource
+  */
+ export function mapProductToResource(product: FindMineProduct): ProductResource {
++  const productId = product.product_id || product.item_id;
++  if (!productId) throw new Error('FindMine product is missing product_id/item_id');
+   return {
+-    id: product.product_id,
++    id: productId,
+     colorId: product.product_color_id,
+-    name: product.name,
++    name: product.name || product.title || '',
+     description: product.description,
+     brand: product.brand,
+     price: product.price,
+     salePrice: product.sale_price,
+     formattedPrice: formatPrice(product.price),
+     formattedSalePrice: product.sale_price ? formatPrice(product.sale_price) : undefined,
+-    url: product.url,
++    url: product.url || product.item_url || '',
+     imageUrl: product.image_url,
+     inStock: product.in_stock,
+     onSale: product.on_sale,

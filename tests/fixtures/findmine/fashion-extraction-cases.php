@@ -1,0 +1,38 @@
+<?php
+
+$item = static fn (?string $category = null, ?string $subcategory = null, ?string $color = null, ?string $material = null, ?string $style = null, ?string $pattern = null, ?string $fit = null): array => compact('category', 'subcategory', 'color', 'material', 'style', 'pattern', 'fit');
+
+return [
+    ['text' => 'white denim trousers', 'expected' => $item('trousers', null, 'white', 'denim')],
+    ['text' => 'quần jean trắng', 'expected' => $item('trousers', null, 'white', 'denim')],
+    ['text' => 'black minimal sneakers', 'expected' => $item('footwear', 'sneakers', 'black', null, 'minimal')],
+    ['text' => 'giày sneaker đen', 'expected' => $item('footwear', 'sneakers', 'black')],
+    ['text' => 'beige blazer', 'expected' => $item('jacket', 'blazer', 'beige')],
+    ['text' => 'áo khoác màu be', 'expected' => $item('jacket', null, 'beige')],
+    ['text' => 'blue slim-fit jeans', 'expected' => $item('trousers', 'jeans', 'blue', 'denim', null, null, 'slim')],
+    ['text' => 'white cotton shirt', 'expected' => $item('shirt', null, 'white', 'cotton')],
+    ['text' => 'striped navy trousers', 'expected' => $item('trousers', null, 'navy', null, null, 'striped')],
+    ['text' => 'nice trousers', 'expected' => $item('trousers')],
+    ['text' => 'stylish shoes', 'expected' => $item('footwear')],
+    ['text' => 'summer look', 'expected' => $item()],
+    ['text' => 'casual piece', 'expected' => $item(null, null, null, null, 'casual')],
+    ['text' => 'red linen wide-leg trousers', 'expected' => $item('trousers', null, 'red', 'linen', null, null, 'wide_leg')],
+    ['text' => 'quần ống rộng vải lanh đỏ', 'expected' => $item('trousers', null, 'red', 'linen', null, null, 'wide_leg')],
+    ['text' => 'brown leather loafers', 'expected' => $item('footwear', 'loafers', 'brown', 'leather')],
+    ['text' => 'giày lười da nâu', 'expected' => $item('footwear', 'loafers', 'brown', 'leather')],
+    ['text' => 'navy wool blazer', 'expected' => $item('jacket', 'blazer', 'navy', 'wool')],
+    ['text' => 'áo blazer len màu xanh navy', 'expected' => $item('jacket', 'blazer', 'navy', 'wool')],
+    ['text' => 'floral midi dress', 'expected' => $item('dress', 'midi_dress', null, null, null, 'floral')],
+    ['text' => 'váy midi họa tiết hoa', 'expected' => $item('dress', 'midi_dress', null, null, null, 'floral')],
+    ['text' => 'oversized black hoodie', 'expected' => $item('shirt', 'hoodie', 'black', null, null, null, 'oversized')],
+    ['text' => 'áo hoodie đen dáng rộng', 'expected' => $item('shirt', 'hoodie', 'black', null, null, null, 'oversized')],
+    ['text' => 'cream pleated skirt', 'expected' => $item('skirt', null, 'cream', null, null, 'pleated')],
+    ['text' => 'chân váy xếp ly màu kem', 'expected' => $item('skirt', null, 'cream', null, null, 'pleated')],
+    ['text' => 'monk strap shoes', 'expected' => $item('footwear', 'dress_shoes')],
+    ['text' => 'simple black belt', 'expected' => $item('accessory', 'belt', 'black', null, 'simple')],
+    ['text' => 'thắt lưng đen', 'expected' => $item('accessory', 'belt', 'black')],
+    ['text' => 'lightweight beige jacket', 'expected' => $item('jacket', null, 'beige', null, 'lightweight')],
+    ['text' => 'áo khoác nhẹ màu be', 'expected' => $item('jacket', null, 'beige', null, 'lightweight')],
+    ['text' => 'regular-fit polo shirt', 'expected' => $item('shirt', 'polo', null, null, null, null, 'regular')],
+    ['text' => 'áo polo dáng thường', 'expected' => $item('shirt', 'polo', null, null, null, null, 'regular')],
+];

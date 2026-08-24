@@ -56,4 +56,35 @@ final class CartOrderServiceTest extends \PHPUnit\Framework\TestCase
         $this->assertSame(3, (int) $this->pdo->query('SELECT stock FROM products WHERE id = 1')->fetchColumn());
         $this->assertSame(2, (int) $this->pdo->query('SELECT quantity FROM order_items')->fetchColumn());
     }
+
+    public function testAddParticipatesInCallerTransactionAndWritesOutboxForActiveChatSession(): void
+    {
+        $this->pdo->exec("CREATE TABLE chat_sessions (id INTEGER PRIMARY KEY, user_id INTEGER, status TEXT, updated_at TEXT)");
+        $this->pdo->exec("INSERT INTO chat_sessions VALUES (42, 10, 'active', CURRENT_TIMESTAMP)");
+        $this->pdo->exec("CREATE TABLE fashion_event_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT UNIQUE,event_type TEXT,event_version INTEGER,aggregate_key TEXT,payload TEXT,status TEXT)");
+
+        $this->pdo->beginTransaction();
+        $this->cart->add(10, ['product_id' => 1, 'quantity' => 1, 'size' => 'M']);
+
+        $payload = json_decode((string) $this->pdo->query('SELECT payload FROM fashion_event_outbox')->fetchColumn(), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('cart.item_added', $payload['event_type']);
+        $this->assertSame('42', $payload['session_id']);
+        $this->assertTrue($this->pdo->inTransaction());
+        $this->pdo->rollBack();
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM cart')->fetchColumn());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM fashion_event_outbox')->fetchColumn());
+    }
+
+    public function testAddRollsBackOwnedTransactionWhenOutboxWriteFails(): void
+    {
+        $this->pdo->exec('CREATE TABLE fashion_event_outbox (id INTEGER PRIMARY KEY)');
+
+        try {
+            $this->cart->add(10, ['product_id' => 1, 'quantity' => 1, 'size' => 'M']);
+            self::fail('Expected the invalid outbox schema to reject the write');
+        } catch (PDOException) {
+            self::assertFalse($this->pdo->inTransaction());
+            self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM cart')->fetchColumn());
+        }
+    }
 }

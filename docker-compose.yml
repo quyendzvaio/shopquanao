@@ -18,6 +18,7 @@ services:
       retries: 8
 
   app:
+    image: ${APP_IMAGE:-shop_quan_ao-app:latest}
     build:
       context: .
     container_name: shop_quan_ao_app
@@ -31,10 +32,10 @@ services:
       DB_USER: shop_user
       DB_PASS: ${DB_PASS:-shop_pass}
       DB_CONNECT_RETRIES: 30
-      LLM_PROVIDER: deepseek
+      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
       LLM_API_KEY: ${LLM_API_KEY}
-      LLM_BASE_URL: https://api.deepseek.com
-      LLM_MODEL: deepseek-chat
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
       LLM_TIMEOUT: ${LLM_TIMEOUT:-25}
       RERANKER_URL: http://reranker:8000
       RAG_ML_URL: http://rag-ml:8000
@@ -58,6 +59,27 @@ services:
       MCP_STDIO_NODE: /usr/bin/node
       MCP_STDIO_SCRIPT: /opt/mcp-server/dist/stdio.js
       SHOP_INTERNAL_URL: http://127.0.0.1/api/internal/mcp
+      # The internal call includes extraction (up to LLM_TIMEOUT) plus bounded
+      # Product Search. Keep the child deadline below the PHP MCP deadline.
+      MCP_REQUEST_TIMEOUT_MS: ${MCP_REQUEST_TIMEOUT_MS:-80000}
+      MCP_REQUEST_TIMEOUT: ${MCP_REQUEST_TIMEOUT:-85}
+      FINDMINE_ENABLED: ${FINDMINE_ENABLED:-false}
+      FINDMINE_DEMO_ENABLED: ${FINDMINE_DEMO_ENABLED:-false}
+      FINDMINE_DEMO_MODE: ${FINDMINE_DEMO_MODE:-false}
+      FASHION_PROVIDER: ${FASHION_PROVIDER:-findmine_demo}
+      FINDMINE_LIVE_VERIFIED: ${FINDMINE_LIVE_VERIFIED:-false}
+      FINDMINE_API_URL: ${FINDMINE_API_URL:-https://api.findmine.com}
+      FINDMINE_APP_ID: ${FINDMINE_APP_ID:-}
+      FINDMINE_API_VERSION: ${FINDMINE_API_VERSION:-v3}
+      FINDMINE_DEFAULT_REGION: ${FINDMINE_DEFAULT_REGION:-us}
+      FINDMINE_DEFAULT_LANGUAGE: ${FINDMINE_DEFAULT_LANGUAGE:-en}
+      FINDMINE_MCP_NODE: /usr/bin/node
+      FINDMINE_MCP_SCRIPT: /opt/findmine-mcp/build/index.js
+      FINDMINE_STARTUP_TIMEOUT_MS: ${FINDMINE_STARTUP_TIMEOUT_MS:-5000}
+      FINDMINE_REQUEST_TIMEOUT_MS: ${FINDMINE_REQUEST_TIMEOUT_MS:-15000}
+      FINDMINE_RETRY_ATTEMPTS: ${FINDMINE_RETRY_ATTEMPTS:-1}
+      FINDMINE_PRODUCT_IDENTIFIER_KEY: ${FINDMINE_PRODUCT_IDENTIFIER_KEY:-product_id}
+      FINDMINE_COLOR_IDENTIFIER_KEY: ${FINDMINE_COLOR_IDENTIFIER_KEY:-product_color_id}
     depends_on:
       db:
         condition: service_healthy
@@ -69,6 +91,55 @@ services:
         condition: service_started
       qdrant:
         condition: service_started
+
+  fashion-outbox-publisher:
+    image: ${APP_IMAGE:-shop_quan_ao-app:latest}
+    container_name: shop_quan_ao_fashion_outbox_publisher
+    restart: unless-stopped
+    env_file: .env
+    command: ["php", "scripts/publish_fashion_outbox.php"]
+    environment:
+      DB_HOST: db
+      DB_NAME: shop_db
+      DB_USER: shop_user
+      DB_PASS: ${DB_PASS:-shop_pass}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_TIMEOUT: ${REDIS_TIMEOUT:-1}
+      FASHION_EVENT_STREAM: ${FASHION_EVENT_STREAM:-fashion:events}
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+  fashion-event-consumer:
+    image: ${APP_IMAGE:-shop_quan_ao-app:latest}
+    container_name: shop_quan_ao_fashion_event_consumer
+    restart: unless-stopped
+    env_file: .env
+    command: ["php", "scripts/consume_fashion_events.php"]
+    environment:
+      DB_HOST: db
+      DB_NAME: shop_db
+      DB_USER: shop_user
+      DB_PASS: ${DB_PASS:-shop_pass}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_TIMEOUT: ${REDIS_TIMEOUT:-1}
+      FASHION_EVENT_STREAM: ${FASHION_EVENT_STREAM:-fashion:events}
+      FASHION_EVENT_GROUP: ${FASHION_EVENT_GROUP:-proactive-styling}
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
 
   reranker:
     build:

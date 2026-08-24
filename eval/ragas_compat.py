@@ -33,8 +33,8 @@ def build_evaluator_llm(
 ) -> tuple[Any, str, list[str]]:
     """Build an explicit RAGAS judge LLM from env without falling back implicitly.
 
-    DeepSeek-compatible endpoints currently support only n=1. RAGAS can request
-    n>1 for some metrics, so the wrapper fans those requests out into repeated
+    Some OpenAI-compatible endpoints support only n=1. RAGAS can request n>1
+    for some metrics, so the wrapper fans those requests out into repeated
     single-completion calls.
     """
     evaluator_model = os.getenv("OPENAI_EVAL_MODEL") or default_model
@@ -101,7 +101,7 @@ def build_evaluator_llm(
             result.generations = [[generation[0] for generation in result.generations]]
             return result
 
-    notes.append(f"DeepSeek n=1 fan-out is enabled for evaluator model {evaluator_model}.")
+    notes.append(f"OpenAI-compatible n=1 fan-out is enabled for evaluator model {evaluator_model}.")
     return SingleCompletionFanOutLLM(raw_llm), evaluator_model, notes
 
 

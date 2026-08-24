@@ -11,6 +11,11 @@ $stmt->execute([$id]);
 $product = $stmt->fetch();
 
 if (!$product) { die("Sản phẩm không tồn tại!"); }
+$categories = $pdo->query("SELECT id, name FROM categories ORDER BY id")->fetchAll();
+$subcategories = $pdo->query(
+    "SELECT sc.id, sc.category_id, sc.display_name, c.name AS category_name
+     FROM product_subcategories sc JOIN categories c ON c.id = sc.category_id ORDER BY c.id, sc.id"
+)->fetchAll();
 
 // XỬ LÝ CẬP NHẬT
 if (isset($_POST['update_product'])) {
@@ -18,6 +23,8 @@ if (isset($_POST['update_product'])) {
     $price = $_POST['price'];
     $stock = (int)($_POST['stock'] ?? 0);
     $description = $_POST['description'];
+    $categoryId = (int)($_POST['category_id'] ?? 0);
+    $subcategoryId = (int)($_POST['subcategory_id'] ?? 0);
     $new_image = $_FILES['image']['name'];
     
     if (!empty($new_image)) {
@@ -42,8 +49,14 @@ if (isset($_POST['update_product'])) {
         $image_to_save = $product['image'];
     }
 
-    $stmt = $pdo->prepare("UPDATE products SET name=?, price=?, stock=?, description=?, image=? WHERE id=?");
-    if ($stmt->execute([$name, $price, $stock, $description, $image_to_save, $id])) {
+    $stmt = $pdo->prepare("UPDATE products
+        SET name=?, price=?, stock=?, description=?, category_id=?, subcategory_id=?, image=? WHERE id=?");
+    if ($stmt->execute([
+        $name, $price, $stock, $description,
+        $categoryId > 0 ? $categoryId : null,
+        $subcategoryId > 0 ? $subcategoryId : null,
+        $image_to_save, $id,
+    ])) {
         header("Location: manage_products.php?msg=updated");
         exit();
     }
@@ -80,6 +93,25 @@ if (isset($_POST['update_product'])) {
         <label>Mô tả:</label>
         <textarea name="description" rows="4"><?= htmlspecialchars($product['description']) ?></textarea>
 
+        <label>Danh mục:</label>
+        <select name="category_id" id="category_id" required>
+            <?php foreach ($categories as $category): ?>
+                <option value="<?= (int)$category['id'] ?>" <?= (int)$product['category_id'] === (int)$category['id'] ? 'selected' : '' ?>>
+                    <?= htmlspecialchars($category['name']) ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
+
+        <label>Danh mục con:</label>
+        <select name="subcategory_id" id="subcategory_id">
+            <option value="">Không có danh mục con</option>
+            <?php foreach ($subcategories as $subcategory): ?>
+                <option value="<?= (int)$subcategory['id'] ?>" data-category="<?= (int)$subcategory['category_id'] ?>" <?= (int)($product['subcategory_id'] ?? 0) === (int)$subcategory['id'] ? 'selected' : '' ?>>
+                    <?= htmlspecialchars($subcategory['category_name'] . ' — ' . $subcategory['display_name']) ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
+
         <label>Ảnh hiện tại:</label><br>
         <img src="../images/<?= $product['image'] ?>" width="100" style="margin: 10px 0; border: 1px solid #ddd;"><br>
         
@@ -90,6 +122,20 @@ if (isset($_POST['update_product'])) {
         <a href="manage_products.php" class="back-link">← Quay lại danh sách</a>
     </form>
 </div>
+
+<script>
+const categorySelect = document.getElementById('category_id');
+const subcategorySelect = document.getElementById('subcategory_id');
+function syncSubcategories() {
+    const categoryId = categorySelect.value;
+    for (const option of subcategorySelect.options) {
+        option.disabled = option.dataset.category && option.dataset.category !== categoryId;
+    }
+    if (subcategorySelect.selectedOptions[0]?.disabled) subcategorySelect.value = '';
+}
+categorySelect.addEventListener('change', syncSubcategories);
+syncSubcategories();
+</script>
 
 </body>
 </html>

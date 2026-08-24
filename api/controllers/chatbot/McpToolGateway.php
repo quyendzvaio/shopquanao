@@ -94,7 +94,22 @@ final class McpToolGateway implements ChatbotToolGateway
         if (is_resource($this->process)) {
             return;
         }
-        $node = (string) (getenv('MCP_STDIO_NODE') ?: '/usr/bin/node');
+        $configuredNode = (string) (getenv('MCP_STDIO_NODE') ?: '/usr/bin/node');
+        $nodeCandidates = array_values(array_unique([
+            $configuredNode,
+            '/usr/local/bin/node',
+            '/usr/bin/node',
+        ]));
+        $node = '';
+        foreach ($nodeCandidates as $candidate) {
+            if (is_executable($candidate)) {
+                $node = $candidate;
+                break;
+            }
+        }
+        if ($node === '') {
+            throw new RuntimeException('MCP Node executable not found; checked: ' . implode(', ', $nodeCandidates));
+        }
         $script = (string) (getenv('MCP_STDIO_SCRIPT') ?: '/opt/mcp-server/dist/stdio.js');
         $descriptors = [
             0 => ['pipe', 'r'],

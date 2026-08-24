@@ -32,7 +32,17 @@ CLAUDE.md
 
 # Test & reports (heavy, production-irrelevant)
 tests/
+!tests/
+tests/*
+!tests/fixtures/
+tests/fixtures/*
+!tests/fixtures/findmine/
+tests/fixtures/findmine/*
+!tests/fixtures/findmine/fashion-extraction-cases.php
 eval/
+!eval/
+eval/*
+!eval/findmine_agent_eval_cases.php
 test-evidence/
 reports/
 report/
@@ -57,6 +67,16 @@ postman/
 # Scripts (dev only), except production knowledge ingest entrypoint
 scripts/*
 !scripts/ingest_knowledge.php
+!scripts/run_database_migrations.php
+!scripts/publish_fashion_outbox.php
+!scripts/consume_fashion_events.php
+!scripts/findmine_live_inspect.php
+!scripts/smoke_cart_event_pipeline.php
+!scripts/smoke_proactive_chat_turns.php
+!scripts/run_fashion_extraction_eval.php
+!scripts/smoke_findmine_demo.php
+!scripts/smoke_proactive_demo_live.php
+!scripts/run_findmine_agent_eval.php
 node_modules/
 vendor/
 composer.phar

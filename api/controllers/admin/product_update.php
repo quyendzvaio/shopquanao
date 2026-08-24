@@ -13,7 +13,7 @@ $data = getJsonInput();
 $fields = [];
 $params = [];
 
-foreach (['name', 'price', 'stock', 'description', 'category_id', 'image'] as $f) {
+foreach (['name', 'price', 'stock', 'description', 'category_id', 'subcategory_id', 'image'] as $f) {
     if (isset($data[$f])) {
         $fields[] = "$f = ?";
         $params[] = $data[$f];

@@ -6,6 +6,7 @@ class ResponseGenerator {
         $responseType = (string)($plan['response_type'] ?? 'final_answer');
         $cards = $normalized['cards'] ?? [];
         $evidence = $normalized['evidence'] ?? [];
+        $complementaryGroups = $normalized['complementary_groups'] ?? [];
 
         if ($responseType === 'clarification') {
             $answer = $this->clarificationAnswer($intent);
@@ -24,9 +25,10 @@ class ResponseGenerator {
             'product_detail' => $this->productDetailAnswer($intent, $cards),
             'product_search' => $this->productSearchAnswer($intent, $cards, $evidence),
             'mixed_product_policy' => $this->mixedAnswer($intent, $cards, $evidence),
-            'return_exchange', 'shipping', 'policy' => $this->policyAnswer($evidence),
+            'return_exchange', 'shipping', 'policy' => $this->policyAnswer($evidence, $primary),
             'size_advice' => $this->sizeAnswer($intent, $evidence),
             'order_status' => $this->orderAnswer($evidence),
+            'suggest_complementary_products' => $this->complementaryAnswer($complementaryGroups, $cards),
             default => 'Mình chưa đủ thông tin để trả lời chắc chắn. Bạn nói rõ hơn giúp mình nhé.',
         };
 
@@ -90,11 +92,11 @@ class ResponseGenerator {
         } elseif ($cards !== []) {
             $productPart = $this->productSearchAnswer($intent, $cards, $evidence);
         }
-        $policyPart = $this->policyAnswer($evidence);
+        $policyPart = $this->policyAnswer($evidence, 'mixed_product_policy');
         return trim($productPart . ' ' . $policyPart);
     }
 
-    private function policyAnswer(array $evidence): string {
+    private function policyAnswer(array $evidence, string $intent = ''): string {
         $policy = array_values(array_filter($evidence, fn($e) => ($e['source'] ?? '') === 'policy_rag' && trim((string)($e['value'] ?? '')) !== ''));
         if ($policy === []) {
             return 'Hiện mình chưa tìm thấy thông tin phù hợp trong dữ liệu chính sách của shop. Bạn vui lòng hỏi rõ hơn hoặc liên hệ CSKH để được kiểm tra.';
@@ -103,10 +105,29 @@ class ResponseGenerator {
         $text = trim((string)$policy[0]['value']);
         $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
 
+        // Return/size questions often need a second policy fact (for example,
+        // the personal-choice shipping rule) that is not present in the top
+        // FAQ chunk. Add only missing, relevant sentences to avoid duplicating
+        // near-identical RAG chunks in ordinary policy answers.
+        if ($intent === 'return_exchange') {
+            $extra = [];
+            foreach ($policy as $item) {
+                $value = preg_replace('/\s+/u', ' ', trim((string)$item['value'])) ?? trim((string)$item['value']);
+                $sentences = preg_split('/(?<=[.!?])\s+|\s*[-•]\s*/u', $value) ?: [$value];
+                foreach ($sentences as $sentence) {
+                    $sentence = trim($sentence, " .\t\n\r\\-");
+                    if ($sentence === '') continue;
+                    if (!preg_match('/đổi\s+(?:size|màu)|size|phí vận chuyển|phí ship/ui', $sentence)) continue;
+                    if (mb_stripos($text, $sentence) === false) $extra[] = $sentence;
+                }
+            }
+            if ($extra !== []) $text .= ' ' . implode('. ', array_slice(array_unique($extra), 0, 2)) . '.';
+        }
+
         // The first item is already cross-encoder reranked. Keeping up to three
         // sentences preserves compact facts such as the 24h inner-city SLA
         // without duplicating a second, near-identical FAQ chunk.
-        return $this->firstSentences($text, 3);
+        return 'Theo chính sách của shop, ' . $this->firstSentences($text, 3);
     }
 
     private function sizeAnswer(array $intent, array $evidence): string {
@@ -140,6 +161,29 @@ class ResponseGenerator {
         }
         $first = $orders[0];
         return 'Đơn #' . (int)($first['order_id'] ?? 0) . ' hiện có trạng thái: ' . (string)($first['value'] ?? '') . '. Bạn có thể xem chi tiết trong mục Đơn hàng của tôi.';
+    }
+
+    private function complementaryAnswer(array $groups, array $cards): string {
+        if ($cards === []) {
+            return 'Mình chưa tìm thấy sản phẩm phối hợp phù hợp trong shop lúc này.';
+        }
+        $items = [];
+        $seen = [];
+        foreach ($cards as $card) {
+            if (!is_array($card)) continue;
+            $id = (int) ($card['id'] ?? 0);
+            if ($id <= 0 || isset($seen[$id])) continue;
+            $seen[$id] = true;
+            $name = trim((string) ($card['name'] ?? ''));
+            if ($name === '') continue;
+            $items[] = sprintf('%s (mã %d)', $name, $id);
+        }
+        if ($items === []) {
+            return 'Mình chưa tìm thấy sản phẩm phối hợp phù hợp trong shop lúc này.';
+        }
+        return 'Mình tìm thấy trong Product Search của shop: '
+            . implode('; ', array_slice($items, 0, 5))
+            . '. Bạn có thể xem các thẻ sản phẩm bên dưới.';
     }
 
     private function clarificationAnswer(array $intent): string {

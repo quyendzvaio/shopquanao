@@ -144,6 +144,18 @@ class PlanValidator {
             }
         }
 
+        if ($primary === 'suggest_complementary_products') {
+            if (empty($entities['product_id']) || (int) $entities['product_id'] <= 0) {
+                $errors[] = 'complementary_requires_anchor_product';
+            }
+            if (!$has('suggest_complementary_products')) {
+                $errors[] = 'complementary_requires_provider_tool';
+            }
+            if ($has('search_products')) {
+                $errors[] = 'complementary_must_use_shared_provider_tool';
+            }
+        }
+
         if ($primary === 'product_detail') {
             if (empty($entities['product_id']) || (int)$entities['product_id'] <= 0) $errors[] = 'product_detail_invalid_product_id';
             if (!$has('get_product_detail')) $errors[] = 'product_detail_requires_get_product_detail';

@@ -35,7 +35,9 @@ export function createMcpServer(principal: Principal): McpServer {
     description: 'Use this when the user wants to find clothing products by name, category, price, color, size, stock, occasion, or style.',
     inputSchema: {
       search: z.string().min(1).max(200),
-      category_id: z.number().int().min(1).max(4).optional(),
+      category_id: z.number().int().min(1).max(5).optional(),
+      category: z.enum(['tops', 'bottoms', 'dresses_skirts', 'accessories', 'footwear']).optional(),
+      subcategory: z.enum(['sneakers', 'dress_shoes', 'loafers', 'boots', 'sandals', 'other']).optional(),
       min_price: z.number().nonnegative().optional(),
       max_price: z.number().nonnegative().optional(),
       color: z.string().max(50).optional(),
@@ -53,6 +55,15 @@ export function createMcpServer(principal: Principal): McpServer {
     description: 'Use this when the user asks about a specific product ID, including price, stock, sizes, colors, description, or reviews.',
     inputSchema: { product_id: z.number().int().positive() }, outputSchema, annotations: readOnly,
   }, async (args) => result(await callTool('get_product_detail', args, principal)));
+
+  server.registerTool('suggest_complementary_products', {
+    title: 'Suggest complementary products',
+    description: 'Use this when the user asks what would coordinate with a specific shop product. Recommendations are grounded in the shop catalog after styling analysis.',
+    inputSchema: {
+      product_id: z.number().int().positive(),
+      variant_id: z.number().int().positive().optional(),
+    }, outputSchema, annotations: readOnly,
+  }, async (args) => result(await callTool('suggest_complementary_products', args, principal)));
 
   server.registerTool('suggest_size', {
     title: 'Suggest a size',

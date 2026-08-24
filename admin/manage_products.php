@@ -8,12 +8,19 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
 }
 
 require_once '../config/db.php';
+$categories = $pdo->query("SELECT id, name FROM categories ORDER BY id")->fetchAll();
+$subcategories = $pdo->query(
+    "SELECT sc.id, sc.category_id, sc.display_name, c.name AS category_name
+     FROM product_subcategories sc JOIN categories c ON c.id = sc.category_id ORDER BY c.id, sc.id"
+)->fetchAll();
 
 // 2. XỬ LÝ THÊM SẢN PHẨM MỚI (Hỗ trợ nhiều định dạng ảnh)
 if (isset($_POST['add_product'])) {
     $name = $_POST['name'];
     $price = $_POST['price'];
     $stock = (int)($_POST['stock'] ?? 0);
+    $categoryId = (int)($_POST['category_id'] ?? 0);
+    $subcategoryId = (int)($_POST['subcategory_id'] ?? 0);
     $description = $_POST['description'];
     
     $image_name = $_FILES['image']['name'];
@@ -33,8 +40,15 @@ if (isset($_POST['add_product'])) {
             $img_upload_path = '../images/' . $new_img_name;
             
             if (move_uploaded_file($tmp_name, $img_upload_path)) {
-                $stmt = $pdo->prepare("INSERT INTO products (name, price, stock, description, image) VALUES (?, ?, ?, ?, ?)");
-                $stmt->execute([$name, $price, $stock, $description, $new_img_name]);
+                $stmt = $pdo->prepare("INSERT INTO products
+                    (name, price, stock, description, category_id, subcategory_id, image)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([
+                    $name, $price, $stock, $description,
+                    $categoryId > 0 ? $categoryId : null,
+                    $subcategoryId > 0 ? $subcategoryId : null,
+                    $new_img_name,
+                ]);
                 header("Location: manage_products.php?msg=added");
                 exit();
             } else {
@@ -114,6 +128,19 @@ $products = $pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll();
             <input type="text" name="name" placeholder="Tên sản phẩm" required style="padding: 8px; width: 250px;">
             <input type="number" name="price" placeholder="Giá tiền" required style="padding: 8px; width: 150px;">
             <input type="number" name="stock" placeholder="Số lượng" value="0" min="0" style="padding: 8px; width: 80px;">
+            <select name="category_id" id="category_id" required style="padding: 8px;">
+                <?php foreach ($categories as $category): ?>
+                    <option value="<?= (int)$category['id'] ?>"><?= htmlspecialchars($category['name']) ?></option>
+                <?php endforeach; ?>
+            </select>
+            <select name="subcategory_id" id="subcategory_id" style="padding: 8px;">
+                <option value="">Không có danh mục con</option>
+                <?php foreach ($subcategories as $subcategory): ?>
+                    <option value="<?= (int)$subcategory['id'] ?>" data-category="<?= (int)$subcategory['category_id'] ?>">
+                        <?= htmlspecialchars($subcategory['category_name'] . ' — ' . $subcategory['display_name']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
             <input type="file" name="image" required style="padding: 8px;">
             <br><br>
             <textarea name="description" placeholder="Mô tả sản phẩm" style="width: 100%; height: 60px; padding: 8px;"></textarea>
@@ -161,6 +188,20 @@ $products = $pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll();
         </tbody>
     </table>
 </div>
+
+<script>
+const categorySelect = document.getElementById('category_id');
+const subcategorySelect = document.getElementById('subcategory_id');
+function syncSubcategories() {
+    const categoryId = categorySelect.value;
+    for (const option of subcategorySelect.options) {
+        option.disabled = option.dataset.category && option.dataset.category !== categoryId;
+    }
+    if (subcategorySelect.selectedOptions[0]?.disabled) subcategorySelect.value = '';
+}
+categorySelect.addEventListener('change', syncSubcategories);
+syncSubcategories();
+</script>
 
 </body>
 </html>

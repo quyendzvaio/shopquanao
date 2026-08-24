@@ -36,33 +36,76 @@ final class CartService
             throw new InvalidArgumentException('product_id and a positive quantity are required');
         }
 
-        $stmt = $this->pdo->prepare('SELECT id, stock FROM products WHERE id = ?');
-        $stmt->execute([$productId]);
-        $product = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$product) {
-            throw new RuntimeException('Product not found');
+        $transactionStarted = false;
+        if (!$this->pdo->inTransaction()) {
+            $this->pdo->beginTransaction();
+            $transactionStarted = true;
         }
-        if ((int) $product['stock'] < $quantity) {
-            throw new RuntimeException('Insufficient product stock');
-        }
-
-        $stmt = $this->pdo->prepare('SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ?');
-        $stmt->execute([$userId, $productId]);
-        $existing = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($existing) {
-            $newQuantity = (int) $existing['quantity'] + $quantity;
-            if ($newQuantity > (int) $product['stock']) {
+        try {
+            $stmt = $this->pdo->prepare('SELECT id, stock FROM products WHERE id = ?');
+            $stmt->execute([$productId]);
+            $product = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$product) {
+                throw new RuntimeException('Product not found');
+            }
+            if ((int) $product['stock'] < $quantity) {
                 throw new RuntimeException('Insufficient product stock');
             }
-            $this->pdo->prepare('UPDATE cart SET quantity = ?, size = ? WHERE id = ?')
-                ->execute([$newQuantity, $size, (int) $existing['id']]);
-            $cartId = (int) $existing['id'];
-        } else {
-            $this->pdo->prepare('INSERT INTO cart (user_id, product_id, quantity, size) VALUES (?, ?, ?, ?)')
-                ->execute([$userId, $productId, $quantity, $size]);
-            $cartId = (int) $this->pdo->lastInsertId();
+
+            $stmt = $this->pdo->prepare('SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ?');
+            $stmt->execute([$userId, $productId]);
+            $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($existing) {
+                $newQuantity = (int) $existing['quantity'] + $quantity;
+                if ($newQuantity > (int) $product['stock']) {
+                    throw new RuntimeException('Insufficient product stock');
+                }
+                $this->pdo->prepare('UPDATE cart SET quantity = ?, size = ? WHERE id = ?')
+                    ->execute([$newQuantity, $size, (int) $existing['id']]);
+                $cartId = (int) $existing['id'];
+            } else {
+                $this->pdo->prepare('INSERT INTO cart (user_id, product_id, quantity, size) VALUES (?, ?, ?, ?)')
+                    ->execute([$userId, $productId, $quantity, $size]);
+                $cartId = (int) $this->pdo->lastInsertId();
+            }
+            $sessionId = $this->resolveSessionId($userId, $arguments['session_id'] ?? null);
+            $variantId = isset($arguments['variant_id']) ? (int) $arguments['variant_id'] : null;
+            $this->publishCartItemAdded($userId, $sessionId, $cartId, $productId, $variantId);
+            if ($transactionStarted) {
+                $this->pdo->commit();
+            }
+        } catch (Throwable $error) {
+            if ($transactionStarted && $this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $error;
         }
         return ['message' => 'Added to cart', 'cart_id' => $cartId] + $this->list($userId);
+    }
+
+    private function publishCartItemAdded(int $userId, string $sessionId, int $cartId, int $productId, ?int $variantId): void
+    {
+        try {
+            $exists = $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite'
+                ? $this->pdo->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='fashion_event_outbox'")->fetchColumn()
+                : $this->pdo->query("SELECT 1 FROM information_schema.tables WHERE table_name = 'fashion_event_outbox' LIMIT 1")->fetchColumn();
+        } catch (Throwable) {
+            $exists = false;
+        }
+        if (!$exists) return;
+        require_once __DIR__ . '/Fashion/CartItemAddedOutbox.php';
+        (new CartItemAddedOutbox($this->pdo))->publish($userId, $sessionId, $cartId, $productId, $variantId);
+    }
+
+    private function resolveSessionId(int $userId, mixed $explicit): string
+    {
+        if (trim((string)($explicit ?? '')) !== '') return trim((string)$explicit);
+        try {
+            $stmt=$this->pdo->prepare("SELECT id FROM chat_sessions WHERE user_id=? AND status='active' ORDER BY updated_at DESC LIMIT 1");
+            $stmt->execute([$userId]); $sessionId=$stmt->fetchColumn();
+            if ($sessionId!==false) return (string)$sessionId;
+        } catch (Throwable) {}
+        return 'user:'.$userId;
     }
 
     public function update(int $userId, array $arguments): array

@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS fashion_provider_product_mapping (
+    id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    shop_product_id int NOT NULL,
+    shop_variant_id bigint DEFAULT NULL,
+    mapping_scope varchar(191) NOT NULL DEFAULT 'product',
+    provider varchar(64) NOT NULL,
+    provider_product_id varchar(191) NOT NULL,
+    provider_variant_id varchar(191) NOT NULL DEFAULT '',
+    provider_color_id varchar(191) NOT NULL DEFAULT '',
+    sync_status varchar(20) NOT NULL DEFAULT 'pending',
+    sync_version varchar(100) DEFAULT NULL,
+    last_synced_at timestamp NULL DEFAULT NULL,
+    last_error text DEFAULT NULL,
+    created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_fashion_mapping_product FOREIGN KEY (shop_product_id) REFERENCES products(id) ON DELETE CASCADE,
+    CONSTRAINT fk_fashion_mapping_variant FOREIGN KEY (shop_variant_id) REFERENCES product_variants(id) ON DELETE CASCADE,
+    CONSTRAINT uq_fashion_mapping_shop UNIQUE (provider, shop_product_id, mapping_scope),
+    CONSTRAINT uq_fashion_mapping_provider UNIQUE (provider, provider_product_id, provider_variant_id, provider_color_id),
+    INDEX idx_fashion_mapping_lookup (provider, shop_product_id, shop_variant_id, sync_status),
+    INDEX idx_fashion_mapping_sync (provider, sync_status, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci

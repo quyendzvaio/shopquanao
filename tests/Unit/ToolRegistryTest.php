@@ -24,6 +24,7 @@ class ToolRegistryTest extends \PHPUnit\Framework\TestCase
         $this->pdo->exec("CREATE TABLE products (
             id INTEGER PRIMARY KEY,
             category_id INTEGER,
+            subcategory_id INTEGER,
             name TEXT NOT NULL,
             price REAL NOT NULL,
             stock INTEGER DEFAULT 0,
@@ -32,7 +33,22 @@ class ToolRegistryTest extends \PHPUnit\Framework\TestCase
         )");
         $this->pdo->exec("CREATE TABLE categories (
             id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL
+            name TEXT NOT NULL,
+            canonical_key TEXT NOT NULL,
+            family TEXT NOT NULL
+        )");
+        $this->pdo->exec("CREATE TABLE product_subcategories (
+            id INTEGER PRIMARY KEY, category_id INTEGER NOT NULL,
+            canonical_key TEXT NOT NULL, display_name TEXT NOT NULL
+        )");
+        $this->pdo->exec("CREATE TABLE colors (
+            id INTEGER PRIMARY KEY, canonical_key TEXT NOT NULL,
+            display_name TEXT NOT NULL, external_code TEXT
+        )");
+        $this->pdo->exec("CREATE TABLE product_variants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL,
+            variant_key TEXT NOT NULL, sku TEXT, color_id INTEGER, size TEXT,
+            price REAL, stock INTEGER, is_active INTEGER NOT NULL DEFAULT 1
         )");
         $this->pdo->exec("CREATE TABLE cart (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,8 +91,11 @@ class ToolRegistryTest extends \PHPUnit\Framework\TestCase
 
     private function seedData(): void
     {
-        $this->pdo->exec("INSERT INTO categories VALUES (1, 'Áo'), (2, 'Quần'), (3, 'Váy & Đầm')");
-        $this->pdo->exec("INSERT INTO products VALUES
+        $this->pdo->exec("INSERT INTO categories VALUES
+            (1, 'Áo', 'tops', 'apparel'), (2, 'Quần', 'bottoms', 'apparel'),
+            (3, 'Váy & Đầm', 'dresses_skirts', 'apparel')");
+        $this->pdo->exec("INSERT INTO products
+            (id, category_id, name, price, stock, description, image) VALUES
             (50, 1, 'Áo Thun Cotton Basic Trắng', 180000, 10, 'Cotton 100%', 'at_01.jpg'),
             (51, 1, 'Áo Sơ Mi Linen Xanh', 320000, 5, 'Linen', 'asm_01.jpg'),
             (52, 1, 'Áo Khoác Bomber Kaki Đen', 550000, 12, 'Bomber', 'ak_01.jpg'),

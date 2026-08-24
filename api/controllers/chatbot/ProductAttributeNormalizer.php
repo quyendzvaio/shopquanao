@@ -1,6 +1,42 @@
 <?php
 
 class ProductAttributeNormalizer {
+    private const CANONICAL_COLOR_ALIASES = [
+        'multi' => ['multi', 'multicolor', 'multi color', 'đa màu', 'da mau', 'phối màu', 'phoi mau'],
+        'navy' => ['navy', 'navy blue', 'xanh navy', 'xanh đen', 'xanh dam', 'xanh đậm'],
+        'cream' => ['cream', 'kem', 'màu kem', 'mau kem'],
+        'beige' => ['beige', 'be', 'màu be', 'mau be'],
+        'khaki' => ['khaki', 'kaki', 'màu kaki', 'mau kaki'],
+        'black' => ['black', 'đen', 'den'],
+        'white' => ['white', 'trắng', 'trang'],
+        'gray' => ['gray', 'grey', 'xám', 'xam', 'ghi'],
+        'blue' => ['blue', 'xanh dương', 'xanh duong', 'xanh'],
+        'green' => ['green', 'xanh lá', 'xanh la', 'xanh rêu', 'xanh reu'],
+        'brown' => ['brown', 'nâu', 'nau', 'màu đất', 'mau dat'],
+        'red' => ['red', 'đỏ', 'do'],
+        'pink' => ['pink', 'hồng', 'hong'],
+        'purple' => ['purple', 'tím', 'tim'],
+        'yellow' => ['yellow', 'vàng', 'vang'],
+        'orange' => ['orange', 'cam'],
+        'other' => ['other', 'khác', 'khac'],
+    ];
+
+    private const CANONICAL_COLOR_DISPLAY_NAMES = [
+        'black' => 'Đen', 'white' => 'Trắng', 'gray' => 'Xám', 'navy' => 'Xanh navy',
+        'blue' => 'Xanh dương', 'brown' => 'Nâu', 'beige' => 'Be', 'khaki' => 'Kaki',
+        'green' => 'Xanh lá', 'red' => 'Đỏ', 'pink' => 'Hồng', 'purple' => 'Tím',
+        'yellow' => 'Vàng', 'orange' => 'Cam', 'cream' => 'Kem', 'multi' => 'Đa màu',
+        'other' => 'Khác',
+    ];
+
+    private const CANONICAL_TO_LEGACY_COLOR = [
+        'black' => 'đen', 'white' => 'trắng', 'gray' => 'xám', 'navy' => 'xanh',
+        'blue' => 'xanh', 'brown' => 'nâu', 'beige' => 'be', 'khaki' => 'be',
+        'green' => 'xanh', 'red' => 'đỏ', 'pink' => 'hồng', 'purple' => 'tím',
+        'yellow' => 'vàng', 'orange' => 'cam', 'cream' => 'be', 'multi' => 'xanh',
+        'other' => 'khác',
+    ];
+
     private const COLOR_ALIASES = [
         'đen' => ['đen', 'den', 'black'],
         'trắng' => ['trắng', 'trang', 'white'],
@@ -58,6 +94,61 @@ class ProductAttributeNormalizer {
         return null;
     }
 
+    public static function normalizeCanonicalColor(?string $color): ?string {
+        $raw = self::normalizeText((string)$color);
+        if ($raw === '') return null;
+
+        $candidates = [];
+        foreach (self::CANONICAL_COLOR_ALIASES as $canonical => $aliases) {
+            foreach ($aliases as $alias) {
+                $normalizedAlias = self::normalizeText($alias);
+                if ($raw === $normalizedAlias) return $canonical;
+                $candidates[] = [$canonical, $normalizedAlias];
+            }
+        }
+        usort($candidates, fn($a, $b) => mb_strlen($b[1]) <=> mb_strlen($a[1]));
+        foreach ($candidates as [$canonical, $alias]) {
+            if (self::containsToken($raw, $alias)) return $canonical;
+        }
+        return null;
+    }
+
+    public static function canonicalColorDisplayName(string $canonical): ?string {
+        return self::CANONICAL_COLOR_DISPLAY_NAMES[$canonical] ?? null;
+    }
+
+    public static function canonicalToLegacyColor(string $canonical): ?string {
+        return self::CANONICAL_TO_LEGACY_COLOR[$canonical] ?? null;
+    }
+
+    public static function extractCanonicalColorsFromProduct(array $product): array {
+        if (!empty($product['canonical_colors']) && is_array($product['canonical_colors'])) {
+            return array_values(array_unique(array_filter(array_map(
+                fn($color) => self::normalizeCanonicalColor((string)$color),
+                $product['canonical_colors']
+            ))));
+        }
+
+        $originalText = self::productText($product);
+        $text = self::normalizeText($originalText);
+        $colors = [];
+        foreach (self::CANONICAL_COLOR_ALIASES as $canonical => $aliases) {
+            foreach ($aliases as $alias) {
+                if ($canonical === 'red' && self::normalizeText($alias) === 'do') continue;
+                if (self::containsToken($text, self::normalizeText($alias))) {
+                    $colors[] = $canonical;
+                    break;
+                }
+            }
+        }
+        if (preg_match('/\bđỏ\b|\bred\b/ui', $originalText)) $colors[] = 'red';
+        if (in_array('multi', $colors, true)) return ['multi'];
+        if (in_array('navy', $colors, true) || in_array('green', $colors, true)) {
+            $colors = array_values(array_filter($colors, fn($color) => $color !== 'blue'));
+        }
+        return array_values(array_unique($colors));
+    }
+
     public static function colorAliases(string $color): array {
         $canonical = self::normalizeColor($color) ?? $color;
         return self::COLOR_ALIASES[$canonical] ?? [$canonical];
@@ -108,8 +199,14 @@ class ProductAttributeNormalizer {
         }
 
         $text = self::productText($product);
-        if (!empty($constraints['color']) && !self::textMatchesColor($text, (string)$constraints['color'])) {
-            return false;
+        if (!empty($constraints['color'])) {
+            $requestedCanonical = self::normalizeCanonicalColor((string)$constraints['color']);
+            $structuredColors = self::extractCanonicalColorsFromProduct($product);
+            if ($structuredColors !== [] && $requestedCanonical !== null) {
+                if (!in_array($requestedCanonical, $structuredColors, true)) return false;
+            } elseif (!self::textMatchesColor($text, (string)$constraints['color'])) {
+                return false;
+            }
         }
 
         foreach (['material', 'style', 'occasion', 'semantic_query'] as $field) {

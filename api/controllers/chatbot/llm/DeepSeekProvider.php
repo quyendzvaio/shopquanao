@@ -1,8 +1,8 @@
 <?php
 /**
- * DeepSeek LLM Provider
- * DeepSeek dùng OpenAI-compatible API format.
- * Base URL: https://api.deepseek.com
+ * OpenAI-compatible chat-completions provider.
+ * DeepSeek is the historical default; compatible gateways can use the same
+ * wire format through LLM_PROVIDER=openai_compatible or LLM_PROVIDER=litellm.
  */
 require_once __DIR__ . '/LLMProvider.php';
 require_once __DIR__ . '/LLMResponse.php';
@@ -26,11 +26,20 @@ class DeepSeekProvider implements LLMProvider {
         $this->timeout = $timeout;
     }
 
-    public function chat(array $messages, array $tools = [], string $toolChoice = 'auto'): LLMResponse {
+    public function chat(array $messages, array $tools = [], string $toolChoice = 'auto', array $options = []): LLMResponse {
         $body = [
             'model' => $this->model,
             'messages' => $messages,
+            // The PHP client expects one JSON response, not an SSE stream.
+            'stream' => false,
         ];
+
+        if (array_key_exists('temperature', $options)) {
+            $body['temperature'] = max(0.0, min(2.0, (float) $options['temperature']));
+        }
+        if (array_key_exists('max_tokens', $options)) {
+            $body['max_tokens'] = max(1, min(2000, (int) $options['max_tokens']));
+        }
 
         if (!empty($tools)) {
             $body['tools'] = $tools;
@@ -42,9 +51,12 @@ class DeepSeekProvider implements LLMProvider {
             return $this->responseFromArray($cached);
         }
 
-        $url = $this->baseUrl . '/v1/chat/completions';
+        $url = str_ends_with($this->baseUrl, '/v1')
+            ? $this->baseUrl . '/chat/completions'
+            : $this->baseUrl . '/v1/chat/completions';
 
         $ch = curl_init($url);
+        $responseHeaders = [];
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
             CURLOPT_HTTPHEADER => [
@@ -55,21 +67,38 @@ class DeepSeekProvider implements LLMProvider {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => $this->timeout,
             CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_HEADERFUNCTION => static function ($curl, string $header) use (&$responseHeaders): int {
+                $length = strlen($header);
+                $parts = explode(':', $header, 2);
+                if (count($parts) === 2) $responseHeaders[strtolower(trim($parts[0]))] = trim($parts[1]);
+                return $length;
+            },
         ]);
 
         $raw = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErrno = curl_errno($ch);
         $error = curl_error($ch);
         curl_close($ch);
 
         if ($raw === false || $raw === '') {
-            throw new RuntimeException("LLM request failed: $error");
+            $category = $curlErrno === CURLE_OPERATION_TIMEDOUT ? 'timeout' : 'provider_unavailable';
+            throw new LLMTransportException($category, "LLM request failed: $error");
         }
 
         $data = json_decode($raw, true);
+        if ($httpCode === 429) {
+            $retryAfter = isset($responseHeaders['retry-after']) && ctype_digit($responseHeaders['retry-after'])
+                ? (int) $responseHeaders['retry-after']
+                : null;
+            throw new LLMTransportException('rate_limit', 'LLM rate limit exceeded (HTTP 429)', $retryAfter);
+        }
+        if ($httpCode >= 500) {
+            throw new LLMTransportException('provider_unavailable', "LLM provider unavailable (HTTP {$httpCode})");
+        }
         if (!$data || !isset($data['choices'][0])) {
             $errMsg = $data['error']['message'] ?? 'Unknown LLM error';
-            throw new RuntimeException("LLM error (HTTP $httpCode): $errMsg");
+            throw new LLMTransportException('invalid_response', "LLM error (HTTP $httpCode): $errMsg");
         }
 
         $message = $data['choices'][0]['message'] ?? [];

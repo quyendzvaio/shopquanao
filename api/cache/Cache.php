@@ -264,12 +264,12 @@ class Cache {
 
     /** Shortcut: get categories cache (TTL 24 hours) */
     public static function getCategories(): ?array {
-        return self::get('categories');
+        return self::get('categories:v2');
     }
 
     /** Shortcut: set categories cache (TTL 24 hours) */
     public static function setCategories(array $result): void {
-        self::set('categories', $result, 86400);
+        self::set('categories:v2', $result, 86400);
     }
 
     /** Shortcut: get product detail cache (TTL 5 min) */

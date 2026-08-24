@@ -332,6 +332,102 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
         $this->assertStringNotContainsString('trùng lặp', $response['message']);
     }
 
+    public function testComplementaryResponseNamesEachGroundedShopCardOnce(): void
+    {
+        $cards = [
+            ['id' => 51, 'name' => 'Áo Sơ Mi Linen Tay Ngắn Xanh'],
+            ['id' => 66, 'name' => 'Quần Tây Ống Đứng Xám'],
+        ];
+        $response = (new ResponseGenerator())->generate(
+            'Sản phẩm mã 50 phối với gì?',
+            ['primary_intent' => 'suggest_complementary_products'],
+            [
+                'cards' => $cards,
+                'evidence' => [],
+                'complementary_groups' => [
+                    ['requirement' => ['shop_search' => 'áo sơ mi'], 'products' => [$cards[0]]],
+                    ['requirement' => ['shop_search' => 'áo sơ mi'], 'products' => [$cards[0]]],
+                    ['requirement' => ['shop_search' => 'quần tây'], 'products' => [$cards[1]]],
+                ],
+            ],
+            ['response_type' => 'final_answer']
+        );
+
+        $this->assertSame(1, substr_count($response['message'], 'Áo Sơ Mi Linen Tay Ngắn Xanh'));
+        $this->assertSame(1, substr_count($response['message'], 'Quần Tây Ống Đứng Xám'));
+        $this->assertStringContainsString('mã 51', $response['message']);
+        $this->assertStringContainsString('mã 66', $response['message']);
+        $this->assertStringNotContainsString('có thể phối', $response['message']);
+    }
+
+    public function testOutfitSetWithShirtAndPantsUsesUnsupportedGuardrail(): void
+    {
+        $intent = (new IntentResolver())->extract('Phối giúp tôi một set đi chơi gồm áo và quần đi');
+        $plan = (new ToolPlanner())->plan($intent);
+
+        $this->assertSame('unsupported_outfit', $intent['primary_intent']);
+        $this->assertSame([], $plan['batches']);
+    }
+
+    public function testGenericOutfitQuestionDoesNotInvokeAnchoredComplementaryTool(): void
+    {
+        $intent = (new IntentResolver())->extract('Áo thun trắng phối với quần gì cho đẹp?');
+        $plan = (new ToolPlanner())->plan($intent);
+
+        $this->assertSame('unsupported_outfit', $intent['primary_intent']);
+        $this->assertSame([], $plan['batches']);
+    }
+
+    public function testPolicyResponseIdentifiesShopAsPolicySource(): void
+    {
+        $intent = (new IntentResolver())->extract('Shop có bảo hành lỗi đường may không?');
+        $response = (new ResponseGenerator())->generate(
+            'Shop có bảo hành lỗi đường may không?',
+            $intent,
+            [
+                'cards' => [],
+                'evidence' => [[
+                    'source' => 'policy_rag',
+                    'fact_type' => 'warranty',
+                    'value' => 'Sản phẩm được bảo hành 30 ngày về lỗi đường may, lỗi vải.',
+                ]],
+            ],
+            ['response_type' => 'final_answer']
+        );
+
+        $this->assertStringContainsString('shop', mb_strtolower($response['message']));
+        $this->assertStringContainsString('lỗi đường may', $response['message']);
+    }
+
+    public function testReturnPolicyResponseIncludesSizeAndPersonalShippingRule(): void
+    {
+        $intent = (new IntentResolver())->extract('Nếu đơn đã nhận rồi mà áo không vừa thì có đổi size được không?');
+        $response = (new ResponseGenerator())->generate(
+            'Nếu đơn đã nhận rồi mà áo không vừa thì có đổi size được không?',
+            $intent,
+            [
+                'cards' => [],
+                'evidence' => [
+                    [
+                        'source' => 'policy_rag',
+                        'fact_type' => 'return',
+                        'value' => 'Có, đổi trả trong vòng 7 ngày kể từ ngày nhận hàng. Sản phẩm phải còn nguyên tem mác, chưa qua sử dụng.',
+                    ],
+                    [
+                        'source' => 'policy_rag',
+                        'fact_type' => 'return',
+                        'value' => '- Nếu đổi size/màu do nhu cầu cá nhân, khách thanh toán phí vận chuyển hai chiều.',
+                    ],
+                ],
+            ],
+            ['response_type' => 'final_answer']
+        );
+
+        $this->assertStringContainsString('7 ngày', $response['message']);
+        $this->assertStringContainsString('đổi size', $response['message']);
+        $this->assertStringContainsString('phí vận chuyển', $response['message']);
+    }
+
     public function testMergeRejectsLockedFieldOverwrite(): void
     {
         $partial = (new DeterministicIntentParser())->parse('Tìm áo dưới 500k')->toArray();
@@ -564,7 +660,7 @@ class FakeEntityEnrichmentLlm implements LLMProvider
         $this->response = $response;
     }
 
-    public function chat(array $messages, array $tools = [], string $toolChoice = 'auto'): LLMResponse
+    public function chat(array $messages, array $tools = [], string $toolChoice = 'auto', array $options = []): LLMResponse
     {
         $this->calls++;
         $this->lastTools = $tools;

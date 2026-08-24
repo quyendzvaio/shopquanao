@@ -33,6 +33,7 @@ class CapabilityRegistry {
         $intent = (string)($partial['resolved_fields']['intent']['value'] ?? '');
         $names = match ($intent) {
             'product_search' => ['search_products'],
+            'suggest_complementary_products' => ['suggest_complementary_products'],
             'product_detail' => ['get_product_detail'],
             'size_advice' => ['suggest_size'],
             'order_status' => ['get_order_status'],
@@ -64,6 +65,18 @@ class CapabilityRegistry {
                     'properties' => [
                         'product' => ['type' => 'object'],
                         'cache' => ['type' => 'object'],
+                    ],
+                ],
+            ],
+            'suggest_complementary_products' => [
+                'use_when' => ['Người dùng yêu cầu phối sản phẩm cụ thể với sản phẩm khác.'],
+                'do_not_use_when' => ['Không có anchor product rõ ràng hoặc user chỉ hỏi tìm sản phẩm thông thường.'],
+                'output_schema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'status' => ['type' => 'string'],
+                        'groups' => ['type' => 'array'],
+                        'products' => ['type' => 'array'],
                     ],
                 ],
             ],
