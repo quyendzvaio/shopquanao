@@ -6,6 +6,8 @@
  */
 require_once __DIR__ . '/../../cache/Cache.php';
 require_once __DIR__ . '/ToolRegistry.php';
+require_once __DIR__ . '/McpToolGateway.php';
+require_once __DIR__ . '/ShadowToolGateway.php';
 require_once __DIR__ . '/llm/LLMFactory.php';
 require_once __DIR__ . '/ChatbotMemory.php';
 require_once __DIR__ . '/PdoChatbotConversationStore.php';
@@ -51,12 +53,28 @@ class ChatbotService {
         ?OnlineValidator $onlineValidator = null
     ) {
         $this->llm = func_num_args() >= 4 ? $llm : LLMFactory::fromEnv();
-        $this->toolGateway = $toolGateway ?? new ToolRegistry($pdo, $userId);
+        $this->toolGateway = $toolGateway ?? $this->createToolGateway($pdo, $userId);
         $this->memory = $memory ?? new ChatbotMemory($pdo, $sessionId, $userId);
         $this->conversationStore = $conversationStore ?? new PdoChatbotConversationStore($pdo, $sessionId);
         $this->responseGenerator = $responseGenerator ?? new ResponseGenerator();
         $this->onlineValidator = $onlineValidator ?? new OnlineValidator();
         $this->memory->ensureSchema();
+    }
+
+    private function createToolGateway(PDO $pdo, ?int $userId): ChatbotToolGateway
+    {
+        $isTest = strtolower((string) (getenv('APP_ENV') ?: '')) === 'test';
+        $transport = strtolower((string) (getenv('CHATBOT_TOOL_TRANSPORT') ?: ($isTest ? 'internal' : 'mcp')));
+        if ($transport === 'internal') {
+            return new ToolRegistry($pdo, $userId);
+        }
+        if ($transport === 'shadow') {
+            return new ShadowToolGateway(new McpToolGateway($userId), new ToolRegistry($pdo, $userId));
+        }
+        if ($transport !== 'mcp') {
+            throw new InvalidArgumentException('CHATBOT_TOOL_TRANSPORT must be mcp, shadow, or internal');
+        }
+        return new McpToolGateway($userId);
     }
 
     public function respond(string $message): array {

@@ -15,6 +15,8 @@ require_once ROOT_DIR . '/api/controllers/chatbot/ProductAttributeNormalizer.php
 require_once ROOT_DIR . '/api/controllers/chatbot/ChatbotMemory.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/KnowledgeRetriever.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/ToolRegistry.php';
+require_once ROOT_DIR . '/api/services/CartService.php';
+require_once ROOT_DIR . '/api/services/OrderService.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/llm/LLMFactory.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/PartialParseResult.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/CapabilityRegistry.php';
@@ -145,6 +147,21 @@ function initSQLiteSchema(PDO $pdo): void {
         total_price REAL,
         status TEXT DEFAULT 'Pending',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS cart (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        product_id INTEGER NOT NULL,
+        quantity INTEGER DEFAULT 1,
+        size TEXT DEFAULT 'S',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS order_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER,
+        product_id INTEGER,
+        quantity INTEGER,
+        price REAL
     )");
     $pdo->exec("CREATE TABLE IF NOT EXISTS chat_session_memory (
         session_id INTEGER PRIMARY KEY,

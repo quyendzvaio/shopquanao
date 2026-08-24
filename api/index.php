@@ -63,6 +63,9 @@ $routes = [
     'GET  /outfit'            => 'outfit/index.php',
     'GET  /knowledge/search'  => 'knowledge/search.php',
 
+    // Service-to-service MCP bridge (blocked at the public Nginx layer)
+    'POST /internal/mcp'      => 'internal/mcp.php',
+
     // Admin
     'GET  /admin/dashboard'   => 'admin/dashboard.php',
     'GET  /admin/products'    => 'admin/products.php',

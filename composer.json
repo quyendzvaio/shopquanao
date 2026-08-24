@@ -27,7 +27,8 @@
     "autoload": {
         "classmap": [
             "api/cache/",
-            "api/controllers/chatbot/"
+            "api/controllers/chatbot/",
+            "api/services/"
         ]
     },
     "config": {

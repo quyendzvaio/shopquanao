@@ -9,6 +9,7 @@ require_once __DIR__ . '/../../cache/Cache.php';
 require_once __DIR__ . '/KnowledgeRetriever.php';
 require_once __DIR__ . '/ProductAttributeNormalizer.php';
 require_once __DIR__ . '/contracts/ChatbotToolGateway.php';
+require_once __DIR__ . '/ToolDefinitionCatalog.php';
 
 class ToolRegistry implements ChatbotToolGateway {
     private PDO $pdo;
@@ -33,7 +34,7 @@ class ToolRegistry implements ChatbotToolGateway {
     }
 
     public function getDefinitions(): array {
-        return array_values($this->tools);
+        return ToolDefinitionCatalog::chatbotDefinitions();
     }
 
     public function execute(string $toolName, array $arguments): array {

@@ -49,7 +49,15 @@ services:
       KNOWLEDGE_HYBRID_CANDIDATES: ${KNOWLEDGE_HYBRID_CANDIDATES:-12}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_TIMEOUT: ${REDIS_TIMEOUT:-0.15}
       REDIS_PREFIX: "shop:"
+      CLIENT_CACHE_TTL: ${CLIENT_CACHE_TTL:-60}
+      CLIENT_CACHE_STALE_TTL: ${CLIENT_CACHE_STALE_TTL:-30}
+      CHATBOT_TOOL_TRANSPORT: ${CHATBOT_TOOL_TRANSPORT:-mcp}
+      MCP_SERVICE_TOKEN: ${MCP_SERVICE_TOKEN:-local-dev-mcp-secret-change-in-production}
+      MCP_STDIO_NODE: /usr/bin/node
+      MCP_STDIO_SCRIPT: /opt/mcp-server/dist/stdio.js
+      SHOP_INTERNAL_URL: http://127.0.0.1/api/internal/mcp
     depends_on:
       db:
         condition: service_healthy
@@ -122,7 +130,7 @@ services:
       - ./sql/shop_db.sql:/docker-entrypoint-initdb.d/01-shop_db.sql:ro
       - ./docker/mariadb-ft.cnf:/etc/mysql/conf.d/mariadb-ft.cnf:ro
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -uroot -p\"$${MARIADB_ROOT_PASSWORD}\" --silent"]
       interval: 1s
       timeout: 3s
       retries: 30
@@ -133,8 +141,8 @@ services:
     container_name: shop_quan_ao_redis
     restart: unless-stopped
     command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
-    ports:
-      - "6379:6379"
+    expose:
+      - "6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

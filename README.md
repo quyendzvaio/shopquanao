@@ -21,6 +21,7 @@ Production path không để LLM tự viết SQL. Query của user được tác
 |---|---|
 | `nginx` | Public API gateway, reverse proxy, rate limit chatbot |
 | `app` | PHP 8.2/Apache nội bộ, website, REST API và chatbot service |
+| MCP stdio | TypeScript MCP process nội bộ, được PHP khởi chạy khi chatbot cần gọi tool |
 | `db` | MariaDB 10.11, lưu sản phẩm, đơn hàng, chat, memory, logs |
 | `redis` | Cache; app fallback sang file cache khi Redis không sẵn sàng |
 | `qdrant` | Vector store cho knowledge collection |
@@ -40,7 +41,7 @@ Browser / Chat widget
           -> MergeEngine (không cho ghi đè field đã khóa)
       -> ToolPlanner + PlanValidator (luật PHP)
       -> EvidenceExecutionLoop
-          -> ToolRegistry
+          -> McpToolGateway -> MCP server -> PHP application services
               -> search_products / get_product_detail / suggest_size
               -> retrieve_knowledge / get_order_status / get_categories
           -> EvidenceNormalizer
@@ -52,6 +53,50 @@ Browser / Chat widget
 ```
 
 LLM không chọn intent, tool hoặc SQL. Khi parser còn một thuộc tính mô tả như `style`, `occasion` hoặc `avoid`, `SemanticEntityEnricher` có thể đề xuất JSON cho đúng field được cho phép; `MergeEngine` và `ToolPlanner` PHP vẫn giữ quyền quyết định.
+
+## MCP server
+
+MCP là transport mặc định và chỉ phục vụ PHP chatbot. `McpToolGateway` khởi chạy Node MCP server như một child process, sau đó trao đổi JSON-RPC qua stdin/stdout. Không có port MCP, route `/mcp`, OAuth endpoint hay public MCP URL.
+
+Các tool đọc: `search_products`, `get_product_detail`, `suggest_size`, `retrieve_knowledge`, `get_categories`, `get_order_status`, `list_cart`, `list_orders`, `get_order_detail`. Các tool ghi: `add_to_cart`, `update_cart`, `remove_from_cart`, `create_order`.
+
+Các mutation yêu cầu argument `confirmed: true`; `remove_from_cart` và `create_order` được đánh dấu destructive. User ID lấy từ session đăng nhập của PHP rồi truyền cho child process bằng environment riêng, không nằm trong input schema của tool. Capability phối đồ tự động và thanh toán ngoài hệ thống không được expose.
+
+Rollout transport:
+
+```env
+CHATBOT_TOOL_TRANSPORT=mcp       # mặc định
+# CHATBOT_TOOL_TRANSPORT=shadow  # MCP primary, so sánh output với legacy
+# CHATBOT_TOOL_TRANSPORT=internal # rollback tạm thời
+MCP_SERVICE_TOKEN=replace-with-a-long-random-secret
+MCP_STDIO_NODE=/usr/bin/node
+MCP_STDIO_SCRIPT=/opt/mcp-server/dist/stdio.js
+```
+
+`MCP_SERVICE_TOKEN` chỉ bảo vệ request loopback từ Node child process tới PHP application services. Nginx trả `404` cho `/api/internal/mcp`; container app không publish port trực tiếp. `MCP_PUBLIC_BASE_URL` không còn được sử dụng.
+
+## Cache hai tầng cho chatbot và website
+
+- **Tầng 1 (client/device):** các GET công khai như sản phẩm, danh mục, FAQ, size guide và knowledge search trả `Cache-Control` cùng `ETag`, vì vậy trình duyệt hoặc app website có thể dùng cache trên thiết bị và gửi `If-None-Match` để nhận `304 Not Modified`.
+- **Tầng 2 (server):** các kết quả tool/RAG/LLM của chatbot dùng Redis chung qua `api/cache/Cache.php` (có fallback sang file cache khi Redis tạm thời không khả dụng). TTL và prefix được cấu hình bằng `REDIS_*`.
+
+Response `POST /api/chatbot` không được cache ở client vì chứa session/context cá nhân; dữ liệu mà chatbot truy vấn vẫn được hưởng server-side Redis cache. `CLIENT_CACHE_TTL` và `CLIENT_CACHE_STALE_TTL` điều chỉnh cache HTTP phía website.
+
+Kiểm thử MCP:
+
+```bash
+cd mcp-server
+npm ci
+npm test
+npm run build
+
+docker compose up -d --build
+curl -X POST http://localhost/api/chatbot \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"tìm áo màu đen"}'
+```
+
+Tool contract vẫn dùng SDK MCP chính thức; transport local là stdio thay vì remote Streamable HTTP.
 
 ## Search và constraint validation
 

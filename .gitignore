@@ -19,6 +19,10 @@ vendor/
 composer.phar
 .phpunit.cache/
 
+# Node / MCP build output
+mcp-server/node_modules/
+mcp-server/dist/
+
 # Env
 .env
 .env.*
