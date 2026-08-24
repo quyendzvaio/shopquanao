@@ -342,6 +342,13 @@ jobs:
             echo "PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}" >> .env
             echo "RERANKER_URL=http://reranker:8000" >> .env
             echo "RAG_ML_WARMUP_ON_START=${{ secrets.RAG_ML_WARMUP_ON_START || 'false' }}" >> .env
+            echo "CHATBOT_TOOL_TRANSPORT=mcp" >> .env
+            echo "MCP_SERVICE_TOKEN=${{ secrets.MCP_SERVICE_TOKEN }}" >> .env
+            echo "MCP_REQUEST_TIMEOUT_MS=30000" >> .env
+            echo "MCP_REQUEST_TIMEOUT=35" >> .env
+            echo "REDIS_TIMEOUT=0.15" >> .env
+            echo "CLIENT_CACHE_TTL=60" >> .env
+            echo "CLIENT_CACHE_STALE_TTL=30" >> .env
             echo ".env written ($(wc -l < .env) lines)"
 
             echo "Stopping current stack before cleanup..."
