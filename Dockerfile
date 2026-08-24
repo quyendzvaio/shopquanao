@@ -1,6 +1,6 @@
 # ============================================================
 # Fashion Shop — Production Image
-# Single-stage, minimal deps, optimized for limited disk space
+# Multi-stage runtime with only production dependencies
 # ============================================================
 FROM node:22-bookworm-slim AS mcp-build
 WORKDIR /build
@@ -16,19 +16,33 @@ COPY mcp-server/package.json mcp-server/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=mcp-build /build/dist/src ./dist
 
+FROM php:8.2-apache AS php-extensions
+
+# Compile extensions in a throw-away stage. The runtime image receives only
+# the resulting .so files and ini entries, not gcc/autoconf/PECL build tools.
+RUN apt-get update -qq \
+    && apt-get install -y -qq --no-install-recommends $PHPIZE_DEPS \
+    && docker-php-ext-install -j1 pdo_mysql opcache \
+    && pecl install redis \
+    && docker-php-ext-enable redis \
+    && rm -rf /tmp/pear /usr/src/php
+
 FROM php:8.2-apache
 
 # Install only required runtime extensions.
 # Redis is the shared server-side cache. Cache still falls back to files if Redis
 # is temporarily unavailable, but the extension is installed in the image.
 RUN apt-get update -qq \
-    && apt-get install -y -qq --no-install-recommends curl ca-certificates nodejs \
-    && docker-php-ext-install -j1 pdo_mysql mysqli opcache \
-    && pecl install redis \
-    && docker-php-ext-enable redis \
+    && apt-get install -y -qq --no-install-recommends curl ca-certificates \
     && a2enmod rewrite \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/*
+
+# Copy only compiled PHP modules/configuration and the Node executable used by
+# the private MCP stdio child process.
+COPY --from=php-extensions /usr/local/lib/php/extensions/ /usr/local/lib/php/extensions/
+COPY --from=php-extensions /usr/local/etc/php/conf.d/docker-php-ext-*.ini /usr/local/etc/php/conf.d/
+COPY --from=mcp-runtime /usr/local/bin/node /usr/bin/node
 
 # Apache config
 RUN echo "ServerName localhost" > /etc/apache2/conf-available/servername.conf \
