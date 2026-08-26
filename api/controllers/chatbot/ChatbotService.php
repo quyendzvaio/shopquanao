@@ -313,6 +313,8 @@ class ChatbotService {
             'resolved_fields' => $partial['resolved_fields'] ?? [],
             'unresolved_spans' => $partial['unresolved_spans'] ?? [],
             'conflicts' => $partial['conflicts'] ?? [],
+            'llm_input_parser_used' => (bool)($enrichment['input_parser_used'] ?? false),
+            'llm_input_parser_error' => $enrichment['input_parser_error'] ?? null,
             'llm_entity_enrichment_used' => (bool)($enrichment['used'] ?? false),
             'llm_inferred_fields' => $enrichment['inferred_fields'] ?? [],
             'llm_unresolved_remaining' => $enrichment['unresolved_remaining'] ?? [],

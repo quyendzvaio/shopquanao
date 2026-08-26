@@ -20,6 +20,9 @@ final class FashionTaxonomyNormalizerTest extends \PHPUnit\Framework\TestCase
             ['sports jacket', 'áo khoác', 1],
             ['tailored trousers', 'quần tây', 2],
             ['Oxford shoes', 'giày tây', 5],
+            ['áo sơmi', 'áo sơ mi', 1],
+            ['quanjean', 'quần jeans', 2],
+            ['aothun', 'áo thun', 1],
         ];
     }
 

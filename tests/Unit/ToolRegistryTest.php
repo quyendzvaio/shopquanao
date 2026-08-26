@@ -157,6 +157,26 @@ class ToolRegistryTest extends \PHPUnit\Framework\TestCase
         $this->assertContains(52, $ids);
     }
 
+    public function testSearchShirtUnder500kFindsShirtsOnly(): void
+    {
+        $result = $this->registry->execute('search_products', [
+            'search' => 'áo sơ mi',
+            'category_id' => 1,
+            'max_price' => 500000,
+        ]);
+        $this->assertArrayHasKey('products', $result);
+        $ids = array_map(fn($p) => (int)$p['id'], $result['products']);
+        $this->assertContains(51, $ids); // Áo Sơ Mi Linen Xanh (320k)
+        $this->assertContains(63, $ids); // Áo Sơ Mi Caro Đỏ Đen (350k)
+        $this->assertNotContains(52, $ids); // Áo Khoác Bomber (550k - over price limit)
+
+        $verifier = new ProductConstraintVerifier();
+        $entities = ['product_type' => 'áo sơ mi', 'max_price' => 500000];
+        foreach ($result['products'] as $product) {
+            $this->assertTrue($verifier->verify($product, $entities));
+        }
+    }
+
     public function testExecuteUnknownToolThrows(): void
     {
         $this->expectException(\RuntimeException::class);

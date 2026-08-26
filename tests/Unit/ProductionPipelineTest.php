@@ -84,6 +84,71 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
         $this->assertSame(52, $plan['batches'][0][0]['args']['product_id']);
     }
 
+    public function testLlmInputParserPreservesCompoundProductPhraseAndPriceConstraint(): void
+    {
+        $llm = new FakeInputParserLlm([
+            'intent' => 'product_search',
+            'product_query' => 'áo sơ mi',
+            'category_id' => 1,
+            'max_price' => 500000,
+            'min_price' => null,
+            'color' => null,
+            'size' => null,
+            'in_stock' => null,
+            'product_id' => null,
+            'order_id' => null,
+            'height_cm' => null,
+            'weight_kg' => null,
+            'style' => null,
+            'occasion' => null,
+            'avoid' => null,
+        ]);
+
+        $intent = (new IntentResolver($llm))->extract('tìm áo sơmi dưới 500k');
+        $plan = (new ToolPlanner())->plan($intent);
+
+        $this->assertSame('product_search', $intent['primary_intent']);
+        $this->assertSame('áo sơ mi', $intent['entities']['product_type']);
+        $this->assertSame(500000, $intent['entities']['max_price']);
+        $this->assertSame('search_products', $plan['batches'][0][0]['tool']);
+        $this->assertSame('áo sơ mi', $plan['batches'][0][0]['args']['search']);
+        $this->assertSame(500000, $plan['batches'][0][0]['args']['max_price']);
+        $this->assertSame('required', $llm->lastToolChoice);
+    }
+
+    public function testLlmInputParserReadsGatewayParameterMarkupWhenToolArgumentsAreEmpty(): void
+    {
+        $llm = new FakeMarkupInputParserLlm();
+
+        $intent = (new IntentResolver($llm))->extract('tìm áo sơmi dưới 500k');
+        $plan = (new ToolPlanner())->plan($intent);
+
+        $this->assertSame('product_search', $intent['primary_intent']);
+        $this->assertSame('áo sơ mi', $intent['entities']['product_type']);
+        $this->assertSame(500000, $plan['batches'][0][0]['args']['max_price']);
+        $this->assertSame('áo sơ mi', $plan['batches'][0][0]['args']['search']);
+    }
+
+    public function testDeterministicParserNormalizesUnspacedProductTypesAndPriceConstraints(): void
+    {
+        $resolver = new IntentResolver();
+        
+        $intent1 = $resolver->extract('tìm sản phẩm áo sơmi dưới 500k');
+        $this->assertSame('product_search', $intent1['primary_intent']);
+        $this->assertSame('áo sơ mi', $intent1['entities']['product_type']);
+        $this->assertSame(500000, $intent1['entities']['max_price']);
+
+        $intent2 = $resolver->extract('quanjean dưới 400k');
+        $this->assertSame('product_search', $intent2['primary_intent']);
+        $this->assertSame('quần jeans', $intent2['entities']['product_type']);
+        $this->assertSame(400000, $intent2['entities']['max_price']);
+
+        $intent3 = $resolver->extract('aothun dưới 200k');
+        $this->assertSame('product_search', $intent3['primary_intent']);
+        $this->assertSame('áo thun', $intent3['entities']['product_type']);
+        $this->assertSame(200000, $intent3['entities']['max_price']);
+    }
+
     public function testOptionalEntityEnrichmentAddsOnlyUnresolvedFields(): void
     {
         $partial = (new DeterministicIntentParser())->parse('Tìm áo sơ mi trắng dưới 500k, mặc đi phỏng vấn nhưng không quá già.')->toArray();
@@ -666,5 +731,47 @@ class FakeEntityEnrichmentLlm implements LLMProvider
         $this->lastTools = $tools;
         $this->lastToolChoice = $toolChoice;
         return new LLMResponse(json_encode($this->response, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+}
+
+class FakeInputParserLlm implements LLMProvider
+{
+    public string $lastToolChoice = '';
+
+    public function __construct(private array $arguments)
+    {
+    }
+
+    public function chat(array $messages, array $tools = [], string $toolChoice = 'auto', array $options = []): LLMResponse
+    {
+        $this->lastToolChoice = $toolChoice;
+        return new LLMResponse(toolCalls: [new ToolCall('input-parser', 'parse_chatbot_input', $this->arguments)]);
+    }
+}
+
+class FakeMarkupInputParserLlm implements LLMProvider
+{
+    public function chat(array $messages, array $tools = [], string $toolChoice = 'auto', array $options = []): LLMResponse
+    {
+        return new LLMResponse(
+            content: '<tool_call><function=parse_chatbot_input>'
+                . '<parameter=intent>product_search</parameter>'
+                . '<parameter=product_query>áo sơ mi</parameter>'
+                . '<parameter=category_id>1</parameter>'
+                . '<parameter=product_id>None</parameter>'
+                . '<parameter=order_id>None</parameter>'
+                . '<parameter=min_price>None</parameter>'
+                . '<parameter=max_price>500000</parameter>'
+                . '<parameter=color>None</parameter>'
+                . '<parameter=size>None</parameter>'
+                . '<parameter=in_stock>None</parameter>'
+                . '<parameter=height_cm>None</parameter>'
+                . '<parameter=weight_kg>None</parameter>'
+                . '<parameter=occasion>None</parameter>'
+                . '<parameter=style>None</parameter>'
+                . '<parameter=avoid>None</parameter>'
+                . '</function></tool_call>',
+            toolCalls: [new ToolCall('gateway-markup', 'parse_chatbot_input', [])]
+        );
     }
 }
