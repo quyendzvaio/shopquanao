@@ -2,6 +2,8 @@
 # Fashion Shop — Production Image
 # Multi-stage runtime with only production dependencies
 # ============================================================
+
+# ── Stage 1: Build private MCP server ──────────────────────
 FROM node:22-bookworm-slim AS mcp-build
 WORKDIR /build
 COPY mcp-server/package.json mcp-server/package-lock.json ./
@@ -10,12 +12,14 @@ COPY mcp-server/tsconfig.json ./
 COPY mcp-server/src/ src/
 RUN npm run build
 
+# ── Stage 2: MCP runtime (prod deps only) ──────────────────
 FROM node:22-bookworm-slim AS mcp-runtime
 WORKDIR /opt/mcp-server
 COPY mcp-server/package.json mcp-server/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=mcp-build /build/dist/src ./dist
 
+# ── Stage 3: Clone + patch FindMine MCP ────────────────────
 FROM node:22-bookworm-slim AS findmine-build
 ARG FINDMINE_MCP_SHA=28a15b86ac0a7b212336748005393f88bcbfdad1
 WORKDIR /build/findmine-mcp
@@ -32,10 +36,9 @@ RUN npm ci \
     && npm prune --omit=dev \
     && npm cache clean --force
 
+# ── Stage 4: Compile PHP extensions ────────────────────────
+# Build tools stay in this throwaway stage only.
 FROM php:8.2-apache AS php-extensions
-
-# Compile extensions in a throw-away stage. The runtime image receives only
-# the resulting .so files and ini entries, not gcc/autoconf/PECL build tools.
 RUN apt-get update -qq \
     && apt-get install -y -qq --no-install-recommends $PHPIZE_DEPS \
     && docker-php-ext-install -j1 pdo_mysql opcache \
@@ -43,77 +46,67 @@ RUN apt-get update -qq \
     && docker-php-ext-enable redis \
     && rm -rf /tmp/pear /usr/src/php
 
+# ── Stage 5: Runtime image ─────────────────────────────────
 FROM php:8.2-apache
 
-# Install only required runtime extensions.
-# Redis is the shared server-side cache. Cache still falls back to files if Redis
-# is temporarily unavailable, but the extension is installed in the image.
+# Runtime system packages (curl for healthcheck, ca-certificates for HTTPS)
 RUN apt-get update -qq \
     && apt-get install -y -qq --no-install-recommends curl ca-certificates \
     && a2enmod rewrite \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/*
 
-# Copy only compiled PHP modules/configuration and the Node executable used by
-# the private MCP stdio child process.
+# Copy compiled PHP extensions and config from the throwaway build stage
 COPY --from=php-extensions /usr/local/lib/php/extensions/ /usr/local/lib/php/extensions/
 COPY --from=php-extensions /usr/local/etc/php/conf.d/docker-php-ext-*.ini /usr/local/etc/php/conf.d/
+
+# Copy Node binary (used to spawn MCP stdio child process — no network listener)
 COPY --from=mcp-runtime /usr/local/bin/node /usr/bin/node
 
-# Apache config
+# Apache + PHP config
 RUN echo "ServerName localhost" > /etc/apache2/conf-available/servername.conf \
     && a2enconf servername \
     && echo "ServerSignature Off" >> /etc/apache2/conf-available/servername.conf \
     && echo "ServerTokens Prod" >> /etc/apache2/conf-available/servername.conf
-
-# Copy configs
 COPY docker/apache.conf /etc/apache2/sites-available/000-default.conf
 COPY docker/php.ini /usr/local/etc/php/conf.d/zz-shop.ini
 
-# Working directory
 WORKDIR /var/www/html
 
-# Private MCP stdio runtime. No network listener is started.
+# MCP runtimes (private stdio — no external port)
 COPY --from=mcp-runtime /opt/mcp-server /opt/mcp-server
 COPY --from=findmine-build /build/findmine-mcp /opt/findmine-mcp
 
-# Copy application files (chained to single layer)
-COPY api/ api/
-COPY config/ config/
-COPY includes/ includes/
-COPY css/ css/
-COPY sql/ sql/
+# ── Application source ─────────────────────────────────────
+# Copy directories first (large, change less often → better layer caching)
+COPY api/       api/
+COPY config/    config/
+COPY includes/  includes/
+COPY css/       css/
+COPY sql/       sql/
+COPY images/    images/
 COPY knowledge/ knowledge/
-COPY scripts/ingest_knowledge.php scripts/ingest_knowledge.php
-COPY scripts/run_database_migrations.php scripts/run_database_migrations.php
-COPY scripts/publish_fashion_outbox.php scripts/publish_fashion_outbox.php
-COPY scripts/consume_fashion_events.php scripts/consume_fashion_events.php
-COPY scripts/findmine_live_inspect.php scripts/findmine_live_inspect.php
-COPY scripts/run_fashion_extraction_eval.php scripts/run_fashion_extraction_eval.php
-COPY tests/fixtures/findmine/fashion-extraction-cases.php tests/fixtures/findmine/fashion-extraction-cases.php
-COPY scripts/smoke_findmine_demo.php scripts/smoke_findmine_demo.php
-COPY scripts/smoke_proactive_demo_live.php scripts/smoke_proactive_demo_live.php
-COPY scripts/run_findmine_agent_eval.php scripts/run_findmine_agent_eval.php
-COPY eval/findmine_agent_eval_cases.php eval/findmine_agent_eval_cases.php
-COPY scripts/smoke_cart_event_pipeline.php scripts/smoke_cart_event_pipeline.php
-COPY scripts/smoke_proactive_chat_turns.php scripts/smoke_proactive_chat_turns.php
-COPY images/ images/
-COPY *.php ./
-COPY admin/*.php admin/
 
-# Ownership + permissions (exclude writeable dirs from chmod for perf)
+# Root PHP entry-points and admin panel
+COPY *.php    ./
+COPY admin/   admin/
+
+# CLI scripts needed inside the container at runtime
+# eval/ contains the 70-case agent evaluation corpus
+COPY scripts/ scripts/
+COPY eval/findmine_agent_eval_cases.php eval/findmine_agent_eval_cases.php
+COPY tests/fixtures/findmine/fashion-extraction-cases.php \
+     tests/fixtures/findmine/fashion-extraction-cases.php
+
+# ── Ownership + permissions ────────────────────────────────
 RUN chown -R www-data:www-data /var/www/html \
     && chmod 755 /var/www/html \
-    && chmod -R 644 /var/www/html/*.php /var/www/html/api/*.php \
-    && chmod -R 755 /var/www/html/images
+    && find /var/www/html -name "*.php" -exec chmod 644 {} + \
+    && chmod -R 755 /var/www/html/images \
+    && rm -f /var/www/html/index.html
 
-# Remove default Apache index
-RUN rm -f /var/www/html/index.html
-
-# Healthcheck
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -sf http://localhost/api/products?limit=1 || exit 1
 
 EXPOSE 80
-
 USER www-data
