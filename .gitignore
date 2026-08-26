@@ -5,7 +5,7 @@ Thumbs.db
 *.swo
 *~
 
-# IDE
+# IDE & agent tooling
 .agents
 .codex
 .claude/
@@ -13,6 +13,7 @@ Thumbs.db
 .specify/
 .vscode
 .idea
+.ua/
 
 # PHP
 vendor/
@@ -73,8 +74,7 @@ reports/*
 # Python
 __pycache__/
 **/__pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 .cache/
 .huggingface/
 hf_cache/
