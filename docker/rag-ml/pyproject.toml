@@ -1,0 +1,15 @@
+[project]
+name = "rag-ml"
+version = "1.0.0"
+description = "Knowledge RAG ML Service — embedding + reranker sidecar"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn==0.34.0",
+    "numpy>=1.26,<2.0",
+    "sentence-transformers==3.3.1",
+    "torch==2.5.1+cpu",
+]
+
+[tool.uv]
+extra-index-url = ["https://download.pytorch.org/whl/cpu"]

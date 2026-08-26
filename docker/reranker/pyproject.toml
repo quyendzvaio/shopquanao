@@ -1,0 +1,11 @@
+[project]
+name = "reranker"
+version = "3.0.0"
+description = "Reranker sidecar — lightweight TF-IDF character n-gram for Vietnamese"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn==0.34.0",
+    "scikit-learn==1.6.1",
+    "numpy==1.26.4",
+]
