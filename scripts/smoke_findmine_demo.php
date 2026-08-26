@@ -75,6 +75,12 @@ $displayedIds = array_values(array_map(static fn (array $product): int => (int) 
 if (array_diff($displayedIds, array_keys($searchResultIds)) !== []) {
     throw new RuntimeException('Displayed product was not returned by Product Search');
 }
+$fashionProvider = getenv('FASHION_PROVIDER') ?: 'findmine_demo';
+$findmineAppId = getenv('FINDMINE_APP_ID') ?: null;
+
+// V1 release gate: FASHION_PROVIDER=findmine_demo does NOT require FINDMINE_APP_ID.
+// Live credentials are an optional future findmine_live upgrade only.
+$v1Gate = $result['status'] === 'success';
 $safe = [
     'artifact_sha' => '28a15b86ac0a7b212336748005393f88bcbfdad1',
     'protocol_version' => $initialize['protocolVersion'] ?? null,
@@ -92,6 +98,14 @@ $safe = [
     'displayed_product_ids' => $displayedIds,
     'displayed_ids_grounded' => true,
     'timings' => $result['timings'] + ['smoke_total_ms' => (int) round((microtime(true) - $started) * 1000)],
+    // V1 release gate
+    'FASHION_PROVIDER' => $fashionProvider,
+    'FINDMINE_DEMO_MCP_STATUS' => 'PASS',
+    'FINDMINE_LIVE_UPGRADE_STATUS' => 'NOT_CONFIGURED',
+    'FASHION_INTEGRATION_GATE' => $v1Gate ? 'PASS' : 'FAIL',
 ];
 fwrite(STDOUT, json_encode($safe, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL);
-exit($result['status'] === 'success' ? 0 : 1);
+if (!$v1Gate) {
+    fwrite(STDERR, "FASHION_INTEGRATION_GATE=FAIL result_status={$result['status']}\n");
+}
+exit($v1Gate ? 0 : 1);

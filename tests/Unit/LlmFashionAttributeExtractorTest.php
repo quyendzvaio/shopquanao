@@ -133,6 +133,73 @@ final class LlmFashionAttributeExtractorTest extends TestCase
         self::assertSame(1, $metrics->counts['fashion_extraction_repair_success_total'] ?? 0);
     }
 
+    public function testNonCanonicalCategoryValueTriggersRepairRetry(): void
+    {
+        // T6: enum guard — "bottomwear" is not in the canonical category enum
+        // so the first call must fail with invalid_schema and trigger exactly
+        // one bounded repair retry.
+        $llm = new RecordingFashionExtractionLlm([
+            new LLMResponse(toolCalls: [new ToolCall('bad-enum', 'emit_fashion_attributes', [
+                'items' => [[
+                    'category' => 'bottomwear', 'subcategory' => null, 'color' => 'white',
+                    'material' => 'denim', 'style' => null, 'pattern' => null, 'fit' => null,
+                ]],
+            ])]),
+            new LLMResponse(toolCalls: [new ToolCall('repaired-enum', 'emit_fashion_attributes', [
+                'items' => [[
+                    'category' => 'trousers', 'subcategory' => null, 'color' => 'white',
+                    'material' => 'denim', 'style' => null, 'pattern' => null, 'fit' => null,
+                ]],
+            ])]),
+        ]);
+        $metrics = new RecordingFashionMetrics();
+        $extractor = new LlmFashionAttributeExtractor($llm, new MemoryFashionExtractionCache(), $metrics, 2);
+
+        $item = $extractor->extract([new RawFashionSuggestion('white denim trousers')])[0];
+
+        self::assertSame('trousers', $item->category);
+        self::assertSame('white', $item->color);
+        self::assertSame(2, $llm->calls, 'Repair retry must be attempted for invalid enum');
+        self::assertSame(1, $metrics->counts['fashion_extraction_repair_attempts_total'] ?? 0);
+        self::assertSame(1, $metrics->counts['fashion_extraction_repair_success_total'] ?? 0);
+    }
+
+    public function testEnumConstrainedToolSchemaContainsCanonicalValues(): void
+    {
+        // T3: the emitted tool schema must constrain category and subcategory
+        // to the canonical enum so the provider rejects non-standard strings.
+        $llm = new RecordingFashionExtractionLlm([
+            new LLMResponse(toolCalls: [new ToolCall('schema-check', 'emit_fashion_attributes', [
+                'items' => [[
+                    'category' => 'shirt', 'subcategory' => null, 'color' => null,
+                    'material' => null, 'style' => null, 'pattern' => null, 'fit' => null,
+                ]],
+            ])]),
+        ]);
+        $extractor = new LlmFashionAttributeExtractor($llm, new MemoryFashionExtractionCache(), new RecordingFashionMetrics(), 1);
+        $extractor->extract([new RawFashionSuggestion('a casual top')]);
+
+        $schema = $llm->tools[0]['function']['parameters']['properties']['items']['items']['properties'];
+        self::assertArrayHasKey('enum', $schema['category']);
+        self::assertContains('shirt', $schema['category']['enum']);
+        self::assertContains('trousers', $schema['category']['enum']);
+        self::assertContains('footwear', $schema['category']['enum']);
+        self::assertContains('jacket', $schema['category']['enum']);
+        self::assertContains('dress', $schema['category']['enum']);
+        self::assertContains('skirt', $schema['category']['enum']);
+        self::assertContains('accessory', $schema['category']['enum']);
+        self::assertContains(null, $schema['category']['enum']);
+        self::assertArrayHasKey('enum', $schema['subcategory']);
+        self::assertContains('sneakers', $schema['subcategory']['enum']);
+        self::assertContains('blazer', $schema['subcategory']['enum']);
+        self::assertArrayHasKey('enum', $schema['material']);
+        self::assertContains('denim', $schema['material']['enum']);
+        self::assertContains('linen', $schema['material']['enum']);
+        self::assertArrayHasKey('enum', $schema['fit']);
+        self::assertContains('wide_leg', $schema['fit']['enum']);
+        self::assertContains('slim', $schema['fit']['enum']);
+    }
+
     public function testRateLimitIsInfrastructureFailureAndIsNotImmediatelyRetried(): void
     {
         $llm = new ThrowingFashionExtractionLlm(new RuntimeException('LLM error (HTTP 429): rate limit exceeded'));

@@ -2,8 +2,8 @@
 
 final class LlmFashionAttributeExtractor implements FashionAttributeExtractor
 {
-    public const SCHEMA_VERSION = '2';
-    public const PROMPT_VERSION = '2';
+    public const SCHEMA_VERSION = '3';
+    public const PROMPT_VERSION = '3';
     public const NORMALIZER_VERSION = '1';
 
     private DeterministicFashionAttributeParser $deterministic;
@@ -144,7 +144,24 @@ final class LlmFashionAttributeExtractor implements FashionAttributeExtractor
             array_keys($suggestions)
         );
         return [
-            ['role' => 'system', 'content' => 'You extract fashion attributes from provided styling suggestions. Return only structured output matching the supplied schema. For every mentioned clothing item extract only attributes explicitly stated in the input. Allowed fields: category, subcategory, color, material, style, pattern, fit. Never recommend anything. Never add a garment that was not present. Never output product IDs. Never assume inventory. Never infer material, color, style, fit, or pattern when absent. Unknown attributes must be null. Keep separate garments as separate items.'],
+            ['role' => 'system', 'content' => implode(' ', [
+                'You extract fashion attributes from provided styling suggestions.',
+                'Return only structured output matching the supplied schema.',
+                'For every mentioned clothing item extract ONLY attributes explicitly stated in the input.',
+                'Rules:',
+                '- Never recommend anything.',
+                '- Never add a garment that was not present in the input.',
+                '- Never output product IDs.',
+                '- Never assume inventory.',
+                '- Never infer material, color, style, fit, or pattern when absent from the text — use null.',
+                '- Never use non-canonical values; use only the exact enum strings defined in the schema.',
+                '- Canonical category values: shirt, trousers, footwear, jacket, dress, skirt, accessory.',
+                '- For Vietnamese garments: áo thun/hoodie/polo = category "shirt"; quần jean/jeans = category "trousers" subcategory "jeans"; giày/dép = category "footwear"; áo khoác/blazer = category "jacket"; váy/đầm = category "dress"; chân váy = category "skirt"; thắt lưng = category "accessory" subcategory "belt".',
+                '- Map colors to English canonical names: đen=black, trắng=white, xanh navy=navy, nâu=brown, be=beige, đỏ=red, xanh=blue, xám=gray, kem=cream.',
+                '- Map materials to English canonical names: len=wool, vải lanh=linen, da=leather.',
+                '- Keep separate garments as separate items.',
+                '- Unknown attributes must be null.',
+            ])],
             ['role' => 'user', 'content' => json_encode(['suggestions' => $input], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)],
         ];
     }
@@ -169,7 +186,7 @@ final class LlmFashionAttributeExtractor implements FashionAttributeExtractor
             'type' => 'function',
             'function' => [
                 'name' => 'emit_fashion_attributes',
-                'description' => 'Return extracted attributes only; use null when unknown.',
+                'description' => 'Return extracted fashion attributes only. Use null when an attribute is unknown or absent.',
                 'strict' => true,
                 'parameters' => [
                     'type' => 'object',
@@ -183,13 +200,13 @@ final class LlmFashionAttributeExtractor implements FashionAttributeExtractor
                                 'additionalProperties' => false,
                                 'required' => ['category', 'subcategory', 'color', 'material', 'style', 'pattern', 'fit'],
                                 'properties' => [
-                                    'category' => $nullableString,
-                                    'subcategory' => $nullableString,
+                                    'category' => ['type' => ['string', 'null'], 'enum' => ['shirt', 'trousers', 'footwear', 'jacket', 'dress', 'skirt', 'accessory', null]],
+                                    'subcategory' => ['type' => ['string', 'null'], 'enum' => ['sneakers', 'loafers', 'dress_shoes', 'blazer', 'hoodie', 'polo', 'jeans', 'midi_dress', 'belt', null]],
                                     'color' => $nullableString,
-                                    'material' => $nullableString,
-                                    'style' => $nullableString,
-                                    'pattern' => $nullableString,
-                                    'fit' => $nullableString,
+                                    'material' => ['type' => ['string', 'null'], 'enum' => ['denim', 'linen', 'leather', 'wool', 'cotton', null]],
+                                    'style' => ['type' => ['string', 'null'], 'enum' => ['minimal', 'casual', 'simple', 'lightweight', null]],
+                                    'pattern' => ['type' => ['string', 'null'], 'enum' => ['striped', 'floral', 'pleated', null]],
+                                    'fit' => ['type' => ['string', 'null'], 'enum' => ['wide_leg', 'slim', 'oversized', 'regular', null]],
                                 ],
                             ],
                         ],
