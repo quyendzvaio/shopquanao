@@ -14,6 +14,7 @@ Thumbs.db
 .vscode
 .idea
 .ua/
+.playwright-cli/
 
 # PHP
 vendor/
