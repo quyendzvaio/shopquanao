@@ -146,6 +146,8 @@ jobs:
 
       - name: Run Integration Tests
         env:
+          APP_ENV: test
+          CHATBOT_TOOL_TRANSPORT: internal
           DB_HOST: 127.0.0.1
           DB_NAME: shop_test
           DB_USER: root
@@ -214,6 +216,10 @@ jobs:
 
       - name: Validate Compose profiles
         run: |
+          # docker-compose.yml intentionally consumes the operator-managed
+          # .env file at runtime. CI validates only interpolation/schema, so
+          # materialise the tracked non-secret example for this disposable job.
+          cp .env.example .env
           docker compose config --quiet
           docker compose --profile observability config --quiet
 
