@@ -141,6 +141,14 @@ jobs:
       - name: Import schema
         run: sed '/^CREATE DATABASE/d;/^USE /d' sql/shop_db.sql | mysql -h127.0.0.1 -u root -proot_pass shop_test
 
+      - name: Apply database migrations
+        env:
+          DB_HOST: 127.0.0.1
+          DB_NAME: shop_test
+          DB_USER: root
+          DB_PASS: root_pass
+        run: php scripts/run_database_migrations.php
+
       - name: Install dependencies
         run: composer install --no-interaction --no-progress
 
