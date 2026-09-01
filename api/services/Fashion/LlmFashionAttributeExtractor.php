@@ -123,7 +123,7 @@ final class LlmFashionAttributeExtractor implements FashionAttributeExtractor
             $suggestions
         );
         return 'fashion_extraction|' . hash('sha256', json_encode([
-            'provider_mode' => 'findmine_demo',
+            'provider_mode' => 'styling_reference',
             'raw' => $raw,
             'extractor_schema' => self::SCHEMA_VERSION,
             'prompt_version' => self::PROMPT_VERSION,

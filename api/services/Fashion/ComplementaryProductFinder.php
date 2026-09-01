@@ -20,11 +20,11 @@ final class ComplementaryProductFinder
         try {
             $stage = microtime(true);
             $suggestions = $this->provider->suggestForAnchor($shopProductId, $shopVariantId);
-            $timings['findmine_demo_mcp_ms'] = $this->elapsed($stage);
+            $timings['styling_reference_provider_ms'] = $this->elapsed($stage);
         } catch (Throwable $error) {
             return $this->failure('provider_failure', $shopProductId, $timings + [
                 'total_recommendation_ms' => $this->elapsed($started),
-            ], $error instanceof FindMineProviderException ? $error->category : 'PROVIDER_UNAVAILABLE');
+            ], property_exists($error, 'category') ? (string) $error->category : 'PROVIDER_UNAVAILABLE');
         }
 
         if ($suggestions === []) {
@@ -67,7 +67,7 @@ final class ComplementaryProductFinder
 
         return [
             'status' => $products === [] ? 'no_products' : 'success',
-            'provider_mode' => 'findmine_demo',
+            'provider_mode' => $suggestions[0]->source ?? 'glance',
             'anchor_product_id' => $shopProductId,
             'raw_suggestions' => array_map(static fn (RawFashionSuggestion $suggestion): array => [
                 'text' => $suggestion->text,
@@ -87,7 +87,7 @@ final class ComplementaryProductFinder
     {
         return [
             'status' => $status,
-            'provider_mode' => 'findmine_demo',
+            'provider_mode' => 'glance',
             'anchor_product_id' => $anchor,
             'raw_suggestions' => [],
             'extracted_items' => [],

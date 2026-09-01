@@ -1,14 +1,16 @@
 # Đặc Tả Kỹ Thuật Chatbot
 
-Phiên bản: 3.0
-Cập nhật: 2026-08-01
+Phiên bản: 3.1
+Cập nhật: 2026-08-31
 
 ## 1. Bản Chất Kiến Trúc
 
 Chatbot là hệ thống deterministic-first hybrid, không phải ReAct agent. PHP chịu trách nhiệm parse intent, phát hiện conflict, chọn tool, kiểm plan, kiểm evidence và sinh câu trả lời. LLM là dependency tùy chọn chỉ được bổ sung các entity mô tả chưa giải quyết dưới dạng JSON.
 
 ```text
-POST /api/chatbot
+Browser WebSocket /ws/chatbot
+  -> chat-stream gateway (Node)
+      -> POST /api/chatbot/stream (internal Compose network, NDJSON)
   -> ChatbotService
       -> ChatbotMemory::rememberUserMessage()
       -> IntentResolver
@@ -24,10 +26,11 @@ POST /api/chatbot
           -> ObservationEvaluator
           -> LightweightEvidenceScorer
           -> EvidenceDecisionRouter
-      -> ResponseGenerator
-      -> OnlineValidator
+      -> ResponseGenerator (grounded draft)
+      -> StreamingResponseGenerator -> native LLM token stream
       -> persist messages, routing metadata and tool executions
-  -> JSON response
+  -> streamed answer + private grounded cards
+  -> chat.delta / chat.cards / chat.complete events
 ```
 
 ## 2. Ranh Giới LLM
@@ -71,6 +74,53 @@ Sau tool execution, dữ liệu được chuẩn hóa thành `cards`, `knowledge
 Memory có thể bổ sung ngữ cảnh hội thoại như `last_product_id`, nhưng không được biến một policy turn độc lập thành product request.
 
 ## 6. Response Contract
+
+Frontend chat turns use the same-origin WebSocket endpoint `GET /ws/chatbot`
+(HTTP upgrade). The gateway accepts exactly one in-flight `chat.send` request
+per socket and forwards it to the PHP streaming endpoint. PHP remains the sole
+owner of identity resolution, persistence, intent/tool selection, Glance
+styling, and Product Search. The final answer is emitted by the configured
+LLM's native token stream after the grounded pipeline completes.
+
+Client request:
+
+```json
+{
+  "type": "chat.send",
+  "request_id": "browser-generated-id",
+  "message": "Áo này phối với gì?",
+  "session_token": "optional-guest-or-user-session-token",
+  "authorization": "Bearer optional-user-token"
+}
+```
+
+The browser WebSocket API cannot set an `Authorization` header. For a logged-in
+user, the existing bearer token is therefore sent only inside the same-origin
+TLS WebSocket frame; the gateway forwards it as an HTTP header and never logs,
+persists, or sends it back. Origin must match the public forwarded
+host/protocol, unless `CHAT_STREAM_ALLOWED_ORIGINS` is explicitly configured.
+
+Server events, in order:
+
+| Event | Meaning |
+|---|---|
+| `chat.started` | request accepted |
+| `chat.progress` | PHP pipeline is processing |
+| `chat.delta` | incremental safe text fragment |
+| `chat.cards` | validated private shop cards, if any |
+| `chat.complete` | final session/trace metadata |
+| `chat.error` | safe terminal error instead of a response |
+
+Text streaming is native provider output: each `chat.delta` is forwarded as
+soon as the PHP streaming endpoint receives it. Product cards are still
+grounded by Product Search, allow-listed at the gateway, and can only contain
+private shop `id` values; `provider_*` identifiers are removed. The model prompt
+is constrained to rewrite the grounded draft and cannot create product cards.
+The client never auto-replays a request after a disconnected socket, preventing
+duplicate cart/event side effects.
+
+`POST /api/chatbot` remains available for internal integration and controlled
+compatibility clients, but the storefront widget uses WebSocket delivery.
 
 Public endpoint giữ contract:
 

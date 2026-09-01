@@ -84,7 +84,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
         $this->assertSame(52, $plan['batches'][0][0]['args']['product_id']);
     }
 
-    public function testLlmInputParserPreservesCompoundProductPhraseAndPriceConstraint(): void
+    public function testResolvedDeterministicProductQuerySkipsFullLlmInputParser(): void
     {
         $llm = new FakeInputParserLlm([
             'intent' => 'product_search',
@@ -113,6 +113,35 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
         $this->assertSame('search_products', $plan['batches'][0][0]['tool']);
         $this->assertSame('áo sơ mi', $plan['batches'][0][0]['args']['search']);
         $this->assertSame(500000, $plan['batches'][0][0]['args']['max_price']);
+        $this->assertSame(0, $llm->calls);
+        $this->assertSame('', $llm->lastToolChoice);
+    }
+
+    public function testUnknownDeterministicQueryCanUseLlmInputParser(): void
+    {
+        $llm = new FakeInputParserLlm([
+            'intent' => 'product_search',
+            'product_query' => 'áo cardigan',
+            'category_id' => 1,
+            'max_price' => null,
+            'min_price' => null,
+            'color' => null,
+            'size' => null,
+            'in_stock' => null,
+            'product_id' => null,
+            'order_id' => null,
+            'height_cm' => null,
+            'weight_kg' => null,
+            'style' => null,
+            'occasion' => null,
+            'avoid' => null,
+        ]);
+
+        $intent = (new IntentResolver($llm))->extract('cần một món cardigan');
+
+        $this->assertSame('product_search', $intent['primary_intent']);
+        $this->assertSame('áo cardigan', $intent['entities']['product_type']);
+        $this->assertSame(1, $llm->calls);
         $this->assertSame('required', $llm->lastToolChoice);
     }
 
@@ -120,7 +149,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
     {
         $llm = new FakeMarkupInputParserLlm();
 
-        $intent = (new IntentResolver($llm))->extract('tìm áo sơmi dưới 500k');
+        $intent = (new IntentResolver($llm))->extract('cần một món cardigan dưới 500k');
         $plan = (new ToolPlanner())->plan($intent);
 
         $this->assertSame('product_search', $intent['primary_intent']);
@@ -422,7 +451,7 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
         $this->assertSame(1, substr_count($response['message'], 'Quần Tây Ống Đứng Xám'));
         $this->assertStringContainsString('mã 51', $response['message']);
         $this->assertStringContainsString('mã 66', $response['message']);
-        $this->assertStringNotContainsString('có thể phối', $response['message']);
+        $this->assertStringContainsString('Để phối cùng', $response['message']);
     }
 
     public function testOutfitSetWithShirtAndPantsUsesUnsupportedGuardrail(): void
@@ -736,6 +765,7 @@ class FakeEntityEnrichmentLlm implements LLMProvider
 
 class FakeInputParserLlm implements LLMProvider
 {
+    public int $calls = 0;
     public string $lastToolChoice = '';
 
     public function __construct(private array $arguments)
@@ -744,6 +774,7 @@ class FakeInputParserLlm implements LLMProvider
 
     public function chat(array $messages, array $tools = [], string $toolChoice = 'auto', array $options = []): LLMResponse
     {
+        $this->calls++;
         $this->lastToolChoice = $toolChoice;
         return new LLMResponse(toolCalls: [new ToolCall('input-parser', 'parse_chatbot_input', $this->arguments)]);
     }

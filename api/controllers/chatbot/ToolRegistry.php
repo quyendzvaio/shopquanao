@@ -19,16 +19,9 @@ require_once __DIR__ . '/../../services/Fashion/ComplementaryPlan.php';
 require_once __DIR__ . '/../../services/Fashion/FashionProviderResult.php';
 require_once __DIR__ . '/../../services/Fashion/FashionProviderProductMapping.php';
 require_once __DIR__ . '/../../services/Fashion/FashionProvider.php';
-require_once __DIR__ . '/../../services/Fashion/FindMineConfig.php';
-require_once __DIR__ . '/../../services/Fashion/FindMineMcpClientContract.php';
-require_once __DIR__ . '/../../services/Fashion/FindMineMcpClient.php';
-require_once __DIR__ . '/../../services/Fashion/FindMineProviderException.php';
-require_once __DIR__ . '/../../services/Fashion/FindMineV3ResponseAdapter.php';
 require_once __DIR__ . '/../../services/Fashion/FashionProviderMappingRepository.php';
-require_once __DIR__ . '/../../services/Fashion/FindMineFashionProvider.php';
 require_once __DIR__ . '/../../services/Fashion/RawFashionSuggestion.php';
 require_once __DIR__ . '/../../services/Fashion/RawFashionSuggestionProvider.php';
-require_once __DIR__ . '/../../services/Fashion/FindMineDemoFashionProvider.php';
 require_once __DIR__ . '/../../services/Fashion/ExtractedFashionItem.php';
 require_once __DIR__ . '/../../services/Fashion/FashionAttributeExtractor.php';
 require_once __DIR__ . '/../../services/Fashion/FashionExtractionCache.php';
@@ -47,6 +40,25 @@ require_once __DIR__ . '/../../services/Fashion/ComplementaryProductFinder.php';
 require_once __DIR__ . '/../../services/Fashion/FashionTaxonomyNormalizer.php';
 require_once __DIR__ . '/../../services/Fashion/ParallelComplementaryProductSearcher.php';
 require_once __DIR__ . '/../../services/Fashion/InternalShopConcurrentProductSearchGateway.php';
+require_once __DIR__ . '/../../services/Fashion/StylingReferenceProvider.php';
+require_once __DIR__ . '/../../services/Fashion/StyleReference.php';
+require_once __DIR__ . '/../../services/Fashion/StyleReferenceSet.php';
+require_once __DIR__ . '/../../services/Fashion/StyleReferenceRawSuggestionAdapter.php';
+require_once __DIR__ . '/../../services/Fashion/GlanceConfig.php';
+require_once __DIR__ . '/../../services/Fashion/GlanceMcpException.php';
+require_once __DIR__ . '/../../services/Fashion/GlanceMcpClientContract.php';
+require_once __DIR__ . '/../../services/Fashion/GlanceMcpClient.php';
+require_once __DIR__ . '/../../services/Fashion/GlanceAnchorResolutionException.php';
+require_once __DIR__ . '/../../services/Fashion/GlanceAnchorReference.php';
+require_once __DIR__ . '/../../services/Fashion/GlanceAnchorResolverContract.php';
+require_once __DIR__ . '/../../services/Fashion/GlanceAnchorResolver.php';
+require_once __DIR__ . '/../../services/Fashion/GlanceResponseMappingException.php';
+require_once __DIR__ . '/../../services/Fashion/GlanceLiveResponseMapper.php';
+require_once __DIR__ . '/../../services/Fashion/MappedStyleReference.php';
+require_once __DIR__ . '/../../services/Fashion/PrivateCatalogStyleMapper.php';
+require_once __DIR__ . '/../../services/Fashion/StyleReferenceCatalogRecommendationService.php';
+require_once __DIR__ . '/../../services/Fashion/GlanceDemoStylingProvider.php';
+require_once __DIR__ . '/../../services/Fashion/GlanceStylingProvider.php';
 
 class ToolRegistry implements ChatbotToolGateway {
     private PDO $pdo;
@@ -315,22 +327,21 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         if ($productId <= 0) {
             throw new InvalidArgumentException('product_id is required');
         }
-        $config = FindMineConfig::fromEnvironment();
-        if (!$config->configured()) {
+        $glance = GlanceConfig::fromEnvironment();
+        if (!$glance->enabled || $glance->mode === 'disabled') {
             return [
                 'status' => 'provider_unavailable',
-                'provider_error' => 'findmine_not_configured',
+                'provider_error' => 'glance_disabled',
                 'products' => [],
                 'groups' => [],
             ];
         }
-        if (!$config->demoMode || strtolower((string) (getenv('FASHION_PROVIDER') ?: 'findmine_demo')) !== 'findmine_demo') {
-            return [
-                'status' => 'provider_unavailable',
-                'provider_error' => 'findmine_demo_not_enabled',
-                'products' => [],
-                'groups' => [],
-            ];
+        if ($glance->mode === 'live') {
+            $glanceClient = new GlanceMcpClient($glance);
+            return (new StyleReferenceCatalogRecommendationService(
+                new GlanceStylingProvider($glance, new GlanceAnchorResolver($this->pdo, $glanceClient), $glanceClient),
+                new PrivateCatalogStyleMapper(new ParallelComplementaryProductSearcher(new InternalShopConcurrentProductSearchGateway()))
+            ))->find($productId, $variantId);
         }
         $llm = LLMFactory::fashionExtractionFromEnv();
         if ($llm === null) {
@@ -341,8 +352,9 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
                 'groups' => [],
             ];
         }
+        $referenceProvider = new GlanceDemoStylingProvider();
         $finder = new ComplementaryProductFinder(
-            new FindMineDemoFashionProvider(new FindMineMcpClient($config)),
+            new StyleReferenceRawSuggestionAdapter($referenceProvider),
             new LlmFashionAttributeExtractor($llm),
             new FashionRequirementNormalizer(),
             new ParallelComplementaryProductSearcher(new InternalShopConcurrentProductSearchGateway())

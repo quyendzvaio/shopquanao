@@ -58,7 +58,18 @@ final class FashionExtractionSemanticValidator
     /** Throw invalid_schema when a non-null value is outside the allowed enum. */
     private function assertEnum(string $field, ?string $value, array $enum): void
     {
-        if ($value !== null && !in_array($value, $enum, true)) {
+        // The provider may return common language aliases for category while
+        // the deterministic parser canonicalizes them from the source text.
+        // Keep the closed vocabulary strict for all other unknown values.
+        $normalized = ProductAttributeNormalizer::normalizeText((string) $value);
+        $knownAlias = match ($field) {
+            'category' => in_array($normalized, ['shoe', 'shoes', 'giay'], true),
+            'subcategory' => in_array($normalized, ['giay luoi', 'loafer', 'sneaker'], true),
+            'material' => in_array($normalized, ['leather', 'da'], true),
+            'style' => in_array($normalized, ['luoi'], true),
+            default => false,
+        };
+        if ($value !== null && !in_array($value, $enum, true) && !$knownAlias) {
             throw new FashionExtractionException(
                 'invalid_schema',
                 "Fashion extractor returned non-canonical {$field} value: {$value}"

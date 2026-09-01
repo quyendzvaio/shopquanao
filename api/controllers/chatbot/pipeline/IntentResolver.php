@@ -29,9 +29,9 @@ class IntentResolver {
         $deterministic = (new DeterministicIntentParser())->parse($message, $memoryContext)->toArray();
         $timings['deterministic_parse_ms'] = (int)((microtime(true) - $start) * 1000);
 
-        $inputParse = ['partial' => null, 'used' => false, 'error' => 'deterministic_safety_intent'];
+        $inputParse = ['partial' => null, 'used' => false, 'error' => 'deterministic_resolution_sufficient'];
         $safetyIntent = (string)($deterministic['resolved_fields']['intent']['value'] ?? '');
-        if (!in_array($safetyIntent, ['unsupported_checkout'], true)) {
+        if ($this->needsInputParser($deterministic) && !in_array($safetyIntent, ['unsupported_checkout'], true)) {
             $start = microtime(true);
             $inputParse = $this->inputParser->parse($message, $memoryContext);
             $timings['llm_input_parse_ms'] = (int)((microtime(true) - $start) * 1000);
@@ -75,6 +75,26 @@ class IntentResolver {
             'intent' => $intent,
             'timings' => $timings,
         ];
+    }
+
+    /**
+     * The full LLM parser is a fallback for genuinely unresolved input. A
+     * confident, specific deterministic parse is already sufficient for tool
+     * selection and should not pay a second network round trip before the
+     * final answer stream can start.
+     */
+    private function needsInputParser(array $deterministic): bool
+    {
+        $intent = $deterministic['resolved_fields']['intent'] ?? [];
+        $name = (string)($intent['value'] ?? 'unknown');
+        $confidence = (float)($intent['confidence'] ?? 0.0);
+        if ($name === 'unknown' || $confidence < 0.6) return true;
+        if ($name !== 'product_search') return false;
+
+        $productType = trim((string)($deterministic['resolved_fields']['product_type']['value'] ?? ''));
+        $coverage = (float)($deterministic['parser_metadata']['coverage'] ?? 0.0);
+        $genericTypes = ['áo', 'quần', 'váy', 'phụ kiện', 'giày'];
+        return $productType === '' || (in_array($productType, $genericTypes, true) && $coverage < 0.45);
     }
 
     public function extract(string $message, array $memoryContext = []): array {

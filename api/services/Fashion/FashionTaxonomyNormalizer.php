@@ -6,14 +6,14 @@ require_once __DIR__ . '/../Catalog/CatalogTaxonomy.php';
 final class FashionTaxonomyNormalizer
 {
     private const CATEGORY_ALIASES = [
-        'áo sơ mi' => ['shirt', 'shirts', 'tops', 'top', 'button down', 'button-down', 'dress shirt', 'sơ mi', 'áo sơ mi', 'aosomi', 'áo sơmi', 'aoso mi', 'ao somi'],
+        'áo sơ mi' => ['shirt', 'shirts', 'tops', 'top', 'topwear', 'button down', 'button-down', 'dress shirt', 'sơ mi', 'áo sơ mi', 'aosomi', 'áo sơmi', 'aoso mi', 'ao somi'],
         'áo thun' => ['t shirt', 't-shirt', 'tee', 'tees', 'áo thun', 'áo phông', 'aothun', 'aophong'],
         'áo polo' => ['polo', 'polo shirt', 'áo polo', 'aopolo'],
         'áo len' => ['sweater', 'jumper', 'knitwear', 'áo len', 'aolen'],
         'áo hoodie' => ['hoodie', 'sweatshirt', 'áo hoodie', 'aohoodie'],
         'áo khoác' => ['jacket', 'jackets', 'outerwear', 'sports jacket', 'sport jacket', 'áo khoác', 'aokhoac'],
         'áo vest' => ['blazer', 'blazers', 'suit jacket', 'áo vest', 'áo blazer', 'aovest', 'aoblazer'],
-        'quần tây' => ['trousers', 'pants', 'bottoms', 'bottom', 'tailored trousers', 'dress pants', 'formal pants', 'quần tây', 'quantay'],
+        'quần tây' => ['trousers', 'pants', 'bottoms', 'bottom', 'bottomwear', 'tailored trousers', 'dress pants', 'formal pants', 'quần tây', 'quantay'],
         'quần jeans' => ['jeans', 'jean', 'denim pants', 'quần jeans', 'quần jean', 'quanjean', 'quanjeans'],
         'quần kaki' => ['chinos', 'chino', 'khaki pants', 'quần kaki', 'quankaki'],
         'quần short' => ['shorts', 'short', 'quần short', 'quanshort', 'quanshorts'],

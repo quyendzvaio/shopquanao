@@ -215,10 +215,14 @@ $username  = $_SESSION['username'] ?? '';
 
 <script>
 const API_CHAT = window.location.origin + '/api/chatbot';
+const CHAT_STREAM_URL = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws/chatbot';
 var chatSessionToken = '<?= addslashes($chatToken) ?>';
 const CHAT_USER_TOKEN = '<?= addslashes($userToken) ?>';
 const CHAT_IS_LOGGED_IN = <?= $isLoggedIn ? 'true' : 'false' ?>;
 let isLoading = false;
+let chatSocket = null;
+let chatSocketOpening = null;
+let activeChatStream = null;
 
 function sanitizeAssistantText(text) {
     return String(text || '')
@@ -248,6 +252,7 @@ function addMessage(role, text) {
     msg.textContent = (role === 'bot' || role === 'system') ? sanitizeAssistantText(text) : text;
     container.appendChild(msg);
     container.scrollTop = container.scrollHeight;
+    return msg;
 }
 
 function showTyping() {
@@ -342,40 +347,140 @@ async function sendMessage() {
     showTyping();
     document.getElementById('chat-suggestions').style.display = 'none';
 
-    try {
-        const headers = { 'Content-Type': 'application/json' };
-        if (CHAT_USER_TOKEN) {
-            headers['Authorization'] = 'Bearer ' + CHAT_USER_TOKEN;
-        }
-        const res = await fetch(API_CHAT, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ message: text, session_token: chatSessionToken }),
-        });
-        const raw = await res.text();
-        hideTyping();
-        let data;
-        try { data = JSON.parse(raw); } catch (e) { data = { error: true, message: raw.substring(0, 500) }; }
-        if (data.error) {
-            addMessage('system', data.message);
-        } else {
-            addMessage('bot', data.message);
-            if (data.products && data.products.length > 0) {
-                renderProductCards(data.products);
-            }
-            // Sync session token for continuity
-            if (data.session_token && data.session_token !== chatSessionToken) {
-                chatSessionToken = data.session_token;
-            }
-        }
-    } catch (e) {
-        hideTyping();
-        addMessage('system', 'Lỗi kết nối. Vui lòng thử lại sau.');
-    }
+    const requestId = createChatRequestId();
+    activeChatStream = { requestId, text: '', element: null, cardsRendered: false, sent: false };
 
+    try {
+        const socket = await connectChatSocket();
+        socket.send(JSON.stringify({
+            type: 'chat.send',
+            request_id: requestId,
+            message: text,
+            session_token: chatSessionToken,
+            // Browser WebSocket cannot set Authorization headers. This value
+            // travels only in the same-origin TLS WebSocket frame and is never
+            // rendered or logged by the gateway.
+            authorization: CHAT_USER_TOKEN ? 'Bearer ' + CHAT_USER_TOKEN : null,
+        }));
+        if (activeChatStream && activeChatStream.requestId === requestId) activeChatStream.sent = true;
+    } catch (e) {
+        finishStreamingRequest();
+        addMessage('system', 'Không thể mở kết nối chat trực tiếp. Vui lòng thử lại sau.');
+    }
+}
+
+function createChatRequestId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID();
+    }
+    return 'chat-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+}
+
+function setChatConnectionStatus(text) {
+    const status = document.querySelector('.chat-status');
+    if (status) status.textContent = text;
+}
+
+function connectChatSocket() {
+    if (chatSocket && chatSocket.readyState === WebSocket.OPEN) return Promise.resolve(chatSocket);
+    if (chatSocketOpening) return chatSocketOpening;
+
+    chatSocketOpening = new Promise((resolve, reject) => {
+        const socket = new WebSocket(CHAT_STREAM_URL);
+        const timeout = window.setTimeout(() => {
+            if (socket.readyState === WebSocket.CONNECTING) socket.close();
+            reject(new Error('WebSocket connection timed out'));
+        }, 10000);
+
+        socket.onopen = () => {
+            window.clearTimeout(timeout);
+            chatSocket = socket;
+            chatSocketOpening = null;
+            setChatConnectionStatus('🟢 Trực tuyến');
+            resolve(socket);
+        };
+        socket.onmessage = (event) => handleChatStreamEvent(event);
+        socket.onerror = () => {
+            // close is responsible for final cleanup; browser errors do not
+            // expose a safe diagnostic payload.
+        };
+        socket.onclose = () => {
+            window.clearTimeout(timeout);
+            if (chatSocket === socket) chatSocket = null;
+            chatSocketOpening = null;
+            setChatConnectionStatus('🟡 Đang kết nối lại');
+            if (activeChatStream && activeChatStream.sent) {
+                finishStreamingRequest();
+                addMessage('system', 'Kết nối chat bị gián đoạn. Tin nhắn chưa được tự gửi lại để tránh trả lời trùng; vui lòng gửi lại.');
+            }
+        };
+    });
+    return chatSocketOpening;
+}
+
+function streamBotElement() {
+    if (!activeChatStream) return null;
+    if (!activeChatStream.element) {
+        hideTyping();
+        activeChatStream.element = addMessage('bot', '');
+    }
+    return activeChatStream.element;
+}
+
+function handleChatStreamEvent(event) {
+    let data;
+    try { data = JSON.parse(event.data); } catch (e) { return; }
+    if (!data || typeof data !== 'object') return;
+    const active = activeChatStream;
+    const requestId = String(data.request_id || '');
+    if (!active || (requestId && requestId !== active.requestId && requestId !== 'unknown')) return;
+
+    if (data.type === 'chat.started') {
+        streamBotElement();
+        return;
+    }
+    if (data.type === 'chat.progress') {
+        setChatConnectionStatus('🟢 Đang trả lời');
+        return;
+    }
+    if (data.type === 'chat.delta') {
+        const element = streamBotElement();
+        if (!element) return;
+        active.text += String(data.delta || '');
+        element.textContent = sanitizeAssistantText(active.text) || active.text;
+        const container = document.getElementById('chat-messages');
+        container.scrollTop = container.scrollHeight;
+        return;
+    }
+    if (data.type === 'chat.cards') {
+        if (Array.isArray(data.products) && data.products.length > 0 && !active.cardsRendered) {
+            active.cardsRendered = true;
+            renderProductCards(data.products);
+        }
+        return;
+    }
+    if (data.type === 'chat.complete') {
+        if (typeof data.session_token === 'string' && data.session_token) {
+            chatSessionToken = data.session_token;
+            sessionStorage.setItem('chat_session_token', chatSessionToken);
+        }
+        setChatConnectionStatus('🟢 Trực tuyến');
+        finishStreamingRequest();
+        return;
+    }
+    if (data.type === 'chat.error') {
+        const message = typeof data.message === 'string' ? data.message : 'Không thể xử lý tin nhắn. Vui lòng thử lại.';
+        finishStreamingRequest();
+        addMessage('system', message);
+    }
+}
+
+function finishStreamingRequest() {
+    hideTyping();
+    activeChatStream = null;
     isLoading = false;
     document.getElementById('chat-send-btn').disabled = false;
-    setTimeout(() => document.getElementById('chat-input').focus(), 100);
+    window.setTimeout(() => document.getElementById('chat-input').focus(), 100);
 }
 
 function escapeHtml(value) {

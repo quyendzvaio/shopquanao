@@ -6,6 +6,8 @@ if (PHP_SAPI !== 'cli') {
 
 require_once __DIR__ . '/../config/db.php';
 
+$smokeBaseUrl = rtrim((string) (getenv('SHOP_SMOKE_BASE_URL') ?: 'http://127.0.0.1'), '/');
+
 /** @return array<string,mixed> */
 function postJson(string $url, string $token, array $payload, int $expectedStatus): array
 {
@@ -70,7 +72,7 @@ try {
         throw new RuntimeException('No in-stock shop product exists');
     }
 
-    postJson('http://127.0.0.1/api/cart', $token, [
+    postJson($smokeBaseUrl . '/api/cart', $token, [
         'product_id' => $productId,
         'quantity' => 1,
         'size' => 'M',
@@ -89,7 +91,7 @@ try {
     }
     $eventId = (string) $state['source_event_id'];
 
-    $first = postJson('http://127.0.0.1/api/chatbot', $token, [
+    $first = postJson($smokeBaseUrl . '/api/chatbot', $token, [
         'message' => 'Phí ship nội thành là bao nhiêu?',
         'session_token' => $sessionToken,
     ], 200);
@@ -98,7 +100,7 @@ try {
         throw new RuntimeException('First real user message did not decrement pending turns from 2 to 1');
     }
 
-    $second = postJson('http://127.0.0.1/api/chatbot', $token, [
+    $second = postJson($smokeBaseUrl . '/api/chatbot', $token, [
         'message' => 'Đơn hàng giao trong bao lâu?',
         'session_token' => $sessionToken,
     ], 200);
@@ -111,7 +113,7 @@ try {
             . json_encode(['intent' => $second['primary_intent'] ?? null, 'state' => $state]));
     }
 
-    $third = postJson('http://127.0.0.1/api/chatbot', $token, [
+    $third = postJson($smokeBaseUrl . '/api/chatbot', $token, [
         'message' => 'Tìm áo thun cho tôi',
         'session_token' => $sessionToken,
     ], 200);

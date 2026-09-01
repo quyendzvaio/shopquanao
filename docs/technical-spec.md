@@ -9,8 +9,9 @@ Fashion Shop là website bán quần áo bằng PHP 8.2 và MariaDB. Docker Comp
 
 | Service | Vai trò |
 |---|---|
-| `nginx` | Public entrypoint, reverse proxy và rate limit |
+| `nginx` | Public entrypoint, reverse proxy, rate limit và WebSocket upgrade |
 | `app` | PHP website, REST controllers và chatbot service |
+| `chat-stream` | WebSocket delivery gateway; forwards one chat turn to PHP and streams only validated output |
 | `db` | Product, user, cart, order, chat, memory và execution logs |
 | `redis` | Cache; app có file fallback |
 | `qdrant` | Vector store cho knowledge base |
@@ -22,7 +23,8 @@ Fashion Shop là website bán quần áo bằng PHP 8.2 và MariaDB. Docker Comp
 ```text
 Browser
   -> Nginx :80
-  -> PHP app
+  -> PHP app (REST) / chat-stream (WebSocket)
+  -> chat-stream -> PHP app for `/ws/chatbot`
       -> api/index.php
       -> api/controllers/*
       -> MariaDB / Redis / sidecars
@@ -35,7 +37,8 @@ Các route chính gồm auth, products, cart, orders, chatbot, knowledge và adm
 
 Chatbot dùng deterministic-first hybrid pipeline. `ChatbotService` là application boundary thật; `IntentResolver` và `ToolPlanner` PHP quyết định intent/tool. LLM chỉ có thể bổ sung structured entity JSON và không nhận tool definitions.
 
-Chi tiết call graph, intent-tool mapping, constraint validation, memory và test nằm tại [chatbot-spec.md](chatbot-spec.md).
+Chi tiết call graph, WebSocket event contract, intent-tool mapping, constraint
+validation, memory và test nằm tại [chatbot-spec.md](chatbot-spec.md).
 
 ## Product Search
 
@@ -61,7 +64,7 @@ Policy queries được route tới `retrieve_knowledge`. Retriever ưu tiên Qd
 - PHPUnit Unit và Integration suites.
 - Python syntax check cho RAG/eval scripts.
 - Secret scan và Trivy filesystem/image scan.
-- RAGAS/LangSmith chạy offline khi có evaluator credentials; không tham gia production request.
+- RAGAS/Langfuse chạy offline khi có evaluator credentials; không tham gia production request.
 
 Secrets chỉ được truyền qua environment và không được commit. Production path không dùng LLM-generated SQL.
 

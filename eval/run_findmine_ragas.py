@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RAGAS evaluation for successful FindMine-demo recommendation answers only."""
+"""RAGAS evaluation for grounded styling recommendation answers."""
 from __future__ import annotations
 
 import argparse
@@ -22,10 +22,12 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--agent-report", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--max-cases", type=int, default=0, help="Bound judge calls; 0 evaluates every unique case")
     args = parser.parse_args()
 
     report = json.loads(args.agent_report.read_text(encoding="utf-8"))
     successful = [case for case in report.get("ragas_cases", []) if valid_case(case)]
+    provider_mode = str(report.get("provider_mode", "unknown"))
 
     # Avoid spending judge tokens if a future corpus happens to contain an exact
     # duplicate while retaining each original case in the agent report.
@@ -37,12 +39,20 @@ def main() -> int:
             sort_keys=True,
         )
         unique.setdefault(fingerprint, case)
+    if args.max_cases > 0:
+        unique = dict(list(unique.items())[:args.max_cases])
 
     result: dict[str, Any] = {
-        "mode": "FINDMINE_DEMO_REAL_SHOP_RETRIEVAL",
+        "mode": (
+            "GLANCE_LIVE_REAL_SHOP_RETRIEVAL"
+            if provider_mode == "glance_live"
+            else "MIXED_REAL_SHOP_RETRIEVAL"
+        ),
+        "provider_mode": provider_mode,
         "status": "NOT_APPLICABLE",
         "successful_recommendation_answers": len(successful),
         "unique_evaluation_cases": len(unique),
+        "unique_cases_available": len({json.dumps([case.get('question'), case.get('answer'), case.get('contexts')], ensure_ascii=False, sort_keys=True) for case in successful}),
         "metrics": {},
         "notes": [
             "Contexts contain Product Search products only.",

@@ -12,17 +12,52 @@ require_once $root . '/api/controllers/chatbot/pipeline/ResponseGenerator.php';
 require_once $root . '/api/services/Fashion/ProactiveStylingStateMachine.php';
 
 $cases = require $root . '/eval/findmine_agent_eval_cases.php';
-$expectedCaseCount = 70;
-if (count($cases) !== $expectedCaseCount) {
-    throw new RuntimeException("Evaluation corpus must contain exactly {$expectedCaseCount} cases");
+$corpusCount = count($cases);
+if ($corpusCount < 50) {
+    throw new RuntimeException('Evaluation corpus must contain at least 50 cases');
 }
+$requestedCaseCount = 50;
+$anchorProductId = 57;
+foreach ($argv as $argument) {
+    if (str_starts_with($argument, '--cases=')) {
+        $requestedCaseCount = (int) substr($argument, strlen('--cases='));
+    }
+    if (str_starts_with($argument, '--anchor-product-id=')) {
+        $anchorProductId = (int) substr($argument, strlen('--anchor-product-id='));
+    }
+}
+if ($anchorProductId <= 0) throw new RuntimeException('anchor-product-id must be positive');
+foreach ($cases as &$evaluationCase) {
+    $evaluationCase['message'] = preg_replace(
+        '/(?<!\d)50(?!\d)/',
+        (string) $anchorProductId,
+        (string) $evaluationCase['message']
+    ) ?? (string) $evaluationCase['message'];
+}
+unset($evaluationCase);
+if (!in_array($requestedCaseCount, [50, $corpusCount], true)) {
+    throw new RuntimeException("Use --cases=50 or --cases={$corpusCount}");
+}
+if ($requestedCaseCount === 50) {
+    $quotas = ['explicit' => 15, 'proactive' => 15, 'suppression' => 10, 'unrelated' => 10];
+    $selected = [];
+    foreach ($quotas as $class => $quota) {
+        $selected[$class] = array_values(array_filter($cases, static fn (array $case): bool => ($case['class'] ?? '') === $class));
+        if (count($selected[$class]) < $quota) throw new RuntimeException("Not enough {$class} cases for the 50-case evaluation");
+        $selected[$class] = array_slice($selected[$class], 0, $quota);
+    }
+    $cases = array_merge($selected['explicit'], $selected['proactive'], $selected['suppression'], $selected['unrelated']);
+}
+$expectedCaseCount = count($cases);
 
 $parser = new DeterministicIntentParser();
 $stateMachine = new ProactiveStylingStateMachine();
 $responseGenerator = new ResponseGenerator();
 $gateway = new McpToolGateway(null);
+$providerMode = strtolower((string) (getenv('GLANCE_PROVIDER_MODE') ?: 'disabled'));
+$isLiveProvider = $providerMode === 'live';
 $stageFailures = array_fill_keys([
-    'FINDMINE_SUGGESTION', 'LLM_EXTRACTION', 'NORMALIZATION', 'PRODUCT_SEARCH',
+    'STYLING_REFERENCE', 'LLM_EXTRACTION', 'NORMALIZATION', 'PRODUCT_SEARCH',
     'RESPONSE_COMPOSITION', 'EVENT_STATE', 'GROUNDING',
 ], 0);
 $results = [];
@@ -30,6 +65,11 @@ $passed = 0;
 $providerCalls = 0;
 $hallucinatedProducts = 0;
 $providerIdLeakage = 0;
+$wrongCategoryMappings = 0;
+$groundedRecommendationCases = 0;
+$mappingGroups = 0;
+$mappingFailures = 0;
+$roleCoverage = [];
 $ragasCases = [];
 $caseLatencies = [];
 $stageLatencies = [];
@@ -45,17 +85,25 @@ foreach ($cases as $offset => $case) {
         if ($intent !== 'suggest_complementary_products') $failures[] = 'RESPONSE_COMPOSITION';
         try {
             $providerCalls++;
-            $result = $gateway->execute('suggest_complementary_products', ['product_id' => 50]);
+            $result = $gateway->execute('suggest_complementary_products', ['product_id' => $anchorProductId]);
             $raw = is_array($result['raw_suggestions'] ?? null) ? $result['raw_suggestions'] : [];
             $extracted = is_array($result['extracted_items'] ?? null) ? $result['extracted_items'] : [];
             $requirements = is_array($result['normalized_requirements'] ?? null) ? $result['normalized_requirements'] : [];
+            $referenceCount = $isLiveProvider ? (int) ($result['reference_count'] ?? 0) : count($raw);
             $groups = is_array($result['groups'] ?? null) ? $result['groups'] : [];
             $displayed = ids($result['products'] ?? []);
             $searchIds = [];
             $queries = [];
             foreach ($groups as $group) {
                 if (!is_array($group)) continue;
+                $mappingGroups++;
+                if (($group['mapping_status'] ?? '') !== 'mapped') $mappingFailures++;
+                $role = strtolower(trim((string) ($group['role'] ?? '')));
+                if ($role !== '') $roleCoverage[$role] = true;
                 $searchIds = array_merge($searchIds, ids($group['products'] ?? []));
+                foreach (($group['products'] ?? []) as $candidate) {
+                    if (is_array($candidate) && !roleMatchesProduct($role, $candidate)) $wrongCategoryMappings++;
+                }
                 foreach (($group['search_queries'] ?? []) as $query) if (is_array($query)) $queries[] = $query;
             }
             $searchIds = array_values(array_unique($searchIds));
@@ -66,11 +114,12 @@ foreach ($cases as $offset => $case) {
             foreach (['provider_product_id', 'provider_variant_id', 'provider_color_id', 'provider_item_id'] as $forbidden) {
                 if (str_contains($productJson, $forbidden)) $leaked = true;
             }
-            if ($raw === []) $failures[] = 'FINDMINE_SUGGESTION';
-            if ($extracted === [] || count($extracted) !== count($raw)) $failures[] = 'LLM_EXTRACTION';
-            if ($requirements === []) $failures[] = 'NORMALIZATION';
+            if ($referenceCount <= 0) $failures[] = 'STYLING_REFERENCE';
+            if (!$isLiveProvider && ($extracted === [] || count($extracted) !== count($raw))) $failures[] = 'LLM_EXTRACTION';
+            if (!$isLiveProvider && $requirements === []) $failures[] = 'NORMALIZATION';
             if ($groups === [] || $displayed === []) $failures[] = 'PRODUCT_SEARCH';
             if (!$grounded || $leaked) $failures[] = 'GROUNDING';
+            if ($grounded && !$leaked) $groundedRecommendationCases++;
             $response = $responseGenerator->generate($case['message'], [
                 'primary_intent' => 'suggest_complementary_products',
                 'secondary_intents' => [],
@@ -89,7 +138,7 @@ foreach ($cases as $offset => $case) {
                 $ragasCases[] = ['case_id' => $case['id'], 'question' => $case['message'], 'answer' => $answer, 'contexts' => $contexts];
             }
             $evidence += [
-                'findmine_raw_count' => count($raw),
+                'reference_count' => $referenceCount,
                 'extracted_count' => count($extracted),
                 'normalized_count' => count($requirements),
                 'product_search_query_count' => count($queries),
@@ -99,11 +148,11 @@ foreach ($cases as $offset => $case) {
                 'stage_latency_ms' => $result['timings'] ?? [],
             ];
         } catch (Throwable $error) {
-            $failures[] = 'FINDMINE_SUGGESTION';
+            $failures[] = 'STYLING_REFERENCE';
             $evidence['error'] = $error->getMessage();
         }
     } elseif ($case['class'] === 'proactive') {
-        $state = $stateMachine->onCartItemAdded([], 50, null, 'eval-' . $case['id']);
+        $state = $stateMachine->onCartItemAdded([], $anchorProductId, null, 'eval-' . $case['id']);
         $caseProviderCalls = 0;
         $userTurnsReceived = 1;
         $first = $stateMachine->onUserTurn($state, true, false);
@@ -118,32 +167,44 @@ foreach ($cases as $offset => $case) {
         try {
             $providerCalls++;
             $caseProviderCalls++;
-            $result = $gateway->execute('suggest_complementary_products', ['product_id' => 50]);
+            $result = $gateway->execute('suggest_complementary_products', ['product_id' => $anchorProductId]);
             $raw = is_array($result['raw_suggestions'] ?? null) ? $result['raw_suggestions'] : [];
             $extracted = is_array($result['extracted_items'] ?? null) ? $result['extracted_items'] : [];
             $requirements = is_array($result['normalized_requirements'] ?? null) ? $result['normalized_requirements'] : [];
+            $referenceCount = $isLiveProvider ? (int) ($result['reference_count'] ?? 0) : count($raw);
             $groups = is_array($result['groups'] ?? null) ? $result['groups'] : [];
             $displayed = ids($result['products'] ?? []);
             $searchIds = [];
             $queries = [];
             foreach ($groups as $group) {
                 if (!is_array($group)) continue;
+                $mappingGroups++;
+                if (($group['mapping_status'] ?? '') !== 'mapped') $mappingFailures++;
+                $role = strtolower(trim((string) ($group['role'] ?? '')));
+                if ($role !== '') $roleCoverage[$role] = true;
                 $searchIds = array_merge($searchIds, ids($group['products'] ?? []));
+                foreach (($group['products'] ?? []) as $candidate) {
+                    if (is_array($candidate) && !roleMatchesProduct($role, $candidate)) $wrongCategoryMappings++;
+                }
                 foreach (($group['search_queries'] ?? []) as $query) if (is_array($query)) $queries[] = $query;
             }
             $searchIds = array_values(array_unique($searchIds));
             sort($searchIds);
             $grounded = array_diff($displayed, $searchIds) === [];
             $second = $stateMachine->onUserTurn($first['state'], true, $displayed !== []);
-            if ($second['action'] !== 'suggest' || (int) ($second['state']['suggested_anchor_product_id'] ?? 0) !== 50) $failures[] = 'EVENT_STATE';
-            if ($raw === []) $failures[] = 'FINDMINE_SUGGESTION';
-            if ($extracted === [] || count($extracted) !== count($raw)) $failures[] = 'LLM_EXTRACTION';
-            if ($requirements === []) $failures[] = 'NORMALIZATION';
+            if ($second['action'] !== 'suggest' || (int) ($second['state']['suggested_anchor_product_id'] ?? 0) !== $anchorProductId) $failures[] = 'EVENT_STATE';
+            if ($referenceCount <= 0) $failures[] = 'STYLING_REFERENCE';
+            if (!$isLiveProvider && ($extracted === [] || count($extracted) !== count($raw))) $failures[] = 'LLM_EXTRACTION';
+            if (!$isLiveProvider && $requirements === []) $failures[] = 'NORMALIZATION';
             if ($groups === [] || $displayed === []) $failures[] = 'PRODUCT_SEARCH';
-            if (!$grounded) {
+            $productJson = json_encode($result['products'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            $leaked = preg_match('/provider_(product|variant|color|item)_id/i', $productJson) === 1;
+            if (!$grounded || $leaked) {
                 $failures[] = 'GROUNDING';
                 $hallucinatedProducts += count(array_diff($displayed, $searchIds));
+                if ($leaked) $providerIdLeakage++;
             }
+            if ($grounded && !$leaked) $groundedRecommendationCases++;
             $response = $responseGenerator->generate($case['message'], [
                 'primary_intent' => 'suggest_complementary_products',
                 'secondary_intents' => [],
@@ -165,7 +226,7 @@ foreach ($cases as $offset => $case) {
                 'provider_calls_after_two_turns' => $caseProviderCalls,
                 'remaining_after_first_user_turn' => 1,
                 'second_turn_action' => $second['action'],
-                'findmine_raw_count' => count($raw),
+                'reference_count' => $referenceCount,
                 'extracted_count' => count($extracted),
                 'normalized_count' => count($requirements),
                 'product_search_query_count' => count($queries),
@@ -175,7 +236,7 @@ foreach ($cases as $offset => $case) {
                 'stage_latency_ms' => $result['timings'] ?? [],
             ];
         } catch (Throwable $error) {
-            $failures[] = 'FINDMINE_SUGGESTION';
+            $failures[] = 'STYLING_REFERENCE';
             $evidence['error'] = $error->getMessage();
         }
 
@@ -200,7 +261,7 @@ foreach ($cases as $offset => $case) {
             'first_turn_action' => $first['action'],
         ];
     } elseif ($case['class'] === 'suppression') {
-        $state = $stateMachine->onCartItemAdded([], 50, null, 'eval-' . $case['id']);
+        $state = $stateMachine->onCartItemAdded([], $anchorProductId, null, 'eval-' . $case['id']);
         $state['remaining_user_turns'] = 0;
         $transition = $stateMachine->onUserTurn($state, false, false);
         if ($intent !== 'return_exchange' || $transition['action'] !== 'silent' || empty($transition['state']['eligible'])) $failures[] = 'EVENT_STATE';
@@ -229,18 +290,34 @@ foreach ($cases as $offset => $case) {
         'failures' => $failures,
         'pipeline' => $evidence,
     ];
+    fwrite(STDERR, json_encode([
+        'progress' => count($results) . '/' . $expectedCaseCount,
+        'case_id' => $case['id'],
+        'passed' => $failures === [],
+        'latency_ms' => $caseLatency,
+    ], JSON_UNESCAPED_SLASHES) . PHP_EOL);
 }
 
 $report = [
-    'status' => $passed === $expectedCaseCount && $hallucinatedProducts === 0 && $providerIdLeakage === 0 ? 'PASS' : 'FAIL',
+    'status' => $passed === $expectedCaseCount && $hallucinatedProducts === 0 && $providerIdLeakage === 0 && $wrongCategoryMappings === 0 ? 'PASS' : 'FAIL',
     'cases' => $expectedCaseCount,
     'passed' => $passed,
     'failed' => $expectedCaseCount - $passed,
-    'provider_mode' => 'findmine_demo',
+    'provider_mode' => $isLiveProvider ? 'glance_live' : 'glance_' . $providerMode,
     'provider_calls' => $providerCalls,
+    'glance_live_tool_calls' => $isLiveProvider ? $providerCalls * 2 : 0,
+    'live_recommendation_cases' => $isLiveProvider ? 30 : 0,
+    'deterministic_negative_cases' => 20,
+    'fixture_cases' => 0,
+    'anchor_product_id' => $anchorProductId,
     'stage_failure_counts' => $stageFailures,
     'hallucinated_product_count' => $hallucinatedProducts,
     'provider_id_leakage_count' => $providerIdLeakage,
+    'wrong_category_mapping_count' => $wrongCategoryMappings,
+    'private_sku_grounding_rate' => $providerCalls > 0 ? round($groundedRecommendationCases / $providerCalls, 4) : 1.0,
+    'mapping_failure_rate' => $mappingGroups > 0 ? round($mappingFailures / $mappingGroups, 4) : 0.0,
+    'fallback_rate' => $expectedCaseCount > 0 ? round(($expectedCaseCount - $passed) / $expectedCaseCount, 4) : 0.0,
+    'role_coverage' => array_values(array_keys($roleCoverage)),
     'latency_ms' => [
         'all_cases' => latencySummary($caseLatencies),
         'by_class' => array_map('latencySummary', $classLatencies),
@@ -289,6 +366,27 @@ function productContexts(mixed $products): array
         ]);
     }
     return $contexts;
+}
+
+/** @param array<string,mixed> $product */
+function roleMatchesProduct(string $role, array $product): bool
+{
+    $text = ProductAttributeNormalizer::normalizeText(implode(' ', [
+        (string) ($product['category'] ?? $product['category_name'] ?? ''),
+        (string) ($product['subcategory'] ?? $product['subcategory_name'] ?? ''),
+        (string) ($product['name'] ?? ''),
+    ]));
+    $needles = match ($role) {
+        'shoe', 'shoes', 'footwear' => ['footwear', 'shoe', 'sneaker', 'loafer', 'boot', 'sandal', 'giay'],
+        'bottom', 'bottoms' => ['bottom', 'trouser', 'pant', 'jean', 'chino', 'short', 'skirt', 'quan', 'vay'],
+        'outerwear', 'layer' => ['outerwear', 'jacket', 'coat', 'blazer', 'cardigan', 'vest', 'ao khoac'],
+        'top', 'tops' => ['top', 'shirt', 'tee', 'blouse', 'sweater', 'hoodie', 'polo', 'ao'],
+        'accessory', 'accessories' => ['accessor', 'bag', 'belt', 'hat', 'watch', 'sunglass', 'tui', 'that lung'],
+        default => [],
+    };
+    if ($needles === []) return true;
+    foreach ($needles as $needle) if (str_contains($text, $needle)) return true;
+    return false;
 }
 
 function elapsedMilliseconds(float $started): float

@@ -10,6 +10,7 @@
 
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/ChatbotService.php';
+require_once __DIR__ . '/ChatbotSessionContext.php';
 
 /** @var PDO $pdo */
 
@@ -25,79 +26,27 @@ if (!$message) {
     errorResponse('Message is required', 400);
 }
 
-// Get user ID from Bearer token if provided
-$userId = null;
-$token = getBearerToken();
-if ($token) {
-    $stmt = $pdo->prepare("SELECT id FROM users WHERE api_token = ?");
-    $stmt->execute([$token]);
-    $user = $stmt->fetch();
-    $userId = $user ? (int)$user['id'] : null;
-}
-
-// Create or resume session
-if ($userId) {
-    // Logged-in: always use or create ONE session per user
-    $stmt = $pdo->prepare("SELECT id, session_token FROM chat_sessions WHERE user_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1");
-    $stmt->execute([$userId]);
-    $existing = $stmt->fetch();
-    if ($existing) {
-        $sessionId = (int)$existing['id'];
-        $sessionToken = $existing['session_token'];
-    } else {
-        $sessionToken = bin2hex(random_bytes(32));
-        $stmt = $pdo->prepare("INSERT INTO chat_sessions (user_id, session_token) VALUES (?, ?)");
-        $stmt->execute([$userId, $sessionToken]);
-        $sessionId = (int)$pdo->lastInsertId();
-    }
-} elseif ($sessionToken) {
-    // Anonymous user with existing token
-    $stmt = $pdo->prepare("SELECT id FROM chat_sessions WHERE session_token = ? AND status = 'active'");
-    $stmt->execute([$sessionToken]);
-    $row = $stmt->fetch();
-    if ($row) {
-        $sessionId = (int)$row['id'];
-    } else {
-        $sessionToken = bin2hex(random_bytes(32));
-        $stmt = $pdo->prepare("INSERT INTO chat_sessions (user_id, session_token) VALUES (NULL, ?)");
-        $stmt->execute([$sessionToken]);
-        $sessionId = (int)$pdo->lastInsertId();
-    }
-} else {
-    // New anonymous user
-    $sessionToken = bin2hex(random_bytes(32));
-    $stmt = $pdo->prepare("INSERT INTO chat_sessions (user_id, session_token) VALUES (NULL, ?)");
-    $stmt->execute([$sessionToken]);
-    $sessionId = (int)$pdo->lastInsertId();
-}
-
-// Update session user_id if logged in (for sessions created before login)
-if ($userId) {
-    $pdo->prepare("UPDATE chat_sessions SET user_id = ? WHERE id = ? AND user_id IS NULL")
-        ->execute([$userId, $sessionId]);
-}
+$context = ChatbotSessionContext::resolve($pdo, $sessionToken, getBearerToken());
 
 // ChatbotService persists messages and tool diagnostics.
-$chatbot = new ChatbotService($pdo, $sessionId, $userId);
+$chatbot = new ChatbotService($pdo, $context->sessionId, $context->userId);
 $result = $chatbot->respond($message);
 
 $responseText = $result['message'];
 $products = $result['products'] ?? [];
 $knowledgeSources = $result['knowledge_sources'] ?? [];
 
-// Update session timestamp
-$pdo->prepare("UPDATE chat_sessions SET updated_at = NOW(), user_id = COALESCE(?, user_id) WHERE id = ?")
-    ->execute([$userId, $sessionId]);
+$context->touch($pdo);
 
 $response = [
     'message' => $responseText,
     'products' => $products,
     'knowledge_sources' => $knowledgeSources,
-    'session_token' => $sessionToken,
-    'session_id' => $sessionId,
+    'session_token' => $context->sessionToken,
+    'session_id' => $context->sessionId,
 ];
 
-foreach (['answer', 'response_type', 'primary_intent', 'secondary_intents', 'requested_fields', 'cards', 'missing_slots', 'trace_id', 'latency', 'proactive_styling'] as $key) {
+foreach (['answer', 'response_type', 'primary_intent', 'secondary_intents', 'requested_fields', 'cards', 'missing_slots', 'trace_id', 'latency', 'proactive_styling', 'proactive_styling_metrics'] as $key) {
     if (array_key_exists($key, $result)) {
         $response[$key] = $result[$key];
     }

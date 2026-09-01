@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Evaluate Fashion Shop chatbot latency, RAG grounding, and guardrails.
 
-RAGAS and LangSmith are optional:
+RAGAS and Langfuse are optional:
 - If ragas is installed and RAGAS_ENABLE=1, the script runs RAGAS metrics.
-- If LANGSMITH_API_KEY is set, calls are traced to LangSmith.
+- If Langfuse keys are set, calls are traced to the configured Langfuse host.
 The deterministic checks always run.
 """
 from __future__ import annotations
@@ -22,6 +22,7 @@ from typing import Any
 import requests
 
 from ragas_compat import build_evaluator_embeddings, build_evaluator_llm, json_safe
+from langfuse_tracing import maybe_traceable, flush as flush_langfuse
 
 
 @dataclass
@@ -51,16 +52,6 @@ def load_cases(paths: list[Path]) -> list[dict[str, Any]]:
         with path.open("r", encoding="utf-8") as f:
             cases.extend(json.loads(line) for line in f if line.strip())
     return cases
-
-
-def maybe_traceable(fn):
-    if not os.getenv("LANGSMITH_API_KEY"):
-        return fn
-    try:
-        from langsmith import traceable
-    except Exception:
-        return fn
-    return traceable(name=fn.__name__)(fn)
 
 
 @maybe_traceable
@@ -745,7 +736,7 @@ def write_markdown_report(report: dict[str, Any], output_path: Path, base_url: s
     ragas = summary.get("ragas") or {}
     details = report.get("details", [])
     lines = [
-        "# Báo Cáo Chatbot Multi-Step RAGAS + LangSmith",
+        "# Báo Cáo Chatbot Multi-Step RAGAS + Langfuse",
         "",
         f"Ngày chạy: {time.strftime('%Y-%m-%d %H:%M:%S %z')}",
         f"Target: `{base_url}`",
@@ -796,11 +787,12 @@ def write_markdown_report(report: dict[str, Any], output_path: Path, base_url: s
         lines.append("- Không có ghi chú RAGAS.")
     lines.extend([
         "",
-        "## LangSmith",
+        "## Langfuse",
         "",
-        "- Tracing bật qua biến môi trường `LANGSMITH_API_KEY`.",
-        f"- Project: `{os.getenv('LANGSMITH_PROJECT', 'fashion-shop-chatbot-eval')}`.",
-        "- API key không được ghi vào report hoặc source.",
+        "- Tracing bật khi `LANGFUSE_PUBLIC_KEY` và `LANGFUSE_SECRET_KEY` được cấu hình.",
+        f"- Host: `{os.getenv('LANGFUSE_BASE_URL', 'http://localhost:3000')}`.",
+        f"- Project: `{os.getenv('LANGFUSE_PROJECT', 'fashion-shop-chatbot-eval')}`.",
+        "- Keys không được ghi vào report hoặc source.",
         "",
         "## Chi Tiết Turn",
         "",
@@ -821,7 +813,7 @@ def write_markdown_report(report: dict[str, Any], output_path: Path, base_url: s
         "",
         "## Bảo Mật",
         "",
-        "- Không ghi `LANGSMITH_API_KEY`, `LLM_API_KEY`, `OPENAI_API_KEY` hoặc HuggingFace token vào file.",
+        "- Không ghi `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LLM_API_KEY`, `OPENAI_API_KEY` hoặc HuggingFace token vào file.",
         "- HuggingFace embedding model chạy local public model; không dùng HuggingFace Inference API.",
         "",
     ])
@@ -842,10 +834,6 @@ def main() -> int:
     parser.add_argument("--max-retries", type=int, default=int(os.getenv("EVAL_MAX_RETRIES", "3")))
     parser.add_argument("--max-turns", type=int, default=0, help="Run only the first N turns (keeps scenario order)")
     args = parser.parse_args()
-
-    if os.getenv("LANGSMITH_API_KEY"):
-        os.environ.setdefault("LANGSMITH_TRACING", "true")
-        os.environ.setdefault("LANGSMITH_PROJECT", "fashion-shop-chatbot-eval")
 
     if args.input_report:
         case_paths = []
@@ -880,6 +868,7 @@ def main() -> int:
         rows = run_cases(args.base_url, cases, args.timeout, args.turn_delay, args.max_retries)
     ragas_result = run_ragas(rows)
     report = write_report(rows, ragas_result, Path(args.output), Path(args.csv_output))
+    flush_langfuse()
     if args.markdown_output:
         source = args.input_report or ", ".join(str(path) for path in case_paths)
         write_markdown_report(report, Path(args.markdown_output), args.base_url, source)

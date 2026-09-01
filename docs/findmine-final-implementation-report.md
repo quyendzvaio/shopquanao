@@ -1,6 +1,6 @@
 # FindMine live-first implementation report
 
-> Historical report from the pre-demo/live-onboarding phase. Current demo-grounded verification is `70/70 PASS` with RAGAS and LangSmith evidence; see `findmine-agent-evaluation-results.md`, `findmine-ragas-results.md`, and the root README. The real-tenant gate below remains separate.
+> Historical report from the pre-demo/live-onboarding phase. Current demo-grounded verification is `50/50 PASS` with RAGAS evidence; see `findmine-agent-evaluation-results.md`, `findmine-ragas-results.md`, and the root README. The real-tenant gate below remains separate.
 
 ## Provider artifact
 
@@ -133,4 +133,3 @@ The extraction pipeline has been refactored to enforce a strict Enum Guard, Two-
 The V1 release gate has been updated to remove `FINDMINE_APP_ID` as a blocker, focusing strictly on `findmine_demo`.
 
 To finalize the V1 architecture, the operator must execute the evaluation suite to flip the `PENDING` states to `PASS`.
-

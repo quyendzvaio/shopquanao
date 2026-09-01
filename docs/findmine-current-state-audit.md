@@ -1,6 +1,6 @@
 # FindMine current-state audit
 
-> Historical baseline captured before the 2026-08-25 demo-grounded 70-question evaluation. Use `findmine-agent-evaluation-results.md`, `findmine-ragas-results.md`, and the root README for current test status.
+> Historical baseline captured before the 2026-08-26 demo-grounded 50-question evaluation. Use `findmine-agent-evaluation-results.md`, `findmine-ragas-results.md`, and the root README for current test status.
 
 Audited against the repository and running Docker Compose stack on 2026-08-24. “Wired” means reachable from a production application path, not merely declared or unit-tested.
 

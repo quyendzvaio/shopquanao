@@ -3,9 +3,19 @@
 require_once __DIR__ . '/../ProductAttributeNormalizer.php';
 
 class ProductConstraintVerifier {
-    public function verify(array $intent, array $normalized): array {
+    /**
+     * Verify a normalized chatbot response. For backwards compatibility the
+     * historical (product, entities) call shape returns a boolean match.
+     *
+     * @return array|bool
+     */
+    public function verify(array $intent, array $normalized): array|bool {
         $primary = (string)($intent['primary_intent'] ?? '');
         if (!in_array($primary, ['product_search', 'product_detail', 'mixed_product_policy'], true)) {
+            if (isset($intent['id']) && (isset($intent['name']) || isset($intent['price']))) {
+                return $this->matchesProductType($intent, $normalized)
+                    && ProductAttributeNormalizer::productMatchesConstraints($intent, $normalized);
+            }
             return $normalized;
         }
 

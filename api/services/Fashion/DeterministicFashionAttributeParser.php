@@ -67,8 +67,17 @@ final class DeterministicFashionAttributeParser
 
     public function isConfidentFastPath(ExtractedFashionItem $item): bool
     {
-        if ($item->category === null) return false;
-        return count(array_filter($item->toArray(), static fn (?string $value): bool => $value !== null)) >= 3;
+        if ($item->category === null || $item->subcategory !== null) return false;
+
+        // Rich explicit cues (for example "white denim trousers") are safe
+        // to parse without an LLM once at least three canonical fields are
+        // present. Subcategories stay on the strict tool path so malformed
+        // provider data still exercises schema/repair handling.
+        $explicitCount = count(array_filter(
+            $item->toArray(),
+            static fn (?string $value): bool => $value !== null
+        ));
+        return $explicitCount >= 3;
     }
 
     /** @param array<string,list<string>> $aliases */

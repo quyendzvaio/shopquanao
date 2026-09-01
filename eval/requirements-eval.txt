@@ -1,7 +1,7 @@
 requests>=2.31.0
 datasets>=2.18.0
 pandas>=2.0.0
-langsmith>=0.1.0
+langfuse>=4.7.0,<5
 ragas==0.1.21
 langchain-community==0.2.19
 langchain-huggingface>=0.0.3

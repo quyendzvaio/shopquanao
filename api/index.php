@@ -55,6 +55,7 @@ $routes = [
 
     // Chatbot
     'POST /chatbot'           => 'chatbot/index.php',
+    'POST /chatbot/stream'    => 'chatbot/stream.php',
     'GET  /chatbot/history'   => 'chatbot/history.php',
 
     // Chatbot support endpoints

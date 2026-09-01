@@ -1,0 +1,113 @@
+{
+  "endpoint": "https://ember.ailooks.glance.com/mcp",
+  "transport": "remote Streamable HTTP via npx mcp-remote",
+  "oauth": "reused_authenticated_session",
+  "mcp_initialize": {
+    "status": "PASS",
+    "protocol_version": "2025-06-18",
+    "server_name": "glanceai-mcp",
+    "server_version": "0.2.0",
+    "capabilities": ["tools.listChanged", "resources.listChanged"]
+  },
+  "tools_list": {
+    "status": "PASS",
+    "count": 8,
+    "tools": [
+      {"name": "search_fashion_products", "title": "Search Fashion Products"},
+      {"name": "request_user_selfie", "title": "Request User Selfie"},
+      {"name": "request_context_image", "title": "Request Context Image"},
+      {"name": "try_on_product", "title": "Virtual Try-On"},
+      {"name": "get_user_looks", "title": "Get User's AI Looks"},
+      {"name": "get_mix_and_match", "title": "Get Mix and Match"},
+      {"name": "show_wishlist", "title": "Show Wishlist"},
+      {"name": "get_product_details", "title": "Get Product Details"}
+    ],
+    "relevant_tools": {
+      "get_mix_and_match": {
+        "description": "Build a complete, multi-item Mix & Match outfit widget — several coordinated looks, each with multiple garments styled together. Use this when the shopper wants a full outfit or styling help, NOT a specific named item. Three modes are supported: anchor_sku, query, and context_image_ref; query takes precedence if both query and anchor_sku are provided. At least one of anchor_sku, query, or context_image_ref must be supplied.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "anchor_sku": {"type": "string", "description": "SKU of the anchor product to build outfits around, for anchor mode. Required field — pass an empty string \"\" if not applicable."},
+            "query": {"type": "string", "description": "Semantic styling request, e.g. 'casual summer outfit for a beach day' or 'smart-casual look for a business dinner'. Required field — pass an empty string \"\" if not applicable."},
+            "context_image_ref": {"type": "string", "description": "ref_id returned by request_context_image. Required field — pass an empty string \"\" if not applicable."},
+            "country": {"type": "string", "default": "IN", "description": "ISO country code the shopper is buying in, e.g. 'IN', 'US'. Defaults to 'IN'."},
+            "gender": {"type": "string", "enum": ["FEMALE", "MALE"], "description": "Gender of the products to search for. This is a catalog filter — NOT the user's own gender."},
+            "occasion": {"type": "string", "description": "Optional occasion context, e.g. 'casual', 'party', 'work', 'wedding'."},
+            "max_price": {"type": "number", "description": "Optional price ceiling for items."},
+            "caption": {"type": "string", "description": "Optional widget headline. Defaults to 'Ways to style <name>' or 'Outfits for <query>'."},
+            "tenant_id": {"type": "string", "description": "Optional tenant identifier forwarded to catalog search as context.tenant_id."}
+          },
+          "required": ["anchor_sku", "query", "context_image_ref", "gender"],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      "search_fashion_products": {
+        "description": "The go-to tool for ANY fashion, apparel, or styling request. Searches Glance's fashion catalog and renders results directly as an interactive browsable carousel in one call.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "gender": {"type": "string", "enum": ["FEMALE", "MALE"], "description": "Gender of the products to search for. This is a catalog filter — NOT the user's own gender."},
+            "country": {"type": "string", "description": "ISO country code for regional catalog, e.g. 'IN', 'US'."},
+            "currency": {"type": "string", "description": "ISO 4217 currency code matching the country — e.g. 'INR' for IN, 'USD' for US."},
+            "query": {"type": "string", "description": "Natural-language query. Required — pass an empty string when not applicable."},
+            "occasion": {"type": "string", "description": "Optional occasion context, e.g. 'casual', 'party', 'work', 'wedding'."},
+            "min_price": {"type": "number", "description": "Minimum price filter."},
+            "max_price": {"type": "number", "description": "Maximum price filter."},
+            "brand": {"type": "string", "description": "Brand name filter, e.g. 'Zara', 'H&M'."},
+            "header": {"type": "string", "description": "Short user-facing headline for this result row."},
+            "context_summary": {"type": "string", "description": "Contextual summary for search relevance. Required — pass an empty string when not applicable."},
+            "context_image_ref": {"type": "string", "description": "Ref ID from request_context_image. Required — pass an empty string when not applicable."}
+          },
+          "required": ["gender", "country", "currency", "query", "context_summary", "context_image_ref"],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      }
+    }
+  },
+  "smoke_call": {
+    "status": "PASS",
+    "tool": "get_mix_and_match",
+    "mode": "query",
+    "request_description": "Suggest a smart-casual outfit with a white shirt, including a complementary bottom and footwear.",
+    "response": {
+      "is_error": false,
+      "result_keys": ["content", "structuredContent"],
+      "content_count": 1,
+      "content_types": ["text"],
+      "text_length": "not persisted",
+      "structured_content_shape": {
+        "type": "object",
+        "keys": ["caption", "outfits", "request_id", "server_base", "server_token", "version", "widget"],
+        "outfits": {
+          "type": "array",
+          "cardinality": 5,
+          "item_keys": ["description", "label", "occasion", "products", "tagline"],
+          "products": {
+            "type": "array",
+            "cardinality_per_outfit": 4,
+            "item_keys": ["alternateImageUrls", "brand", "category", "ctas", "deeplink", "domain", "image", "in_stock", "isCutout", "merchantVariantId", "price", "region", "sku", "slot", "title", "tryOnAvailable"]
+          }
+        },
+        "secrets_not_persisted": ["server_token", "deeplink"]
+      }
+    },
+    "duration_ms": 1564,
+    "secrets_recorded": false
+  },
+  "live_mapper_smoke": {
+    "status": "PASS",
+    "source": "structuredContent",
+    "normalized_reference_count": 19,
+    "roles": ["top", "bottom", "shoe", "outerwear"],
+    "categories": ["Topwear", "Bottomwear", "Footwear", "Outerwear"],
+    "provider_ids_retained_as": "sourceReferenceId only",
+    "provider_id_leakage": 0,
+    "text_fallback_used": false,
+    "product_payload_persisted": false
+  },
+  "reference_normalization_compatibility": "PASS",
+  "demo_fallback_used": false
+}

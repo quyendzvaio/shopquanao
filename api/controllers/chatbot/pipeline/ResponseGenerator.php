@@ -181,7 +181,7 @@ class ResponseGenerator {
         if ($items === []) {
             return 'Mình chưa tìm thấy sản phẩm phối hợp phù hợp trong shop lúc này.';
         }
-        return 'Mình tìm thấy trong Product Search của shop: '
+        return 'Để phối cùng món bạn đang xem, mình tìm thấy trong catalog của shop: '
             . implode('; ', array_slice($items, 0, 5))
             . '. Bạn có thể xem các thẻ sản phẩm bên dưới.';
     }

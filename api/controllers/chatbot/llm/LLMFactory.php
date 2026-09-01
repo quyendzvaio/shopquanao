@@ -60,6 +60,26 @@ class LLMFactory {
         ]);
     }
 
+    /** Final-answer provider can use a low-latency model independently. */
+    public static function streamingFromEnv(): ?StreamingLLMProvider
+    {
+        $read = static function (string $key): string {
+            $value = getenv($key);
+            if ($value !== false && $value !== '') return $value;
+            return (string)($_ENV[$key] ?? $_SERVER[$key] ?? '');
+        };
+        $providerName = $read('LLM_PROVIDER');
+        if ($providerName === '') return null;
+        $provider = self::create([
+            'provider' => $providerName,
+            'api_key' => $read('LLM_API_KEY'),
+            'base_url' => $read('LLM_BASE_URL') ?: 'https://api.deepseek.com',
+            'model' => $read('LLM_STREAM_MODEL') ?: $read('LLM_MODEL') ?: 'deepseek-chat',
+            'timeout' => (int)($read('LLM_TIMEOUT') ?: 60),
+        ]);
+        return $provider instanceof StreamingLLMProvider ? $provider : null;
+    }
+
     /** Dedicated deterministic configuration for fashion extraction. */
     public static function fashionExtractionFromEnv(): ?LLMProvider {
         $read = static function (string $key): string {

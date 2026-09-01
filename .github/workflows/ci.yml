@@ -70,7 +70,7 @@ jobs:
 
       - name: Python lint (reranker)
         run: |
-          python3 -m py_compile docker/reranker/app.py docker/rag-ml/app.py eval/ragas_compat.py eval/run_chatbot_eval.py eval/run_findmine_ragas.py eval/build_full_agent_eval_report.py scripts/eval_rag_chatbot.py && echo "✅ Python syntax OK"
+          python3 -m py_compile docker/reranker/app.py docker/rag-ml/app.py eval/ragas_compat.py eval/langfuse_tracing.py eval/run_chatbot_eval.py eval/run_findmine_ragas.py eval/build_full_agent_eval_report.py eval/publish_glance_langfuse.py scripts/eval_rag_chatbot.py && echo "✅ Python syntax OK"
 
   # ============================================================
   # Job 2: Unit Tests
@@ -167,10 +167,9 @@ jobs:
           echo "🔍 Scanning for real secrets (API keys, tokens, private keys)..."
           # Only flag actual secret STRINGS — NOT PHP variable names
           #   sk-[a-z0-9]{20,}     → API keys
-          #   lsv2_...              → LangSmith keys
           #   -----BEGIN           → private keys
           #   ghp_xxx / github_pat → GitHub tokens
-          SECRETS=$(grep -rnP '(?<![-\$>])sk-[A-Za-z0-9_-]{20,}|lsv2_[A-Za-z0-9_=-]{20,}|ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9]{85}|-----BEGIN\s+(RSA|OPENSSH|EC|DSA)\s+PRIVATE\s+KEY-----' \
+          SECRETS=$(grep -rnP '(?<![-\$>])sk-[A-Za-z0-9_-]{20,}|ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9]{85}|-----BEGIN\s+(RSA|OPENSSH|EC|DSA)\s+PRIVATE\s+KEY-----' \
             --include='*.php' --include='*.py' --include='*.yml' --include='*.yaml' --include='*.sh' --include='*.json' --include='*.md' \
             . 2>/dev/null | grep -v '.git/' | grep -v 'vendor/' || true)
           if [ -n "$SECRETS" ]; then
@@ -212,6 +211,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+
+      - name: Validate Compose profiles
+        run: |
+          docker compose config --quiet
+          docker compose --profile observability config --quiet
 
       - name: Build app image
         run: |

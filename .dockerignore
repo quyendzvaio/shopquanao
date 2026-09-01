@@ -1,10 +1,6 @@
-# ============================================================
-# .dockerignore — keep production images lean
-# Aligned with Dockerfile which uses:
-#   COPY scripts/   (all scripts)
-#   COPY eval/findmine_agent_eval_cases.php
-#   COPY tests/fixtures/findmine/fashion-extraction-cases.php
-# ============================================================
+# Production build context only. The runtime image receives explicitly listed
+# application paths from Dockerfile; test, evaluation, and generated outputs
+# must never be sent to BuildKit.
 
 # ── Version control & IDE ──────────────────────────────────
 .git
@@ -26,38 +22,24 @@ docs/
 DOCKER.md
 CLAUDE.md
 
-# ── Test suite (unit + integration tests stay out of image) ─
-# Exception: fixtures used by in-container eval scripts
-tests/Unit/
-tests/Integration/
-tests/jmeter/
-tests/README.md
-tests/bootstrap.php
-tests/eval/
-tests/fixtures/findmine/__pycache__/
+# ── Test and evaluation suites ─────────────────────────────
+tests/
+eval/
 
-# ── Eval scripts (Python) & reports — dev-only ────────────
-# Exception: the PHP agent eval corpus is COPY'd explicitly
-eval/__pycache__/
-eval/build_full_agent_eval_report.py
-eval/chatbot_eval_cases.jsonl
-eval/chatbot_multistep_eval_cases.jsonl
-eval/chatbot_positive_eval_cases.jsonl
-eval/ragas_compat.py
-eval/run_chatbot_eval.py
-eval/run_findmine_ragas.py
-eval/requirements-eval.txt
+# ── Reports — dev-only ────────────────────────────────────
 reports/
 test-evidence/
 postman/
 .phpunit.cache/
 
-# ── Node / MCP — only compiled dist goes into image ───────
+# ── Node / MCP — Docker compiles src itself and copies only dist + prod deps.
 mcp-server/node_modules/
-mcp-server/src/
-mcp-server/tsconfig.json
+mcp-server/dist/
+mcp-server/tests/
+mcp-server/coverage/
+mcp-server/*.tsbuildinfo
 
-# ── PHP deps — installed by composer inside container ─────
+# ── PHP development dependencies — runtime has no Composer autoload usage ──
 vendor/
 composer.phar
 composer.lock
@@ -76,7 +58,6 @@ __pycache__/
 hf_cache/
 models/
 .ragas/
-.langsmith/
 *.arrow
 *.parquet
 *.safetensors
@@ -96,6 +77,8 @@ scripts/eval_rag_chatbot.py
 .env.*
 .env.local
 .env.*.local
+.runtime-secrets/
+.docker-data/
 
 # ── Logs ─────────────────────────────────────────────────
 *.log

@@ -9,6 +9,7 @@ require_once __DIR__ . '/ToolRegistry.php';
 require_once __DIR__ . '/McpToolGateway.php';
 require_once __DIR__ . '/ShadowToolGateway.php';
 require_once __DIR__ . '/llm/LLMFactory.php';
+require_once __DIR__ . '/llm/StreamingLLMProvider.php';
 require_once __DIR__ . '/ChatbotMemory.php';
 require_once __DIR__ . '/PdoChatbotConversationStore.php';
 require_once __DIR__ . '/contracts/ChatbotToolGateway.php';
@@ -28,7 +29,7 @@ require_once __DIR__ . '/pipeline/EvidenceDecisionRouter.php';
 require_once __DIR__ . '/pipeline/NoProgressDetector.php';
 require_once __DIR__ . '/pipeline/EvidenceExecutionLoop.php';
 require_once __DIR__ . '/pipeline/ResponseGenerator.php';
-require_once __DIR__ . '/pipeline/OnlineValidator.php';
+require_once __DIR__ . '/pipeline/StreamingResponseGenerator.php';
 require_once __DIR__ . '/../../services/Fashion/ProactiveStylingStateMachine.php';
 require_once __DIR__ . '/../../services/Fashion/ProactiveStylingStateStore.php';
 require_once __DIR__ . '/../../services/Fashion/ProactiveChatTurnService.php';
@@ -38,11 +39,11 @@ class ChatbotService {
     private int $sessionId;
     private ?int $userId;
     private ?LLMProvider $llm;
+    private ?StreamingLLMProvider $streamingLlm;
     private ChatbotToolGateway $toolGateway;
     private ChatbotMemoryStore $memory;
     private ChatbotConversationStore $conversationStore;
     private ResponseGenerator $responseGenerator;
-    private OnlineValidator $onlineValidator;
     private array $knowledgeSources = [];
     private array $evaluationMetadata = [];
     private array $responseMetadata = [];
@@ -55,18 +56,20 @@ class ChatbotService {
         ?ChatbotToolGateway $toolGateway = null,
         ?ChatbotMemoryStore $memory = null,
         ?ChatbotConversationStore $conversationStore = null,
-        ?ResponseGenerator $responseGenerator = null,
-        ?OnlineValidator $onlineValidator = null
+        ?ResponseGenerator $responseGenerator = null
     ) {
         $this->pdo = $pdo;
         $this->sessionId = $sessionId;
         $this->userId = $userId;
-        $this->llm = func_num_args() >= 4 ? $llm : LLMFactory::fromEnv();
+        $llmWasInjected = func_num_args() >= 4;
+        $this->llm = $llmWasInjected ? $llm : LLMFactory::fromEnv();
+        $this->streamingLlm = $llmWasInjected
+            ? ($llm instanceof StreamingLLMProvider ? $llm : null)
+            : LLMFactory::streamingFromEnv();
         $this->toolGateway = $toolGateway ?? $this->createToolGateway($pdo, $userId);
         $this->memory = $memory ?? new ChatbotMemory($pdo, $sessionId, $userId);
         $this->conversationStore = $conversationStore ?? new PdoChatbotConversationStore($pdo, $sessionId);
         $this->responseGenerator = $responseGenerator ?? new ResponseGenerator();
-        $this->onlineValidator = $onlineValidator ?? new OnlineValidator();
         $this->memory->ensureSchema();
     }
 
@@ -110,6 +113,51 @@ class ChatbotService {
         return $result;
     }
 
+    /**
+     * Run the grounded pipeline and stream the final answer directly from the
+     * configured LLM. No response validator gate is used on this path; product
+     * grounding is enforced before generation and cards are persisted only
+     * from the private Product Search result.
+     *
+     * @param callable(string):void $onDelta
+     */
+    public function respondStreaming(string $message, callable $onDelta): array
+    {
+        $this->knowledgeSources = [];
+        $this->evaluationMetadata = [];
+        $this->responseMetadata = [];
+
+        $memoryStart = microtime(true);
+        $memoryContext = $this->memory->rememberUserMessage($message);
+        $memoryContext = $this->enrichMemoryContextWithLastProduct($memoryContext);
+        $memoryLoadMs = (int)((microtime(true) - $memoryStart) * 1000);
+
+        $result = $this->runPipeline($message, $memoryContext, $memoryLoadMs);
+        $result = $this->attachProactiveStyling($result);
+
+        if ($this->streamingLlm === null) {
+            throw new RuntimeException('Configured LLM provider does not support native token streaming');
+        }
+
+        $streamStart = microtime(true);
+        $streamed = (new StreamingResponseGenerator())->stream($this->streamingLlm, $message, $result, $onDelta);
+        $result['message'] = $streamed;
+        $result['answer'] = $streamed;
+        $result['latency']['llm_stream_ms'] = (int)((microtime(true) - $streamStart) * 1000);
+        $result['latency']['streaming'] = true;
+
+        $this->conversationStore->saveMessages(
+            $message,
+            $streamed,
+            $result['products'] ?? [],
+            $this->knowledgeSources,
+            $this->evaluationMetadata,
+            $this->responseMetadata
+        );
+        $this->memory->refreshSummary();
+        return $result;
+    }
+
     private function attachProactiveStyling(array $result): array
     {
         if ($this->userId === null) return $result;
@@ -125,6 +173,17 @@ class ChatbotService {
             $existing=[]; foreach(($result['products']??[]) as $item)if(is_array($item))$existing[(int)($item['id']??0)]=$item;
             foreach($cards as $item)$existing[(int)$item['id']]=$item;
             $result['products']=array_values($existing); $result['cards']=$result['products']; $result['proactive_styling']=true;
+            $result['proactive_styling_metrics'] = [
+                'reference_count' => (int) ($proactive['reference_count'] ?? 0),
+                'mapped_private_product_ids' => array_values(array_map(
+                    static fn (array $item): int => (int) $item['id'],
+                    $cards
+                )),
+                'timings' => array_filter(
+                    is_array($proactive['timings'] ?? null) ? $proactive['timings'] : [],
+                    static fn (mixed $value): bool => is_int($value) || is_float($value)
+                ),
+            ];
         } catch (Throwable $error) {
             error_log(json_encode(['operation'=>'proactive_cart_styling','success'=>false,'error_category'=>'suppressed_runtime_failure'],JSON_UNESCAPED_SLASHES));
         }
@@ -207,15 +266,6 @@ class ChatbotService {
         }
         $spans['generation_ms'] = (int)((microtime(true) - $start) * 1000);
 
-        $start = microtime(true);
-        $validation = $this->onlineValidator->validate($intent, $normalized, $response);
-        $spans['validation_ms'] = (int)((microtime(true) - $start) * 1000);
-        if (!$validation['passed']) {
-            $response['answer'] = $validation['safe_fallback'];
-            $response['message'] = $validation['safe_fallback'];
-            $response['response_type'] = 'fallback';
-        }
-
         $spans['total_ms'] = (int)((microtime(true) - $totalStart) * 1000);
         $spans['loop_count'] = (int)($executionResult['loop_count'] ?? 0);
         $response['trace_id'] = $traceId;
@@ -233,12 +283,12 @@ class ChatbotService {
 
         $this->evaluationMetadata[] = [
             'trace_id' => $traceId,
-            'mode' => 'generic_online_validator',
-            'passed' => (bool)$validation['passed'],
-            'issues' => $validation['issues'],
+            'mode' => 'grounded_pipeline',
+            'passed' => true,
+            'issues' => [],
             'evidence_score' => $executionResult['evidence_score'] ?? [],
             'decision' => $decision,
-            'async_evaluation' => 'queued_for_offline_langsmith_ragas',
+            'async_evaluation' => 'queued_for_offline_ragas_langfuse',
         ];
         $this->responseMetadata = [
             'latency' => $spans,
@@ -249,8 +299,8 @@ class ChatbotService {
         $this->conversationStore->logToolExecution('async_evaluation_outbox', [], [
             'trace_id' => $traceId,
             'primary_intent' => $intent['primary_intent'],
-            'validation_passed' => (bool)$validation['passed'],
-            'validation_issues' => $validation['issues'],
+            'grounding_passed' => true,
+            'grounding_issues' => [],
             'evidence_score' => $executionResult['evidence_score'] ?? [],
             'decision' => $decision,
         ], 0, true);

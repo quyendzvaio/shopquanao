@@ -155,7 +155,9 @@ final class LlmFashionAttributeExtractorTest extends TestCase
         $metrics = new RecordingFashionMetrics();
         $extractor = new LlmFashionAttributeExtractor($llm, new MemoryFashionExtractionCache(), $metrics, 2);
 
-        $item = $extractor->extract([new RawFashionSuggestion('white denim trousers')])[0];
+        // Keep this input below the deterministic fast-path threshold so the
+        // test exercises the bounded enum-repair call itself.
+        $item = $extractor->extract([new RawFashionSuggestion('white trousers')])[0];
 
         self::assertSame('trousers', $item->category);
         self::assertSame('white', $item->color);

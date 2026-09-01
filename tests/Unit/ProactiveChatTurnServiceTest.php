@@ -14,6 +14,8 @@ final class ProactiveChatTurnServiceTest extends \PHPUnit\Framework\TestCase
         $shown=$service->handle(7,'42','product_search');
         self::assertSame('suggest',$shown['status']);
         self::assertSame(1,$tools->calls);
+        self::assertSame(3,$shown['reference_count']);
+        self::assertSame(125,$shown['timings']['styling_reference_provider_ms']);
         self::assertSame('silent',$service->handle(7,'42','product_search')['status']);
         self::assertSame(1,$tools->calls);
     }
@@ -48,5 +50,5 @@ final class ProactiveRecordingGateway implements ChatbotToolGateway
     public int $calls=0;
     public function __construct(private array $products){}
     public function getDefinitions(): array{return [];}
-    public function execute(string $toolName,array $arguments): array{$this->calls++;return ['products'=>$this->products,'groups'=>[]];}
+    public function execute(string $toolName,array $arguments): array{$this->calls++;return ['products'=>$this->products,'groups'=>[],'reference_count'=>3,'timings'=>['styling_reference_provider_ms'=>125]];}
 }

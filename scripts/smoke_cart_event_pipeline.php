@@ -2,6 +2,8 @@
 if (PHP_SAPI !== 'cli') exit(2);
 require_once __DIR__ . '/../config/db.php';
 
+$smokeBaseUrl = rtrim((string) (getenv('SHOP_SMOKE_BASE_URL') ?: 'http://127.0.0.1'), '/');
+
 $suffix = gmdate('YmdHis') . '-' . getmypid();
 $username = 'event_smoke_' . $suffix;
 $token = bin2hex(random_bytes(32));
@@ -25,7 +27,7 @@ try {
         'header' => "Authorization: Bearer $token\r\nContent-Type: application/json\r\n",
         'content' => $body, 'timeout' => 10,
     ]]);
-    file_get_contents('http://127.0.0.1/api/cart', false, $context);
+    file_get_contents($smokeBaseUrl . '/api/cart', false, $context);
     $statusLine = $http_response_header[0] ?? '';
     if (!preg_match('/\s201\s/', $statusLine)) throw new RuntimeException('HTTP add-to-cart did not return 201: ' . $statusLine);
 
@@ -46,7 +48,33 @@ try {
     $published->execute([$eventId]);
     if ((int) $published->fetchColumn() !== 1) throw new RuntimeException('Outbox event was not marked published');
 
-    fwrite(STDOUT, "HTTP_CART_ADD=PASS\nTRANSACTIONAL_OUTBOX=PASS\nREDIS_STREAM_DELIVERY=PASS\nAGENT_EVENT_CONSUMER=PASS\nPENDING_TURNS=2\nCART_EVENT_PIPELINE_STATUS=PASS\n");
+    $payloadQuery = $pdo->prepare('SELECT payload FROM fashion_event_outbox WHERE event_id=?');
+    $payloadQuery->execute([$eventId]);
+    $payload = (string) $payloadQuery->fetchColumn();
+    if ($payload === '') throw new RuntimeException('Published outbox payload is unavailable for duplicate-delivery verification');
+    if (!class_exists('Redis')) throw new RuntimeException('PHP Redis extension is unavailable');
+    $redis = new Redis();
+    $redis->connect((string) (getenv('REDIS_HOST') ?: 'redis'), (int) (getenv('REDIS_PORT') ?: 6379), (float) (getenv('REDIS_TIMEOUT') ?: 1));
+    $stream = (string) (getenv('FASHION_EVENT_STREAM') ?: 'fashion:events');
+    $duplicateStreamId = $redis->xAdd($stream, '*', [
+        'event_id' => $eventId,
+        'event_type' => 'cart.item_added',
+        'payload' => $payload,
+    ]);
+    if (!is_string($duplicateStreamId) || $duplicateStreamId === '') throw new RuntimeException('Duplicate event was not delivered to Redis Stream');
+    usleep(750000);
+    $consumed = $pdo->prepare('SELECT COUNT(*) FROM fashion_consumed_events WHERE consumer_name=? AND event_id=?');
+    $consumed->execute([(string) (getenv('FASHION_EVENT_GROUP') ?: 'proactive-styling'), $eventId]);
+    if ((int) $consumed->fetchColumn() !== 1) throw new RuntimeException('Duplicate event created more than one logical consumption record');
+    $duplicateState = $pdo->prepare('SELECT pending_product_id,remaining_user_turns,source_event_id FROM proactive_styling_state WHERE user_id=? AND session_id=?');
+    $duplicateState->execute([$userId, (string) $sessionId]);
+    $duplicateState = $duplicateState->fetch(PDO::FETCH_ASSOC) ?: [];
+    if ((int) ($duplicateState['pending_product_id'] ?? 0) !== $productId
+        || (int) ($duplicateState['remaining_user_turns'] ?? -1) !== 2
+        || (string) ($duplicateState['source_event_id'] ?? '') !== $eventId
+    ) throw new RuntimeException('Duplicate delivery changed the logical pending state');
+
+    fwrite(STDOUT, "HTTP_CART_ADD=PASS\nTRANSACTIONAL_OUTBOX=PASS\nREDIS_STREAM_DELIVERY=PASS\nAGENT_EVENT_CONSUMER=PASS\nPENDING_TURNS=2\nDUPLICATE_DELIVERY_IDEMPOTENCY=PASS\nCART_EVENT_PIPELINE_STATUS=PASS\n");
 } finally {
     if ($userId > 0) {
         $pdo->beginTransaction();

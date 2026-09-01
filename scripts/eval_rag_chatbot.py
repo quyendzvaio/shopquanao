@@ -6,7 +6,7 @@ What it measures:
 - Retrieval latency and top-k context quality from /api/knowledge/search
 - Chat latency and answer keyword coverage from /api/chatbot
 - Optional RAGAS metrics when ragas + a valid evaluator LLM are configured
-- Optional LangSmith traces when LANGSMITH_API_KEY is configured
+- Optional Langfuse traces when Langfuse keys are configured
 
 Outputs JSON and CSV reports under reports/eval/.
 """
@@ -36,6 +36,7 @@ if str(EVAL_DIR) not in sys.path:
     sys.path.insert(0, str(EVAL_DIR))
 
 from ragas_compat import build_evaluator_embeddings, build_evaluator_llm, json_safe
+from langfuse_tracing import tracing_enabled, safe_output, flush as flush_langfuse
 
 
 @dataclass
@@ -161,56 +162,39 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def maybe_trace_langsmith(rows: list[dict[str, Any]], project_name: str) -> dict[str, Any]:
-    if not os.getenv("LANGSMITH_API_KEY"):
-        return {"enabled": False, "reason": "LANGSMITH_API_KEY is not set"}
+def maybe_trace_langfuse(rows: list[dict[str, Any]], project_name: str) -> dict[str, Any]:
+    if not tracing_enabled():
+        return {"enabled": False, "reason": "Langfuse keys are not set"}
     try:
-        from langsmith import Client
+        from langfuse import get_client
     except Exception as exc:  # noqa: BLE001
-        return {"enabled": False, "reason": f"langsmith import failed: {exc}"}
+        return {"enabled": False, "reason": f"langfuse import failed: {exc}"}
 
-    client = Client()
-    dataset_name = f"{project_name}-dataset"
+    client = get_client()
+    traced = 0
     try:
-        dataset = client.create_dataset(
-            dataset_name=dataset_name,
-            description="Fashion Shop chatbot RAG eval dataset",
-        )
-    except Exception as exc:
-        try:
-            datasets = list(client.list_datasets(dataset_name=dataset_name))
-            dataset = datasets[0] if datasets else None
-        except Exception as lookup_exc:  # noqa: BLE001
-            return {
-                "enabled": False,
-                "reason": f"langsmith dataset lookup failed after create failed: {type(lookup_exc).__name__}: {lookup_exc}",
-                "create_error": f"{type(exc).__name__}: {exc}",
-            }
-    if dataset is None:
-        return {"enabled": False, "reason": "could not create or find dataset"}
-
-    created = 0
-    for row in rows:
-        try:
-            client.create_example(
-                inputs={"question": row["question"]},
-                outputs={"answer": row["reference"]},
-                metadata={
-                    "case_id": row["id"],
-                    "type": row["type"],
-                    "actual_answer": row["answer"],
-                    "retrieved_contexts": row["retrieved_contexts"],
-                    "latency": {
-                        "retrieval_ms": row["retrieval_latency_ms"],
-                        "chat_ms": row["chat_latency_ms"],
+        for row in rows:
+            with client.start_as_current_observation(
+                as_type="chain",
+                name="chatbot-rag-evaluation",
+                input={"question": row["question"]},
+            ) as observation:
+                observation.update(
+                    output=safe_output({"answer": row["answer"]}),
+                    metadata={
+                        "project": project_name,
+                        "case_id": row["id"],
+                        "type": row["type"],
+                        "retrieved_context_count": len(row["retrieved_contexts"]),
+                        "retrieval_latency_ms": row["retrieval_latency_ms"],
+                        "chat_latency_ms": row["chat_latency_ms"],
                     },
-                },
-                dataset_id=dataset.id,
-            )
-            created += 1
-        except Exception:
-            continue
-    return {"enabled": True, "dataset_name": dataset_name, "examples_created": created}
+                )
+                traced += 1
+        flush_langfuse()
+    except Exception as exc:  # noqa: BLE001
+        return {"enabled": False, "reason": f"langfuse tracing failed: {type(exc).__name__}: {exc}", "traced": traced}
+    return {"enabled": True, "project": project_name, "observations_created": traced}
 
 
 def maybe_run_ragas(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -266,7 +250,7 @@ def maybe_run_ragas(rows: list[dict[str, Any]]) -> dict[str, Any]:
         return {"enabled": False, "reason": f"ragas evaluate failed: {exc}"}
 
 
-def write_reports(rows: list[dict[str, Any]], summary: dict[str, Any], ragas_result: dict[str, Any], langsmith_result: dict[str, Any], out_dir: Path) -> dict[str, str]:
+def write_reports(rows: list[dict[str, Any]], summary: dict[str, Any], ragas_result: dict[str, Any], langfuse_result: dict[str, Any], out_dir: Path) -> dict[str, str]:
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     json_path = out_dir / f"rag_eval_{stamp}.json"
@@ -277,7 +261,7 @@ def write_reports(rows: list[dict[str, Any]], summary: dict[str, Any], ragas_res
         "generated_at": stamp,
         "summary": summary,
         "ragas": ragas_result,
-        "langsmith": langsmith_result,
+        "langfuse": langfuse_result,
         "rows": rows,
     }
     payload = json_safe(payload)
@@ -312,10 +296,10 @@ def main() -> int:
     parser.add_argument("--base-url", default=os.getenv("EVAL_BASE_URL", "http://localhost:8092"))
     parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT)
-    parser.add_argument("--project-name", default=os.getenv("LANGSMITH_PROJECT", "fashion-shop-rag-eval"))
+    parser.add_argument("--project-name", default=os.getenv("LANGFUSE_PROJECT", "fashion-shop-rag-eval"))
     parser.add_argument("--case-delay", type=float, default=float(os.getenv("EVAL_CASE_DELAY", "0")))
     parser.add_argument("--skip-ragas", action="store_true")
-    parser.add_argument("--skip-langsmith", action="store_true")
+    parser.add_argument("--skip-langfuse", action="store_true")
     args = parser.parse_args()
 
     cases = load_cases(args.cases)
@@ -326,13 +310,13 @@ def main() -> int:
             time.sleep(args.case_delay)
     summary = summarize(rows)
     ragas_result = {"enabled": False, "reason": "skipped by CLI"} if args.skip_ragas else maybe_run_ragas(rows)
-    langsmith_result = {"enabled": False, "reason": "skipped by CLI"} if args.skip_langsmith else maybe_trace_langsmith(rows, args.project_name)
-    paths = write_reports(rows, summary, ragas_result, langsmith_result, args.out_dir)
+    langfuse_result = {"enabled": False, "reason": "skipped by CLI"} if args.skip_langfuse else maybe_trace_langfuse(rows, args.project_name)
+    paths = write_reports(rows, summary, ragas_result, langfuse_result, args.out_dir)
 
     print(json.dumps(json_safe({
         "summary": summary,
         "ragas": ragas_result,
-        "langsmith": langsmith_result,
+        "langfuse": langfuse_result,
         "reports": paths,
     }), ensure_ascii=False, indent=2))
     return 0

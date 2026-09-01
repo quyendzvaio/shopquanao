@@ -1,0 +1,12 @@
+{
+  "endpoint": "https://ember.ailooks.glance.com/mcp",
+  "transport_strategy": "http-first",
+  "oauth_server_discovered": true,
+  "oauth_authorization_server": "https://ember.ailooks.glance.com",
+  "connection_stage": "oauth_authorization_required",
+  "mcp_initialize": "not_started",
+  "tools_list": "not_started",
+  "smoke_call": "not_run",
+  "timing_ms": null,
+  "secrets_recorded": false
+}

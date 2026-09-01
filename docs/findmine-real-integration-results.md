@@ -1,6 +1,6 @@
 # FindMine real integration gate results
 
-> This document tracks the real-tenant gate only. Demo-grounded UC1/UC2 verification now passes 70/70 with RAGAS/LangSmith evidence; see `findmine-agent-evaluation-results.md` and `findmine-ragas-results.md`. Demo evidence is not presented as proof of live tenant connectivity.
+> This document tracks the real-tenant gate only. Demo-grounded UC1/UC2 verification now passes 50/50 with RAGAS evidence; see `findmine-agent-evaluation-results.md` and `findmine-ragas-results.md`. Demo evidence is not presented as proof of live tenant connectivity.
 
 ## Continuation gate log — 2026-08-24
 

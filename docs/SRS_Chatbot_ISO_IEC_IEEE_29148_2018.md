@@ -132,9 +132,9 @@ flowchart TD
     J --> K[Verify product constraints]
     K --> L[Score evidence and decide continue/fallback]
     L --> M[Generate response and cards]
-    M --> N[Generic online validation]
+    M --> N[Native LLM token stream]
     N --> O[Persist messages, trace and tool telemetry]
-    O --> P[Return JSON to UI]
+    O --> P[Return NDJSON/WebSocket events to UI]
 ```
 
 ### 2.4 Assumptions and Dependencies
@@ -174,7 +174,6 @@ classDiagram
     class IntentResolver
     class EvidenceExecutionLoop
     class ResponseGenerator
-    class OnlineValidator
 
     ChatbotService --> ChatbotToolGateway
     ChatbotService --> ChatbotMemoryStore
@@ -182,7 +181,6 @@ classDiagram
     ChatbotService --> IntentResolver
     ChatbotService --> EvidenceExecutionLoop
     ChatbotService --> ResponseGenerator
-    ChatbotService --> OnlineValidator
     ChatbotToolGateway <|.. ToolRegistry
     ChatbotMemoryStore <|.. ChatbotMemory
     ChatbotConversationStore <|.. PdoChatbotConversationStore
@@ -752,22 +750,22 @@ Acceptance rules:
 | FR-002 | UC-01..UC-09 | `IntentResolver`, `DeterministicIntentParser` | Internal | `ProductionPipelineTest` |
 | FR-003 | UC-01, UC-02 | `ProductAttributeNormalizer`, parser | `search_products` | Normalizer/parser unit tests |
 | FR-004 | UC-01 | `ToolRegistry`, `ProductConstraintVerifier` | `search_products` | `ToolRegistryTest`, integration/eval cases |
-| FR-005 | UC-02 | `ToolRegistry`, `OnlineValidator` | `get_product_detail` | Detail routing and API tests |
+| FR-005 | UC-02 | `ToolRegistry`, `ProductConstraintVerifier` | `get_product_detail` | Detail routing and API tests |
 | FR-006 | UC-03 | Parser, `ToolRegistry`, `ResponseGenerator` | `suggest_size` | Pipeline/API tests |
 | FR-007 | UC-04 | `KnowledgeRetriever`, evidence scorer/generator | `retrieve_knowledge`, API-003 | Retriever tests, RAGAS |
 | FR-008 | UC-05 | `ToolPlanner`, `EvidenceExecutionLoop` | Product tool + knowledge tool | Planner/loop/API tests |
-| FR-009 | UC-06 | `ToolRegistry`, `OnlineValidator` | `get_order_status` | Authorization tests |
+| FR-009 | UC-06 | `ToolRegistry`, `ProductConstraintVerifier` | `get_order_status` | Authorization tests |
 | FR-010 | UC-01, UC-05 | `SemanticEntityEnricher`, `MergeEngine` | DeepSeek optional | Fake-LLM unit tests |
 | FR-011 | UC-09 | `ConflictDetector`, `ConflictResolver` | Internal | Conflict regression tests |
 | FR-012 | UC-01, UC-02, UC-05 | `EvidenceNormalizer`, `ProductConstraintVerifier` | Internal | Normalizer/verifier tests |
 | FR-013 | UC-01..UC-06 | `EvidenceExecutionLoop`, router, no-progress detector | Internal | Budget and no-progress tests |
-| FR-014 | All | `ResponseGenerator`, `OnlineValidator` | API-001 | API contract tests |
+| FR-014 | All | `ResponseGenerator`, `StreamingResponseGenerator` | API-001 | API contract tests |
 | FR-015 | UC-08 | Parser, planner, response generator | No mutation tool | Guardrail tests |
 | FR-016 | UC-07 | `ChatbotMemory` | MariaDB memory tables | Memory/pipeline tests |
 | FR-017 | All | `PdoChatbotConversationStore` | MariaDB | Integration test/database inspection |
 | FR-018 | UC-10 | `chatbot/history.php` | API-002 | Auth/history API test |
 | NFR-PERF-001..003 | UC-01..UC-05 | Nginx/API/services | Public network | Network and load tests |
-| NFR-QUAL-001..002 | All approved eval cases | Evaluation scripts | RAGAS/LangSmith | Latest retained reports |
+| NFR-QUAL-001..002 | All approved eval cases | Evaluation scripts | RAGAS/Langfuse | Latest retained reports |
 | NFR-SEC-001..003 | UC-06 and all data inputs | Middleware, ToolRegistry, CI | API/DB | Security tests and scan |
 | NFR-MAINT-001..002 | Engineering lifecycle | Contracts, CI | Build/test | PHPStan, syntax and architecture review |
 
