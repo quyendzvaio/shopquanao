@@ -67,7 +67,7 @@ final class ComplementaryProductFinder
 
         return [
             'status' => $products === [] ? 'no_products' : 'success',
-            'provider_mode' => $suggestions[0]->source ?? 'glance',
+            'provider_mode' => $suggestions[0]->source ?? 'stylitics_demo',
             'anchor_product_id' => $shopProductId,
             'raw_suggestions' => array_map(static fn (RawFashionSuggestion $suggestion): array => [
                 'text' => $suggestion->text,
@@ -87,7 +87,7 @@ final class ComplementaryProductFinder
     {
         return [
             'status' => $status,
-            'provider_mode' => 'glance',
+            'provider_mode' => 'stylitics_demo',
             'anchor_product_id' => $anchor,
             'raw_suggestions' => [],
             'extracted_items' => [],

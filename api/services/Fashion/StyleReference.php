@@ -15,7 +15,7 @@ final readonly class StyleReference
         public ?string $silhouette = null,
         public ?string $referenceText = null,
         public ?string $referenceImageUrl = null,
-        public string $sourceProvider = 'glance',
+        public string $sourceProvider = 'stylitics',
         public ?string $sourceReferenceId = null,
         public ?float $confidence = null
     ) {

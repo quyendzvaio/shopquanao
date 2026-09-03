@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish a sanitized live Glance evaluation to self-hosted Langfuse.
+"""Publish a sanitized live Stylitics evaluation to self-hosted Langfuse.
 
 This is intentionally an explicit operator command.  It never sends raw MCP
 payloads, OAuth material, credentials, or full application responses.  The
@@ -17,15 +17,15 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_REPORT = Path("reports/eval/glance_agent_eval_50_live_after_fix_20260830.json")
-DEFAULT_DATASET = "shopquanao-glance-live-20260830"
-DEFAULT_EXPERIMENT = "shopquanao-glance-live-eval-20260830"
+DEFAULT_REPORT = Path("reports/eval/stylitics_agent_eval_50.json")
+DEFAULT_DATASET = "shopquanao-stylitics-live-20260830"
+DEFAULT_EXPERIMENT = "shopquanao-stylitics-live-eval-20260830"
 
 
 def load_recommendation_cases(path: Path) -> list[dict[str, Any]]:
     report = json.loads(path.read_text(encoding="utf-8"))
-    if report.get("provider_mode") != "glance_live":
-        raise ValueError("refusing to publish a non-live Glance report")
+    if report.get("provider_mode") != "stylitics_live":
+        raise ValueError("refusing to publish a non-live Stylitics report")
     cases = report.get("ragas_cases")
     if not isinstance(cases, list):
         raise ValueError("report has no sanitized ragas_cases list")
@@ -57,7 +57,7 @@ def load_recommendation_cases(path: Path) -> list[dict[str, Any]]:
 
 def stable_item_id(case_id: str) -> str:
     # UUID5 keeps reruns idempotent without persisting source identifiers.
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"shopquanao:glance:{case_id}"))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"shopquanao:stylitics:{case_id}"))
 
 
 def publish(cases: list[dict[str, Any]], dataset_name: str, experiment_name: str) -> dict[str, Any]:
@@ -74,8 +74,8 @@ def publish(cases: list[dict[str, Any]], dataset_name: str, experiment_name: str
     try:
         client.create_dataset(
             name=dataset_name,
-            description="Sanitized live Glance recommendations grounded by private Product Search.",
-            metadata={"source": "post_run_evaluation_report", "provider_mode": "glance_live", "project": project},
+            description="Sanitized live Stylitics recommendations grounded by private Product Search.",
+            metadata={"source": "post_run_evaluation_report", "provider_mode": "stylitics_live", "project": project},
         )
     except Exception as exc:
         # A rerun commonly receives an already-existing dataset.  Dataset item
@@ -97,7 +97,7 @@ def publish(cases: list[dict[str, Any]], dataset_name: str, experiment_name: str
                 expected_output=item_output,
                 metadata={
                     "source": "post_run_evaluation_report",
-                    "provider_mode": "glance_live",
+                    "provider_mode": "stylitics_live",
                     "case_id": case["case_id"],
                 },
             )
@@ -110,7 +110,7 @@ def publish(cases: list[dict[str, Any]], dataset_name: str, experiment_name: str
         # and the final answer are sent; no provider/MCP payload is included.
         with client.start_as_current_observation(
             as_type="chain",
-            name="glance-live-evaluation",
+            name="stylitics-live-evaluation",
             input={"question": case["question"]},
         ) as observation:
             observation.update(
@@ -120,7 +120,7 @@ def publish(cases: list[dict[str, Any]], dataset_name: str, experiment_name: str
                     "experiment": experiment_name,
                     "project": project,
                     "case_id": case["case_id"],
-                    "provider_mode": "glance_live",
+                    "provider_mode": "stylitics_live",
                     "grounding_context_count": len(case["contexts"]),
                 },
             )
@@ -135,7 +135,7 @@ def publish(cases: list[dict[str, Any]], dataset_name: str, experiment_name: str
         "dataset_items_created": item_count,
         "observations_created": observation_count,
         "source": "post_run_evaluation_report",
-        "provider_mode": "glance_live",
+        "provider_mode": "stylitics_live",
     }
 
 
@@ -149,7 +149,7 @@ def main() -> int:
 
     cases = load_recommendation_cases(args.report)
     if args.dry_run:
-        print(json.dumps({"provider_mode": "glance_live", "cases": len(cases), "dataset": args.dataset_name, "experiment": args.experiment_name}, indent=2))
+        print(json.dumps({"provider_mode": "stylitics_live", "cases": len(cases), "dataset": args.dataset_name, "experiment": args.experiment_name}, indent=2))
         return 0
 
     try:

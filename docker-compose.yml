@@ -1,5 +1,5 @@
 x-langfuse-common-env: &langfuse-common-env
-  NEXTAUTH_URL: ${LANGFUSE_BASE_URL:-http://localhost:3000}
+  NEXTAUTH_URL: ${LANGFUSE_PUBLIC_URL:-http://localhost:3000}
   DATABASE_URL: postgresql://postgres:${LANGFUSE_POSTGRES_PASSWORD:-local-dev-langfuse-postgres}@langfuse-postgres:5432/postgres
   SALT: ${LANGFUSE_SALT:-local-dev-langfuse-salt-change-me}
   ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
@@ -110,22 +110,24 @@ services:
       # Product Search. Keep the child deadline below the PHP MCP deadline.
       MCP_REQUEST_TIMEOUT_MS: ${MCP_REQUEST_TIMEOUT_MS:-80000}
       MCP_REQUEST_TIMEOUT: ${MCP_REQUEST_TIMEOUT:-85}
-      STYLING_PROVIDER: ${STYLING_PROVIDER:-glance}
-      GLANCE_ENABLED: ${GLANCE_ENABLED:-false}
-      GLANCE_PROVIDER_MODE: ${GLANCE_PROVIDER_MODE:-disabled}
-      GLANCE_LIVE_VERIFIED: ${GLANCE_LIVE_VERIFIED:-false}
-      GLANCE_MCP_URL: ${GLANCE_MCP_URL:-}
-      GLANCE_STYLING_TOOL: ${GLANCE_STYLING_TOOL:-}
-      GLANCE_AUTH_MODE: ${GLANCE_AUTH_MODE:-}
-      GLANCE_AUTH_TOKEN: ${GLANCE_AUTH_TOKEN:-}
-      GLANCE_MCP_TIMEOUT_MS: ${GLANCE_MCP_TIMEOUT_MS:-30000}
-      GLANCE_ANCHOR_CACHE_TTL: ${GLANCE_ANCHOR_CACHE_TTL:-86400}
-      GLANCE_STYLE_REFERENCE_CACHE_TTL: ${GLANCE_STYLE_REFERENCE_CACHE_TTL:-600}
+      STYLING_PROVIDER: ${STYLING_PROVIDER:-stylitics}
+      STYLITICS_ENABLED: ${STYLITICS_ENABLED:-true}
+      STYLITICS_PROVIDER_MODE: ${STYLITICS_PROVIDER_MODE:-demo}
+      STYLITICS_LIVE_VERIFIED: ${STYLITICS_LIVE_VERIFIED:-false}
+      STYLITICS_API_URL: ${STYLITICS_API_URL:-}
+      STYLITICS_API_KEY: ${STYLITICS_API_KEY:-}
+      STYLITICS_TIMEOUT_MS: ${STYLITICS_TIMEOUT_MS:-8000}
+      STYLITICS_RETRY_ATTEMPTS: ${STYLITICS_RETRY_ATTEMPTS:-2}
+      STYLITICS_CACHE_TTL: ${STYLITICS_CACHE_TTL:-600}
       LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
-      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
+      LANGFUSE_INGESTION_URL: ${LANGFUSE_INGESTION_URL:-http://langfuse-web:3000}
       LANGFUSE_PROJECT: ${LANGFUSE_PROJECT:-fashion-shop-chatbot-eval}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_TRACE_CONTENT: ${LANGFUSE_TRACE_CONTENT:-false}
+      LANGFUSE_PUBLISH_TIMEOUT_MS: ${LANGFUSE_PUBLISH_TIMEOUT_MS:-1500}
+      LANGFUSE_PUBLISH_CONNECT_TIMEOUT_MS: ${LANGFUSE_PUBLISH_CONNECT_TIMEOUT_MS:-500}
+      LANGFUSE_PUBLISH_MAX_ATTEMPTS: ${LANGFUSE_PUBLISH_MAX_ATTEMPTS:-8}
     depends_on:
       db:
         condition: service_healthy
@@ -241,7 +243,7 @@ services:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bkai-foundation-models/vietnamese-bi-encoder}
       KNOWLEDGE_RERANKER_MODEL: ${KNOWLEDGE_RERANKER_MODEL:-itdainb/PhoRanker}
       RAG_ML_DEVICE: ${RAG_ML_DEVICE:-cpu}
-      RAG_ML_WARMUP_ON_START: ${RAG_ML_WARMUP_ON_START:-false}
+      RAG_ML_WARMUP_ON_START: ${RAG_ML_WARMUP_ON_START:-true}
       RAG_ML_MAX_TEXTS: 64
       RAG_ML_MAX_RERANK_TEXTS: ${RAG_ML_MAX_RERANK_TEXTS:-12}
       HF_HOME: /models/huggingface
@@ -476,6 +478,37 @@ services:
       langfuse-minio: { condition: service_healthy }
       langfuse-redis: { condition: service_healthy }
       langfuse-clickhouse: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # This publisher has no dependency on langfuse-web/worker. It queues and
+  # retries local OTLP exports when Langfuse is unavailable, never holding a
+  # chatbot PHP worker or WebSocket response open.
+  langfuse-trace-publisher:
+    image: ${APP_IMAGE:-shop_quan_ao-app:latest}
+    container_name: shop_quan_ao_langfuse_trace_publisher
+    profiles: [observability]
+    restart: unless-stopped
+    command: ["php", "/var/www/html/scripts/publish_langfuse_trace_outbox.php"]
+    environment:
+      DB_HOST: db
+      DB_NAME: ${MYSQL_DATABASE:-shop_db}
+      DB_USER: ${MYSQL_USER:-shop_user}
+      DB_PASS: ${MYSQL_PASSWORD:-shop_pass}
+      LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
+      LANGFUSE_INGESTION_URL: ${LANGFUSE_INGESTION_URL:-http://langfuse-web:3000}
+      LANGFUSE_PROJECT: ${LANGFUSE_PROJECT:-fashion-shop-chatbot-eval}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_PUBLISH_TIMEOUT_MS: ${LANGFUSE_PUBLISH_TIMEOUT_MS:-1500}
+      LANGFUSE_PUBLISH_CONNECT_TIMEOUT_MS: ${LANGFUSE_PUBLISH_CONNECT_TIMEOUT_MS:-500}
+      LANGFUSE_PUBLISH_MAX_ATTEMPTS: ${LANGFUSE_PUBLISH_MAX_ATTEMPTS:-8}
+    depends_on:
+      db:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "kill -0 1"]
       interval: 15s

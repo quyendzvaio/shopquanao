@@ -14,7 +14,7 @@ final class PrivateCatalogStyleMapperTest extends TestCase
         $mapper = new PrivateCatalogStyleMapper(new ParallelComplementaryProductSearcher($gateway));
         $result = $mapper->map(new StyleReference(
             'shoe', 'footwear', 'loafers', ['black'], ['leather'], ['formal'], ['smart casual'],
-            null, 'black formal leather loafer', null, 'glance', 'glance-ref-1'
+            null, 'black formal leather loafer', null, 'stylitics', 'stylitics-ref-1'
         ));
 
         self::assertSame('mapped', $result->mappingStatus);
@@ -24,8 +24,8 @@ final class PrivateCatalogStyleMapperTest extends TestCase
             ['id' => 11, 'reason' => 'no_confident_mapping'],
             ['id' => 13, 'reason' => 'role_mismatch'],
         ], $result->evidence['rejected']);
-        self::assertSame('glance-ref-1', $result->reference->sourceReferenceId);
-        self::assertStringNotContainsString('glance-ref-1', json_encode($result->selectedProduct, JSON_THROW_ON_ERROR));
+        self::assertSame('stylitics-ref-1', $result->reference->sourceReferenceId);
+        self::assertStringNotContainsString('stylitics-ref-1', json_encode($result->selectedProduct, JSON_THROW_ON_ERROR));
     }
 
     public function testUnavailableProductsAreHardRejectedAndNoMatchIsSafe(): void
@@ -69,9 +69,9 @@ final class PrivateCatalogStyleMapperTest extends TestCase
             'name' => 'White shirt',
             'category' => 'tops',
             'stock' => 2,
-            'provider_product_id' => 'glance-product',
-            'provider_variant_id' => 'glance-variant',
-            'provider_color_id' => 'glance-color',
+            'provider_product_id' => 'stylitics-product',
+            'provider_variant_id' => 'stylitics-variant',
+            'provider_color_id' => 'stylitics-color',
         ]]);
         $mapper = new PrivateCatalogStyleMapper(new ParallelComplementaryProductSearcher($gateway));
         $result = $mapper->map(new StyleReference('top', 'Topwear', null, [], [], ['minimal']));

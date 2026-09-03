@@ -44,21 +44,18 @@ require_once __DIR__ . '/../../services/Fashion/StylingReferenceProvider.php';
 require_once __DIR__ . '/../../services/Fashion/StyleReference.php';
 require_once __DIR__ . '/../../services/Fashion/StyleReferenceSet.php';
 require_once __DIR__ . '/../../services/Fashion/StyleReferenceRawSuggestionAdapter.php';
-require_once __DIR__ . '/../../services/Fashion/GlanceConfig.php';
-require_once __DIR__ . '/../../services/Fashion/GlanceMcpException.php';
-require_once __DIR__ . '/../../services/Fashion/GlanceMcpClientContract.php';
-require_once __DIR__ . '/../../services/Fashion/GlanceMcpClient.php';
-require_once __DIR__ . '/../../services/Fashion/GlanceAnchorResolutionException.php';
-require_once __DIR__ . '/../../services/Fashion/GlanceAnchorReference.php';
-require_once __DIR__ . '/../../services/Fashion/GlanceAnchorResolverContract.php';
-require_once __DIR__ . '/../../services/Fashion/GlanceAnchorResolver.php';
-require_once __DIR__ . '/../../services/Fashion/GlanceResponseMappingException.php';
-require_once __DIR__ . '/../../services/Fashion/GlanceLiveResponseMapper.php';
 require_once __DIR__ . '/../../services/Fashion/MappedStyleReference.php';
 require_once __DIR__ . '/../../services/Fashion/PrivateCatalogStyleMapper.php';
 require_once __DIR__ . '/../../services/Fashion/StyleReferenceCatalogRecommendationService.php';
-require_once __DIR__ . '/../../services/Fashion/GlanceDemoStylingProvider.php';
-require_once __DIR__ . '/../../services/Fashion/GlanceStylingProvider.php';
+require_once __DIR__ . '/../../services/Fashion/StyliticsConfig.php';
+require_once __DIR__ . '/../../services/Fashion/StyliticsApiException.php';
+require_once __DIR__ . '/../../services/Fashion/StyliticsHttpClientContract.php';
+require_once __DIR__ . '/../../services/Fashion/StyliticsHttpClient.php';
+require_once __DIR__ . '/../../services/Fashion/StyliticsStyleReferenceMapper.php';
+require_once __DIR__ . '/../../services/Fashion/StyliticsAnchorSkuResolverContract.php';
+require_once __DIR__ . '/../../services/Fashion/StyliticsCatalogSkuResolver.php';
+require_once __DIR__ . '/../../services/Fashion/StyliticsDemoStylingProvider.php';
+require_once __DIR__ . '/../../services/Fashion/StyliticsStylingProvider.php';
 
 class ToolRegistry implements ChatbotToolGateway {
     private PDO $pdo;
@@ -327,39 +324,38 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         if ($productId <= 0) {
             throw new InvalidArgumentException('product_id is required');
         }
-        $glance = GlanceConfig::fromEnvironment();
-        if (!$glance->enabled || $glance->mode === 'disabled') {
-            return [
-                'status' => 'provider_unavailable',
-                'provider_error' => 'glance_disabled',
-                'products' => [],
-                'groups' => [],
-            ];
+        $stylitics = StyliticsConfig::fromEnvironment();
+        if ($stylitics->enabled && $stylitics->mode !== 'disabled') {
+            if ($stylitics->mode === 'live' && $stylitics->liveVerified) {
+                return (new StyleReferenceCatalogRecommendationService(
+                    new StyliticsStylingProvider($stylitics, new StyliticsCatalogSkuResolver($this->pdo), new StyliticsHttpClient($stylitics)),
+                    new PrivateCatalogStyleMapper(new ParallelComplementaryProductSearcher(new InternalShopConcurrentProductSearchGateway()))
+                ))->find($productId, $variantId);
+            }
+            $llm = LLMFactory::fashionExtractionFromEnv();
+            if ($llm === null) {
+                return [
+                    'status' => 'extraction_failure',
+                    'provider_error' => 'fashion_extraction_llm_not_configured',
+                    'products' => [],
+                    'groups' => [],
+                ];
+            }
+            $referenceProvider = new StyliticsDemoStylingProvider();
+            $finder = new ComplementaryProductFinder(
+                new StyleReferenceRawSuggestionAdapter($referenceProvider),
+                new LlmFashionAttributeExtractor($llm),
+                new FashionRequirementNormalizer(),
+                new ParallelComplementaryProductSearcher(new InternalShopConcurrentProductSearchGateway())
+            );
+            return $finder->find($productId, $variantId);
         }
-        if ($glance->mode === 'live') {
-            $glanceClient = new GlanceMcpClient($glance);
-            return (new StyleReferenceCatalogRecommendationService(
-                new GlanceStylingProvider($glance, new GlanceAnchorResolver($this->pdo, $glanceClient), $glanceClient),
-                new PrivateCatalogStyleMapper(new ParallelComplementaryProductSearcher(new InternalShopConcurrentProductSearchGateway()))
-            ))->find($productId, $variantId);
-        }
-        $llm = LLMFactory::fashionExtractionFromEnv();
-        if ($llm === null) {
-            return [
-                'status' => 'extraction_failure',
-                'provider_error' => 'fashion_extraction_llm_not_configured',
-                'products' => [],
-                'groups' => [],
-            ];
-        }
-        $referenceProvider = new GlanceDemoStylingProvider();
-        $finder = new ComplementaryProductFinder(
-            new StyleReferenceRawSuggestionAdapter($referenceProvider),
-            new LlmFashionAttributeExtractor($llm),
-            new FashionRequirementNormalizer(),
-            new ParallelComplementaryProductSearcher(new InternalShopConcurrentProductSearchGateway())
-        );
-        return $finder->find($productId, $variantId);
+        return [
+            'status' => 'provider_unavailable',
+            'provider_error' => 'stylitics_disabled',
+            'products' => [],
+            'groups' => [],
+        ];
     }
 
     private function extractSearchProductId(array $args): ?int {

@@ -116,5 +116,5 @@ test('rejects disallowed origins before any upstream request', async () => {
 });
 
 test('cards never expose provider identifiers', () => {
-  assert.deepEqual(sanitizeProductCards([{ id: 7, name: 'Giày', provider_sku: 'glance-7', provider_product_id: 'x' }]), [{ id: 7, name: 'Giày' }]);
+  assert.deepEqual(sanitizeProductCards([{ id: 7, name: 'Giày', provider_sku: 'stylitics-7', provider_product_id: 'x' }]), [{ id: 7, name: 'Giày' }]);
 });

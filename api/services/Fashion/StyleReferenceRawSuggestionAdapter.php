@@ -32,7 +32,7 @@ final class StyleReferenceRawSuggestionAdapter implements RawFashionSuggestionPr
                 'reference_image_url' => $reference->referenceImageUrl,
             ]);
         }
-        if ($suggestions === []) throw new RuntimeException('Glance returned no usable styling references');
+        if ($suggestions === []) throw new RuntimeException('Provider returned no usable styling references');
         return $suggestions;
     }
 }

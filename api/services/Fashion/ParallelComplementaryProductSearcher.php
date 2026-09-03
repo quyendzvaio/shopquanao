@@ -17,14 +17,19 @@ final class ParallelComplementaryProductSearcher
     public function search(array $requirements): array
     {
         $byKey = [];
+        $entries = [];
         $attempts = [];
         foreach ($requirements as $requirement) {
             if (!$requirement instanceof FashionRequirement) {
                 throw new InvalidArgumentException('Invalid shop complementary requirement');
             }
             $key = $requirement->key();
-            while (isset($byKey[$key])) {
-                $key .= ':duplicate';
+            $entries[] = ['key' => $key, 'requirement' => $requirement];
+            if (isset($byKey[$key])) {
+                // Providers may repeat the same item across multiple outfit sets.
+                // Preserve each output group, but reuse the identical private
+                // Product Search result instead of creating another HTTP call.
+                continue;
             }
             $byKey[$key] = $requirement;
             $attempts[$key] = $requirement->searchAttempts();
@@ -62,7 +67,9 @@ final class ParallelComplementaryProductSearcher
         }
 
         $groups = [];
-        foreach ($byKey as $key => $requirement) {
+        foreach ($entries as $entry) {
+            $key = $entry['key'];
+            $requirement = $entry['requirement'];
             $resolution = $resolved[$key] ?? null;
             $raw = $resolution['raw'] ?? [
                 'success' => false, 'products' => [], 'error' => 'Product Search result missing', 'duration_ms' => 0,

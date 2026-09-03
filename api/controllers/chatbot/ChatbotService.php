@@ -33,6 +33,7 @@ require_once __DIR__ . '/pipeline/StreamingResponseGenerator.php';
 require_once __DIR__ . '/../../services/Fashion/ProactiveStylingStateMachine.php';
 require_once __DIR__ . '/../../services/Fashion/ProactiveStylingStateStore.php';
 require_once __DIR__ . '/../../services/Fashion/ProactiveChatTurnService.php';
+require_once __DIR__ . '/../../services/Observability/LangfuseTraceOutbox.php';
 
 class ChatbotService {
     private PDO $pdo;
@@ -109,6 +110,7 @@ class ChatbotService {
             $this->evaluationMetadata,
             $this->responseMetadata
         );
+        $this->enqueueLangfuseTrace($message, $result);
         $this->memory->refreshSummary();
         return $result;
     }
@@ -154,6 +156,7 @@ class ChatbotService {
             $this->evaluationMetadata,
             $this->responseMetadata
         );
+        $this->enqueueLangfuseTrace($message, $result);
         $this->memory->refreshSummary();
         return $result;
     }
@@ -192,7 +195,8 @@ class ChatbotService {
 
     private function runPipeline(string $message, array $memoryContext, int $memoryLoadMs): array {
         $totalStart = microtime(true);
-        $traceId = bin2hex(random_bytes(8));
+        // OTLP trace IDs are exactly 16 bytes (32 lowercase hex chars).
+        $traceId = bin2hex(random_bytes(16));
         $spans = [
             'trace_id' => $traceId,
             'pipeline' => 'deterministic_hybrid_pipeline',
@@ -401,6 +405,23 @@ class ChatbotService {
                 (bool)($entry['success'] ?? false)
             );
         }
+    }
+
+    /**
+     * Trace export is intentionally decoupled from request processing. This
+     * only writes a sanitized outbox row; the separate worker owns all HTTP
+     * communication, retries, and failure handling with Langfuse.
+     */
+    private function enqueueLangfuseTrace(string $message, array $result): void
+    {
+        $traceId = (string) ($result['trace_id'] ?? '');
+        (new LangfuseTraceOutbox($this->pdo))->enqueueSafely(
+            $traceId,
+            $message,
+            $result,
+            $this->userId,
+            $this->sessionId
+        );
     }
 
     private function enrichMemoryContextWithLastProduct(array $memoryContext): array {

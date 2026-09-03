@@ -5,8 +5,8 @@ declare(strict_types=1);
 if (PHP_SAPI !== 'cli') exit(2);
 require_once __DIR__ . '/../config/db.php';
 
-if (getenv('GLANCE_ENABLED') !== 'true' || getenv('GLANCE_PROVIDER_MODE') !== 'live' || getenv('GLANCE_LIVE_VERIFIED') !== 'true') {
-    fwrite(STDERR, "UC2_LIVE_STATUS=BLOCKED (Glance live runtime is not enabled and verified)\n");
+if (getenv('STYLITICS_ENABLED') !== 'true' || getenv('STYLITICS_PROVIDER_MODE') !== 'live' || getenv('STYLITICS_LIVE_VERIFIED') !== 'true') {
+    fwrite(STDERR, "UC2_LIVE_STATUS=BLOCKED (Stylitics live runtime is not enabled and verified)\n");
     exit(2);
 }
 

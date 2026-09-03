@@ -90,7 +90,7 @@ removed explicitly and only after a verified backup.
 Use a normal restart when applying a configuration change:
 
 ```bash
-APP_IMAGE=shop_quan_ao-app:glance-goal1 \
+APP_IMAGE=shop_quan_ao-app:stylitics-goal1 \
   docker compose --profile observability up -d
 docker compose --profile observability ps
 curl -fsS http://localhost:3000/api/public/health
@@ -150,6 +150,8 @@ project keys in the ignored `.env`:
 ```text
 LANGFUSE_ENABLED=true
 LANGFUSE_BASE_URL=http://localhost:3000
+LANGFUSE_PUBLIC_URL=http://localhost:3000
+LANGFUSE_INGESTION_URL=http://langfuse-web:3000
 LANGFUSE_PROJECT=fashion-shop-chatbot-eval
 LANGFUSE_PUBLIC_KEY=<project public key>
 LANGFUSE_SECRET_KEY=<project secret key>
@@ -176,24 +178,62 @@ python3 -m venv .venv-eval
 pip install -r eval/requirements-eval.txt
 ```
 
-The 50-case live Glance report can be published after the project keys are set:
+The 50-case live Stylitics report can be published after the project keys are set:
 
 ```bash
-python3 eval/publish_glance_langfuse.py \
-  --report reports/eval/glance_agent_eval_50_live_after_fix_20260830.json
+python3 eval/publish_stylitics_langfuse.py \
+  --report reports/eval/stylitics_agent_eval_50_live_after_fix_20260830.json
 ```
 
 The publisher sends only sanitized questions, final answers, private
 Product-Search contexts, bounded metadata, and timing. It does not send raw
-MCP responses, Glance OAuth material, cookies, or secret headers. Dataset item
+MCP responses, Stylitics OAuth material, cookies, or secret headers. Dataset item
 IDs are stable so rerunning the command does not create a new item per run.
 
 `eval/run_chatbot_eval.py` and `scripts/eval_rag_chatbot.py` also emit optional
 Langfuse observations when both project keys are present. Without keys, the
 evaluation remains fully functional and deterministic checks still run.
 
-Production PHP responses already expose a local `trace_id`, execution trace,
-and stage latency metadata. This migration replaces the former evaluator
-backend; it does not silently claim that every PHP request is exported to
-Langfuse. Add request-level PHP instrumentation only as a separately reviewed
-change with an explicit transport and sampling policy.
+## Production agent tracing: fail-open by design
+
+When `LANGFUSE_ENABLED=true` and valid project keys are configured, completed
+chatbot requests are recorded to the local `langfuse_trace_outbox` table. The
+request and WebSocket streaming paths make **no Langfuse HTTP request**. A
+separate `langfuse-trace-publisher` container exports completed OTLP/HTTP spans
+to `LANGFUSE_INGESTION_URL/api/public/otel/v1/traces` with a 1.5-second default
+timeout and bounded retry/backoff.
+
+Start the full observability profile, including the exporter, with:
+
+```bash
+docker compose --profile observability up -d
+```
+
+The publisher deliberately has no Compose dependency on `langfuse-web` or
+`langfuse-worker`. If Langfuse is stopped, unhealthy, misconfigured, or times
+out, the publisher retains/retries its outbox row while the agent continues to
+answer and stream normally. A failed export is never returned to a shopper.
+
+Traces include the deterministic agent decision, selected tool names, loop
+count, stage latency, response type, and only private Product Search IDs. Raw
+Stylitics/MCP payloads and credentials are never exported. `LANGFUSE_TRACE_CONTENT`
+defaults to `false`; enable it only after approving the privacy policy if
+sanitized user/assistant text is required for debugging.
+
+The exporter uses the supported OTLP/HTTP endpoint and Basic project-key
+authentication, plus `x-langfuse-ingestion-version: 4` for real-time v4
+ingestion. The legacy trace ingestion APIs are not used.
+
+`LANGFUSE_BASE_URL`/`LANGFUSE_PUBLIC_URL` is the browser-facing URL used by the
+Langfuse UI and host-side evaluation scripts. `LANGFUSE_INGESTION_URL` is the
+Docker-internal URL used only by `app` and `langfuse-trace-publisher`; its
+normal Compose value is `http://langfuse-web:3000`. This separation prevents a
+container resolving `localhost:3000` to itself instead of the Langfuse service.
+
+For CI/CD, set these repository environment secrets before setting
+`LANGFUSE_ENABLED=true`: `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`,
+`LANGFUSE_POSTGRES_PASSWORD`, `LANGFUSE_REDIS_PASSWORD`,
+`LANGFUSE_CLICKHOUSE_PASSWORD`, `LANGFUSE_MINIO_SECRET_KEY`, `LANGFUSE_SALT`,
+`LANGFUSE_ENCRYPTION_KEY`, and `LANGFUSE_NEXTAUTH_SECRET`. The deployment job
+fails closed on missing observability secrets, while a running Langfuse outage
+continues to fail open for the agent via the outbox worker.

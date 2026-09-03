@@ -334,7 +334,10 @@ class DeterministicIntentParser {
         if (preg_match('/phỏng vấn|phong van|đi làm|di lam|công sở|cong so|tiệc|tiec|biển|bien|hẹn hò|hen ho/ui', $span)) {
             $expected[] = 'occasion';
         }
-        if (preg_match('/trẻ|tre|già|gia|lịch sự|lich su|formal|thoải mái|thoai mai|năng động|nang dong/ui', $span)) {
+        // Unicode letter boundaries are required here: without them, "già"
+        // also matches the prefix of "giày" and turns a normal footwear
+        // request into an expensive, unnecessary style-enrichment LLM call.
+        if (preg_match('/(?<![\p{L}])(trẻ|tre|già|gia|lịch sự|lich su|formal|thoải mái|thoai mai|năng động|nang dong)(?![\p{L}])/ui', $span)) {
             $expected[] = 'style';
             $expected[] = 'avoid';
         }

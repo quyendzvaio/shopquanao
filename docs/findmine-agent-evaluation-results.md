@@ -1,4 +1,4 @@
-# Glance styling-reference agent evaluation — 2026-08-26
+# Stylitics styling-reference agent evaluation — 2026-08-26
 
 The reproducible default run is the balanced 50-case corpus selected from the
 70-case source corpus (`--cases=50`). It exercises 15 explicit UC1 cases, 15
@@ -17,9 +17,9 @@ proactive UC2 cases, 10 suppression cases and 10 unrelated cases.
 | Provider-ID leakage count | `0` |
 | RAGAS-eligible cases | `30` |
 
-The provider boundary is the configured `glance_demo` reference path. It then
+The provider boundary is the configured `stylitics_demo` reference path. It then
 runs strict extraction, taxonomy normalization and parallel private Product
-Search. Glance live mode remains blocked until vendor endpoint, authentication
+Search. Stylitics live mode remains blocked until vendor endpoint, authentication
 and tool schema are supplied.
 
 ## Latency (milliseconds)
@@ -31,7 +31,7 @@ and tool schema are supplied.
 | Proactive UC2 | 15 | 9640.29 | 10176.62 | 14318.11 | 14318.11 |
 | Suppression | 10 | 0.05 | 0.04 | 0.10 | 0.10 |
 | Unrelated | 10 | 0.06 | 0.04 | 0.11 | 0.11 |
-| Glance reference stage | 30 | 321.43 | 312 | 383 | 430 |
+| Stylitics reference stage | 30 | 321.43 | 312 | 383 | 430 |
 | LLM extraction stage | 30 | 174.63 | 133 | 461 | 488 |
 | Normalization stage | 30 | 7.97 | 7 | 14 | 14 |
 | Parallel Product Search | 30 | 8683.00 | 8889 | 13126 | 13699 |
@@ -43,7 +43,7 @@ short-circuit before the styling provider.
 ## Reproduction
 
 ```bash
-docker compose exec -T app php scripts/run_glance_agent_eval.php \
+docker compose exec -T app php scripts/run_stylitics_agent_eval.php \
   --cases=50 --output=/tmp/findmine-agent-eval-50.json
 ```
 

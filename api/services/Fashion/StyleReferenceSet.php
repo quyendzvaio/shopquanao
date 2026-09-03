@@ -7,7 +7,7 @@ final readonly class StyleReferenceSet
         public int $anchorProductId,
         public ?string $occasion,
         public array $references,
-        public string $sourceProvider = 'glance',
+        public string $sourceProvider = 'stylitics',
         /** @var array<string,int|bool> */
         public array $timings = []
     ) {

@@ -43,7 +43,7 @@ try {
     $mappedIds = array_values(array_unique(array_map('intval', is_array($metrics['mapped_private_product_ids'] ?? null) ? $metrics['mapped_private_product_ids'] : [])));
     $encodedResponse = json_encode($second, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $after = $pdo->prepare('SELECT pending_product_id,remaining_user_turns,eligible,suggested_anchor_product_id FROM proactive_styling_state WHERE user_id=? AND session_id=?'); $after->execute([$userId, (string)$sessionId]);
-    if (empty($second['proactive_styling']) || $cards === [] || $mappedIds === []) throw new RuntimeException('live Glance proactive recommendation was not shown: ' . json_encode(['intent' => $second['primary_intent'] ?? null, 'products' => count($cards), 'state_after' => $after->fetch(PDO::FETCH_ASSOC), 'response_keys' => array_keys($second)], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    if (empty($second['proactive_styling']) || $cards === [] || $mappedIds === []) throw new RuntimeException('live Stylitics proactive recommendation was not shown: ' . json_encode(['intent' => $second['primary_intent'] ?? null, 'products' => count($cards), 'state_after' => $after->fetch(PDO::FETCH_ASSOC), 'response_keys' => array_keys($second)], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     $placeholders = implode(',', array_fill(0, count($mappedIds), '?'));
     $grounded = $pdo->prepare("SELECT COUNT(*) FROM products WHERE id IN ($placeholders)");
     $grounded->execute($mappedIds);
@@ -52,10 +52,10 @@ try {
     $timings = is_array($metrics['timings'] ?? null) ? $metrics['timings'] : [];
     fwrite(STDOUT, 'UC2_LIVE_STATUS=PASS' . PHP_EOL
         . 'USER_TURNS=2' . PHP_EOL
-        . 'UC2_GLANCE_LIVE_CALL_COUNT=2' . PHP_EOL
+        . 'UC2_STYLITICS_LIVE_CALL_COUNT=2' . PHP_EOL
         . 'UC2_EVENT_TO_CONSUMER_MS=' . $eventToConsumerMs . PHP_EOL
-        . 'UC2_CONSUMER_TO_GLANCE_MS=' . (int) round(($stylingTriggerStarted - $eventStarted) * 1000) . PHP_EOL
-        . 'UC2_GLANCE_PROVIDER_LATENCY_MS=' . (int) ($timings['styling_reference_provider_ms'] ?? -1) . PHP_EOL
+        . 'UC2_CONSUMER_TO_STYLITICS_MS=' . (int) round(($stylingTriggerStarted - $eventStarted) * 1000) . PHP_EOL
+        . 'UC2_STYLITICS_PROVIDER_LATENCY_MS=' . (int) ($timings['styling_reference_provider_ms'] ?? -1) . PHP_EOL
         . 'UC2_PRIVATE_MAPPING_MS=' . (int) ($timings['parallel_product_search_ms'] ?? -1) . PHP_EOL
         . 'UC2_EVENT_TO_RECOMMENDATION_MS=' . (int) round((microtime(true) - $eventStarted) * 1000) . PHP_EOL
         . 'UC2_REFERENCE_COUNT=' . (int) ($metrics['reference_count'] ?? 0) . PHP_EOL

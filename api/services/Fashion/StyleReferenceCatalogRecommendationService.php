@@ -57,7 +57,7 @@ final class StyleReferenceCatalogRecommendationService
     /** @return array<string,mixed> */
     private function failure(int $anchor, string $status, string $error, float $started): array
     {
-        return ['status' => $status, 'provider_mode' => 'glance', 'anchor_product_id' => $anchor,
+        return ['status' => $status, 'provider_mode' => 'stylitics', 'anchor_product_id' => $anchor,
             'reference_count' => 0, 'groups' => [], 'products' => [], 'provider_error' => $error,
             'timings' => ['total_recommendation_ms' => $this->elapsed($started)]];
     }

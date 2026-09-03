@@ -54,7 +54,7 @@ $parser = new DeterministicIntentParser();
 $stateMachine = new ProactiveStylingStateMachine();
 $responseGenerator = new ResponseGenerator();
 $gateway = new McpToolGateway(null);
-$providerMode = strtolower((string) (getenv('GLANCE_PROVIDER_MODE') ?: 'disabled'));
+$providerMode = strtolower((string) (getenv('STYLITICS_PROVIDER_MODE') ?: 'disabled'));
 $isLiveProvider = $providerMode === 'live';
 $stageFailures = array_fill_keys([
     'STYLING_REFERENCE', 'LLM_EXTRACTION', 'NORMALIZATION', 'PRODUCT_SEARCH',
@@ -303,9 +303,9 @@ $report = [
     'cases' => $expectedCaseCount,
     'passed' => $passed,
     'failed' => $expectedCaseCount - $passed,
-    'provider_mode' => $isLiveProvider ? 'glance_live' : 'glance_' . $providerMode,
+    'provider_mode' => $isLiveProvider ? 'stylitics_live' : 'stylitics_' . $providerMode,
     'provider_calls' => $providerCalls,
-    'glance_live_tool_calls' => $isLiveProvider ? $providerCalls * 2 : 0,
+    'stylitics_live_tool_calls' => $providerCalls,
     'live_recommendation_cases' => $isLiveProvider ? 30 : 0,
     'deterministic_negative_cases' => 20,
     'fixture_cases' => 0,

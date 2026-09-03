@@ -78,7 +78,7 @@ Memory có thể bổ sung ngữ cảnh hội thoại như `last_product_id`, nh
 Frontend chat turns use the same-origin WebSocket endpoint `GET /ws/chatbot`
 (HTTP upgrade). The gateway accepts exactly one in-flight `chat.send` request
 per socket and forwards it to the PHP streaming endpoint. PHP remains the sole
-owner of identity resolution, persistence, intent/tool selection, Glance
+owner of identity resolution, persistence, intent/tool selection, Stylitics
 styling, and Product Search. The final answer is emitted by the configured
 LLM's native token stream after the grounded pipeline completes.
 

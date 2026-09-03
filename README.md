@@ -1,6 +1,6 @@
 # Fashion Shop — Deterministic Hybrid RAG + Styling Agent
 
-Ứng dụng bán quần áo chạy bằng PHP 8.2, MariaDB và Docker Compose. Chatbot dùng luật deterministic để chọn intent/tool, RAG cho chính sách, MCP stdio cho application tools, và Glance làm nguồn tham chiếu styling. Sản phẩm cuối cùng luôn lấy từ private shop catalog/Product Search.
+Ứng dụng bán quần áo chạy bằng PHP 8.2, MariaDB và Docker Compose. Chatbot dùng luật deterministic để chọn intent/tool, RAG cho chính sách, MCP stdio cho application tools, và Stylitics làm nguồn tham chiếu styling. Sản phẩm cuối cùng luôn lấy từ private shop catalog/Product Search.
 
 LLM không tự viết SQL và không tự chọn tool. Dữ liệu trả về cho người dùng phải đi qua Product Search, evidence normalization và validation của PHP.
 
@@ -13,8 +13,8 @@ LLM không tự viết SQL và không tự chọn tool. Dữ liệu trả về c
 | Policy RAG | Đổi trả, hoàn tiền, vận chuyển, bảo hành, thanh toán |
 | Order | Tra cứu đơn thuộc user đã xác thực; không lộ dữ liệu user khác |
 | Guardrail | Không tự checkout/thanh toán; câu phối đồ chung không có sản phẩm neo vẫn bị từ chối |
-| UC1 | Khi user yêu cầu phối một `product_id` cụ thể, lấy Glance styling references rồi chỉ hiển thị SKU thật từ Product Search |
-| UC2 | Sau sự kiện thêm giỏ và đủ hai user turns phù hợp, lấy Glance references và chủ động gợi ý SKU private một lần cho anchor mới nhất |
+| UC1 | Khi user yêu cầu phối một `product_id` cụ thể, lấy Stylitics styling references rồi chỉ hiển thị SKU thật từ Product Search |
+| UC2 | Sau sự kiện thêm giỏ và đủ hai user turns phù hợp, lấy Stylitics references và chủ động gợi ý SKU private một lần cho anchor mới nhất |
 
 ## Kiến trúc runtime
 
@@ -27,7 +27,7 @@ Browser
       -> MCP stdio child process
           -> PHP internal application services
               -> Product / Size / Policy / Order tools
-              -> StylingReferenceProvider (Glance)
+              -> StylingReferenceProvider (Stylitics)
                   -> reference normalization
                   -> hard-filtered, bounded parallel Product Search
       -> EvidenceNormalizer + ProductConstraintVerifier
@@ -54,26 +54,26 @@ CartService transaction
 | `rag-ml` | Embedding và knowledge rerank |
 | `reranker` | Product rerank sidecar |
 
-MCP dùng private child process, không mở public MCP port. Glance chỉ cung cấp reference/outfit intent; Nginx trả `404` cho `/api/internal/mcp`; app container cũng không publish port trực tiếp.
+MCP dùng private child process, không mở public MCP port. Stylitics chỉ cung cấp reference/outfit intent; Nginx trả `404` cho `/api/internal/mcp`; app container cũng không publish port trực tiếp.
 
 Chat widget nhận phản hồi qua WebSocket cùng origin tại `/ws/chatbot`.
 `chat-stream` chỉ stream text sau khi PHP validator hoàn tất và chỉ gửi private
-shop cards đã allow-list; không stream raw Glance/MCP payload hoặc provider ID.
+shop cards đã allow-list; không stream raw Stylitics/MCP payload hoặc provider ID.
 
-## Chế độ Glance
+## Chế độ Stylitics
 
-Glance demo tạo styling references cục bộ để kiểm thử; live mode chỉ được bật khi endpoint, authentication và tool schema đã được vendor xác nhận:
+Stylitics demo tạo styling references cục bộ để kiểm thử; live mode chỉ được bật khi endpoint, authentication và tool schema đã được vendor xác nhận:
 
 ```env
-STYLING_PROVIDER=glance
-GLANCE_ENABLED=true
-GLANCE_PROVIDER_MODE=demo
-GLANCE_LIVE_VERIFIED=false
+STYLING_PROVIDER=stylitics
+STYLITICS_ENABLED=true
+STYLITICS_PROVIDER_MODE=demo
+STYLITICS_LIVE_VERIFIED=false
 ```
 
-Demo mode không phải bằng chứng Glance production. Live mode cần thông tin endpoint/auth/tool schema thật; hiện trạng vendor gate là `BLOCKED`, không có claim live.
+Demo mode không phải bằng chứng Stylitics production. Live mode cần thông tin endpoint/auth/tool schema thật; hiện trạng vendor gate là `BLOCKED`, không có claim live.
 
-Production deploy mặc định để Glance live `disabled`; chỉ bật bằng environment secrets sau khi vendor cung cấp endpoint/auth/tool contract.
+Production deploy mặc định để Stylitics live `disabled`; chỉ bật bằng environment secrets sau khi vendor cung cấp endpoint/auth/tool contract.
 
 ## Cài đặt local
 
@@ -167,9 +167,9 @@ python3 eval/run_chatbot_eval.py \
   --csv-output reports/eval/chatbot_http_50_latest.csv \
   --markdown-output reports/eval/chatbot_http_50_latest.md
 
-php scripts/run_glance_agent_eval.php \
+php scripts/run_stylitics_agent_eval.php \
   --cases=50 --anchor-product-id=57 \
-  --output=reports/eval/glance_agent_eval_50_live_after_fix_20260830.json
+  --output=reports/eval/stylitics_agent_eval_50_live_after_fix_20260830.json
 ```
 
 RAGAS cho recommendation answers:
@@ -178,11 +178,11 @@ RAGAS cho recommendation answers:
 RAGAS_EMBEDDING_URL="http://$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' shop_quan_ao_rag_ml):8000" \
 OPENAI_EVAL_MODEL="$LLM_MODEL" LLM_TIMEOUT=120 \
 python3 eval/run_findmine_ragas.py --max-cases=10 \
-  --agent-report reports/eval/glance_agent_eval_50_live_after_fix_20260830.json \
-  --output reports/eval/glance_ragas_10_live_after_fix_20260830.json
+  --agent-report reports/eval/stylitics_agent_eval_50_live_after_fix_20260830.json \
+  --output reports/eval/stylitics_ragas_10_live_after_fix_20260830.json
 ```
 
-RAGAS final live parameters: `RAGAS_MODE=GLANCE_LIVE_REAL_SHOP_RETRIEVAL`,
+RAGAS final live parameters: `RAGAS_MODE=STYLITICS_LIVE_REAL_SHOP_RETRIEVAL`,
 evaluator `oc/mimo-v2.5-free`, embedding `bkai-foundation-models/vietnamese-bi-encoder`
 via `rag-ml`, judge concurrency `1`, 30 available recommendation cases and 10
 evaluated cases. Scores: faithfulness `0.3416666667`, answer relevancy
@@ -196,7 +196,7 @@ Langfuse is self-hosted as an opt-in Docker Compose profile. Start it with:
 
 ```bash
 docker compose --profile observability up -d langfuse-postgres langfuse-clickhouse \
-  langfuse-minio langfuse-redis langfuse-web langfuse-worker
+  langfuse-minio langfuse-redis langfuse-web langfuse-worker langfuse-trace-publisher
 ```
 
 The profile is intentionally separate from `app`, `rag-ml` and `reranker`; the
@@ -216,17 +216,18 @@ Open `http://localhost:3000`, create a project, then put only the generated
 public/secret project keys in the ignored `.env` as `LANGFUSE_PUBLIC_KEY` and
 `LANGFUSE_SECRET_KEY`. Set `LANGFUSE_ENABLED=true`,
 `LANGFUSE_BASE_URL=http://localhost:3000` and
+`LANGFUSE_INGESTION_URL=http://langfuse-web:3000`,
 `LANGFUSE_PROJECT=fashion-shop-chatbot-eval`. Never commit these values or bake
 them into an image. The evaluator emits sanitized traces with use-case, provider
 mode, anchor ID, reference count, private candidate count, mapping/fallback
 flags and stage latency.
 
-To publish the sanitized live Glance run (after installing
+To publish the sanitized live Stylitics run (after installing
 `eval/requirements-eval.txt`), use:
 
 ```bash
-python3 eval/publish_glance_langfuse.py \
-  --report reports/eval/glance_agent_eval_50_live_after_fix_20260830.json
+python3 eval/publish_stylitics_langfuse.py \
+  --report reports/eval/stylitics_agent_eval_50_live_after_fix_20260830.json
 ```
 
 The command requires the three Langfuse runtime variables above and is
@@ -237,8 +238,8 @@ Compose defaults are sufficient; replace every `local-only-change-me` value in
 64-character encryption key with `openssl rand -hex 32`.
 
 The live styling report was published to dataset
-`shopquanao-glance-live-20260830` (30 examples) and experiment
-`shopquanao-glance-live-eval-20260830` (30 runs). The source is explicitly marked
+`shopquanao-stylitics-live-20260830` (30 examples) and experiment
+`shopquanao-stylitics-live-eval-20260830` (30 runs). The source is explicitly marked
 `post_run_evaluation_report`; no provider payloads or credentials are stored.
 
 ## Kết quả cuối — 2026-08-26
@@ -276,7 +277,7 @@ Styling stages trên 30 recommendation cases:
 
 | Stage | Avg | p95 | Max |
 | --- | ---: | ---: | ---: |
-| Glance demo reference provider | `321.43 ms` | `383 ms` | `430 ms` |
+| Stylitics demo reference provider | `321.43 ms` | `383 ms` | `430 ms` |
 | LLM extraction | `174.63 ms` | `461 ms` | `488 ms` |
 | Normalization | `7.97 ms` | `14 ms` | `14 ms` |
 | Parallel Product Search | `8683.00 ms` | `13126 ms` | `13699 ms` |
@@ -285,7 +286,7 @@ Product Search là bottleneck chính. HTTP p95 cao chủ yếu do entity enrichm
 
 ### RAGAS cuối
 
-RAGAS chấm 2/30 recommendation answers (bounded `--max-cases=2`); Glance reference prose bị loại khỏi grounding context. Không tính `context_precision`/`context_recall` vì corpus này chưa có reference answers hoặc relevance labels.
+RAGAS chấm 2/30 recommendation answers (bounded `--max-cases=2`); Stylitics reference prose bị loại khỏi grounding context. Không tính `context_precision`/`context_recall` vì corpus này chưa có reference answers hoặc relevance labels.
 
 | Metric | Điểm |
 | --- | ---: |
@@ -302,7 +303,7 @@ GitHub Actions chạy:
 - MCP `npm ci`, contract tests và TypeScript build.
 - PHPUnit unit/integration, cùng gate corpus offline nguồn 70 câu.
 - Secret scan, Trivy filesystem/image scan và Docker build cho app/reranker/rag-ml.
-- Deploy qua SSH cho `main`/`master`; DB/Redis được chờ healthy và migration phải PASS trước khi app/workers khởi động. Glance live là opt-in bằng environment secrets.
+- Deploy qua SSH cho `main`/`master`; DB/Redis được chờ healthy và migration phải PASS trước khi app/workers khởi động. Stylitics live là opt-in bằng environment secrets.
 
 App và hai worker dùng cùng `${APP_IMAGE:-shop_quan_ao-app:latest}`, vì vậy đổi Compose project name không làm worker trỏ sang image khác.
 
@@ -310,8 +311,8 @@ App và hai worker dùng cùng `${APP_IMAGE:-shop_quan_ao-app:latest}`, vì vậ
 
 | File | Nội dung |
 | --- | --- |
-| `reports/eval/glance_agent_eval_50_live_after_fix_20260830.json` | Live 50-case Glance evaluation và stage latency |
-| `reports/eval/glance_ragas_10_live_after_fix_20260830.json` | RAGAS live (10/30 sampled cases) |
+| `reports/eval/stylitics_agent_eval_50_live_after_fix_20260830.json` | Live 50-case Stylitics evaluation và stage latency |
+| `reports/eval/stylitics_ragas_10_live_after_fix_20260830.json` | RAGAS live (10/30 sampled cases) |
 | `docs/findmine-agent-evaluation-results.md` | Bảng PASS/latency của 50 cases |
 | `docs/findmine-ragas-results.md` | RAGAS metrics và Langfuse parameters |
 | `docs/findmine-use-case-1.md` | UC1 contract |

@@ -70,7 +70,7 @@ jobs:
 
       - name: Python lint (reranker)
         run: |
-          python3 -m py_compile docker/reranker/app.py docker/rag-ml/app.py eval/ragas_compat.py eval/langfuse_tracing.py eval/run_chatbot_eval.py eval/run_findmine_ragas.py eval/build_full_agent_eval_report.py eval/publish_glance_langfuse.py scripts/eval_rag_chatbot.py && echo "✅ Python syntax OK"
+          python3 -m py_compile docker/reranker/app.py docker/rag-ml/app.py eval/ragas_compat.py eval/langfuse_tracing.py eval/run_chatbot_eval.py eval/run_findmine_ragas.py eval/build_full_agent_eval_report.py eval/publish_stylitics_langfuse.py scripts/eval_rag_chatbot.py && echo "✅ Python syntax OK"
 
   # ============================================================
   # Job 2: Unit Tests
@@ -376,7 +376,7 @@ jobs:
             echo "DB_PASS=${{ secrets.DB_PASS }}" >> .env
             echo "PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}" >> .env
             echo "RERANKER_URL=http://reranker:8000" >> .env
-            echo "RAG_ML_WARMUP_ON_START=${{ secrets.RAG_ML_WARMUP_ON_START || 'false' }}" >> .env
+            echo "RAG_ML_WARMUP_ON_START=${{ secrets.RAG_ML_WARMUP_ON_START || 'true' }}" >> .env
             echo "CHATBOT_TOOL_TRANSPORT=mcp" >> .env
             echo "MCP_SERVICE_TOKEN=${{ secrets.MCP_SERVICE_TOKEN }}" >> .env
             echo "MCP_REQUEST_TIMEOUT_MS=80000" >> .env
@@ -401,6 +401,40 @@ jobs:
             echo "FINDMINE_COLOR_IDENTIFIER_KEY=${{ secrets.FINDMINE_COLOR_IDENTIFIER_KEY || 'product_color_id' }}" >> .env
             echo "FASHION_EVENT_STREAM=${{ secrets.FASHION_EVENT_STREAM || 'fashion:events' }}" >> .env
             echo "FASHION_EVENT_GROUP=${{ secrets.FASHION_EVENT_GROUP || 'proactive-styling' }}" >> .env
+            # Observability is opt-in and independent of the agent path. The
+            # profile starts only when deployment secrets explicitly enable it.
+            echo "LANGFUSE_ENABLED=${{ secrets.LANGFUSE_ENABLED || 'false' }}" >> .env
+            echo "LANGFUSE_BASE_URL=${{ secrets.LANGFUSE_BASE_URL || 'http://localhost:3000' }}" >> .env
+            echo "LANGFUSE_PUBLIC_URL=${{ secrets.LANGFUSE_PUBLIC_URL || secrets.LANGFUSE_BASE_URL || 'http://localhost:3000' }}" >> .env
+            echo "LANGFUSE_INGESTION_URL=${{ secrets.LANGFUSE_INGESTION_URL || 'http://langfuse-web:3000' }}" >> .env
+            echo "LANGFUSE_PROJECT=${{ secrets.LANGFUSE_PROJECT || 'fashion-shop-chatbot-eval' }}" >> .env
+            echo "LANGFUSE_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }}" >> .env
+            echo "LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}" >> .env
+            echo "LANGFUSE_TRACE_CONTENT=${{ secrets.LANGFUSE_TRACE_CONTENT || 'false' }}" >> .env
+            echo "LANGFUSE_PUBLISH_TIMEOUT_MS=${{ secrets.LANGFUSE_PUBLISH_TIMEOUT_MS || '1500' }}" >> .env
+            echo "LANGFUSE_PUBLISH_CONNECT_TIMEOUT_MS=${{ secrets.LANGFUSE_PUBLISH_CONNECT_TIMEOUT_MS || '500' }}" >> .env
+            echo "LANGFUSE_PUBLISH_MAX_ATTEMPTS=${{ secrets.LANGFUSE_PUBLISH_MAX_ATTEMPTS || '8' }}" >> .env
+            echo "LANGFUSE_VERSION=${{ secrets.LANGFUSE_VERSION || '3.114.0' }}" >> .env
+            echo "LANGFUSE_PORT=${{ secrets.LANGFUSE_PORT || '3000' }}" >> .env
+            echo "LANGFUSE_POSTGRES_PASSWORD=${{ secrets.LANGFUSE_POSTGRES_PASSWORD }}" >> .env
+            echo "LANGFUSE_POSTGRES_DATA_DIR=${{ secrets.LANGFUSE_POSTGRES_DATA_DIR || './.docker-data/langfuse-postgres' }}" >> .env
+            echo "LANGFUSE_REDIS_PASSWORD=${{ secrets.LANGFUSE_REDIS_PASSWORD }}" >> .env
+            echo "LANGFUSE_CLICKHOUSE_USER=${{ secrets.LANGFUSE_CLICKHOUSE_USER || 'clickhouse' }}" >> .env
+            echo "LANGFUSE_CLICKHOUSE_PASSWORD=${{ secrets.LANGFUSE_CLICKHOUSE_PASSWORD }}" >> .env
+            echo "LANGFUSE_MINIO_ACCESS_KEY=${{ secrets.LANGFUSE_MINIO_ACCESS_KEY || 'minio' }}" >> .env
+            echo "LANGFUSE_MINIO_SECRET_KEY=${{ secrets.LANGFUSE_MINIO_SECRET_KEY }}" >> .env
+            echo "LANGFUSE_SALT=${{ secrets.LANGFUSE_SALT }}" >> .env
+            echo "LANGFUSE_ENCRYPTION_KEY=${{ secrets.LANGFUSE_ENCRYPTION_KEY }}" >> .env
+            echo "LANGFUSE_NEXTAUTH_SECRET=${{ secrets.LANGFUSE_NEXTAUTH_SECRET }}" >> .env
+            if grep -qx 'LANGFUSE_ENABLED=true' .env; then
+              for required in LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_POSTGRES_PASSWORD LANGFUSE_REDIS_PASSWORD LANGFUSE_CLICKHOUSE_PASSWORD LANGFUSE_MINIO_SECRET_KEY LANGFUSE_SALT LANGFUSE_ENCRYPTION_KEY LANGFUSE_NEXTAUTH_SECRET; do
+                if ! grep -q "^${required}=." .env; then
+                  echo "❌ ${required} must be configured when LANGFUSE_ENABLED=true"
+                  exit 1
+                fi
+              done
+              echo "COMPOSE_PROFILES=observability" >> .env
+            fi
             echo ".env written ($(wc -l < .env) lines)"
 
             echo "Stopping current stack before cleanup..."

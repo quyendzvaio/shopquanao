@@ -1,0 +1,46 @@
+{
+  "outfits": [
+    {
+      "occasion": "office",
+      "items": [
+        {
+          "item_number": "STL-TR-1001",
+          "title": "Tailored Grey Trousers",
+          "category": "bottom",
+          "subcategory": "trousers",
+          "colors": ["gray"],
+          "materials": ["wool blend"],
+          "style_tags": ["tailored"],
+          "image_url": "https://cdn.example.com/stl-tr-1001.jpg",
+          "confidence": 0.8
+        },
+        {
+          "item_number": "STL-SH-2001",
+          "title": "Brown Leather Derby Shoes",
+          "category": "shoe",
+          "subcategory": "derby",
+          "colors": ["brown"],
+          "materials": ["leather"],
+          "style_tags": ["classic"],
+          "image_url": "https://cdn.example.com/stl-sh-2001.jpg",
+          "confidence": 0.75
+        },
+        {
+          "item_number": "STL-AC-3001",
+          "title": "Brown Leather Belt",
+          "category": "accessory",
+          "subcategory": "belt",
+          "colors": ["brown"],
+          "materials": ["leather"],
+          "style_tags": ["minimal"]
+        },
+        {
+          "item_number": "STL-XX-9999",
+          "title": "Mystery Widget",
+          "category": "gadget",
+          "colors": ["black"]
+        }
+      ]
+    }
+  ]
+}

@@ -1,68 +1,70 @@
 <?php
 
-/** Live Glance edge: private anchor metadata -> query-mode bridge -> StyleReferenceSet. */
-final class GlanceStylingProvider implements StylingReferenceProvider
+require_once dirname(__DIR__, 2) . '/cache/Cache.php';
+
+/** Live Stylitics edge: private anchor -> Complete the Look HTTP API -> StyleReferenceSet. */
+final class StyliticsStylingProvider implements StylingReferenceProvider
 {
     public function __construct(
-        private GlanceConfig $config,
-        private ?GlanceAnchorResolverContract $anchors = null,
-        private ?GlanceMcpClientContract $client = null,
-        private ?GlanceLiveResponseMapper $mapper = null
+        private StyliticsConfig $config,
+        private ?StyliticsAnchorSkuResolverContract $skuResolver = null,
+        private ?StyliticsHttpClientContract $client = null,
+        private ?StyliticsStyleReferenceMapper $mapper = null
     ) {}
 
     public function referencesForAnchor(int $shopProductId, ?int $shopVariantId = null): StyleReferenceSet
     {
-        if (!$this->config->enabled || $this->config->mode !== 'live') throw new RuntimeException('Glance live provider is not enabled');
-        if ($this->config->mcpUrl === '' || $this->config->toolName !== 'get_mix_and_match') throw new RuntimeException('Glance MCP URL and verified styling tool are required');
-        if ($this->anchors === null) throw new RuntimeException('Glance private anchor resolver is required');
+        if (!$this->config->enabled || $this->config->mode !== 'live') throw new StyliticsApiException('PROVIDER_DISABLED', 'Stylitics live provider is not enabled');
+        if ($this->skuResolver === null) throw new StyliticsApiException('PROVIDER_MISCONFIGURED', 'Stylitics SKU resolver is required');
         $started = microtime(true);
         $ttl = $this->cacheTtl();
         try {
-            $anchorStarted = microtime(true);
-            $anchor = $this->anchors->resolve($shopProductId, $shopVariantId);
-            $anchorMs = $this->elapsed($anchorStarted);
-            // The anchor resolver has its own long cache. Resolving it first
-            // makes the short-lived reference cache safe across query/anchor
-            // strategy changes while still avoiding a second Glance mix call.
-            $cacheKey = $this->cacheKey($shopProductId, $shopVariantId, $anchor);
+            $skuStarted = microtime(true);
+            $anchorSku = $this->skuResolver->resolveSku($shopProductId, $shopVariantId);
+            $skuMs = $this->elapsed($skuStarted);
+
+            $cacheKey = 'stylitics-style-reference:v1:' . hash('sha256', json_encode([
+                'product_id' => $shopProductId,
+                'variant_id' => $shopVariantId,
+                'api_url' => $this->config->apiUrl,
+                'anchor_sku' => $anchorSku,
+            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
             $cached = $ttl > 0 ? $this->fromCache(Cache::get($cacheKey), $shopProductId) : null;
             if ($cached !== null) {
                 $timings = $cached->timings + [
                     'style_reference_cache_hit' => true,
                     'style_reference_cache_ttl_seconds' => $ttl,
-                    'glance_anchor_resolution_ms' => $anchorMs,
+                    'stylitics_anchor_sku_ms' => $skuMs,
                     'style_reference_total_ms' => $this->elapsed($started),
                 ];
                 $set = new StyleReferenceSet($cached->anchorProductId, $cached->occasion, $cached->references, $cached->sourceProvider, $timings);
                 $this->observe(true, null, $set);
                 return $set;
             }
-            $mixStarted = microtime(true);
-            $raw = ($this->client ?? new GlanceMcpClient($this->config))->call($this->config->toolName, [
-                'anchor_sku' => $anchor->providerSku ?? '',
-                // The verified Glance contract gives query precedence over anchor_sku.
-                'query' => $anchor->providerSku === null ? $anchor->query : '',
-                'context_image_ref' => '',
-                'gender' => $anchor->gender,
-                'occasion' => $anchor->occasion,
-            ]);
-            $mixMs = $this->elapsed($mixStarted);
-            $mappingStarted = microtime(true);
-            $references = ($this->mapper ?? new GlanceLiveResponseMapper())->map($raw);
+
+            $apiStarted = microtime(true);
+            $raw = ($this->client ?? new StyliticsHttpClient($this->config))->completeTheLook($anchorSku, $shopVariantId !== null ? $anchorSku : null);
+            $apiMs = $this->elapsed($apiStarted);
+
+            $mapStarted = microtime(true);
+            $occasion = null;
+            $references = ($this->mapper ?? new StyliticsStyleReferenceMapper())->map($raw, $occasion);
+            $mapMs = $this->elapsed($mapStarted);
+
             $timings = [
                 'style_reference_cache_hit' => false,
                 'style_reference_cache_ttl_seconds' => $ttl,
-                'glance_anchor_resolution_ms' => $anchorMs,
-                'glance_mix_and_match_ms' => $mixMs,
-                'glance_response_mapping_ms' => $this->elapsed($mappingStarted),
+                'stylitics_anchor_sku_ms' => $skuMs,
+                'stylitics_api_ms' => $apiMs,
+                'stylitics_response_mapping_ms' => $mapMs,
                 'style_reference_total_ms' => $this->elapsed($started),
             ];
-            $set = new StyleReferenceSet($shopProductId, $anchor->occasion, $references, 'glance', $timings);
+            $set = new StyleReferenceSet($shopProductId, $occasion, $references, 'stylitics', $timings);
             if ($ttl > 0 && $references !== []) Cache::set($cacheKey, $this->cacheValue($set), $ttl);
             $this->observe(true, null, $set);
             return $set;
         } catch (Throwable $error) {
-            $this->observe(false, $this->category($error), new StyleReferenceSet($shopProductId, null, [], 'glance', [
+            $this->observe(false, $this->category($error), new StyleReferenceSet($shopProductId, null, [], 'stylitics', [
                 'style_reference_cache_hit' => false,
                 'style_reference_cache_ttl_seconds' => $ttl,
                 'style_reference_total_ms' => $this->elapsed($started),
@@ -73,22 +75,8 @@ final class GlanceStylingProvider implements StylingReferenceProvider
 
     private function cacheTtl(): int
     {
-        $value = getenv('GLANCE_STYLE_REFERENCE_CACHE_TTL');
+        $value = getenv('STYLITICS_CACHE_TTL');
         return $value === false || $value === '' ? 600 : max(0, min(3600, (int) $value));
-    }
-
-    private function cacheKey(int $shopProductId, ?int $shopVariantId, GlanceAnchorReference $anchor): string
-    {
-        return 'glance-style-reference:v1:' . hash('sha256', json_encode([
-            'product_id' => $shopProductId,
-            'variant_id' => $shopVariantId,
-            'mcp_url' => $this->config->mcpUrl,
-            'tool' => $this->config->toolName,
-            'provider_sku' => $anchor->providerSku,
-            'query' => $anchor->providerSku === null ? $anchor->query : '',
-            'gender' => $anchor->gender,
-            'occasion' => $anchor->occasion,
-        ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
     }
 
     /** @return array<string,mixed> */
@@ -119,16 +107,16 @@ final class GlanceStylingProvider implements StylingReferenceProvider
                     isset($reference['silhouette']) ? (string) $reference['silhouette'] : null,
                     isset($reference['reference_text']) ? (string) $reference['reference_text'] : null,
                     isset($reference['reference_image_url']) ? (string) $reference['reference_image_url'] : null,
-                    (string) ($reference['source_provider'] ?? 'glance'),
+                    (string) ($reference['source_provider'] ?? 'stylitics'),
                     isset($reference['source_reference_id']) ? (string) $reference['source_reference_id'] : null,
-                    isset($reference['confidence']) ? (float) $reference['confidence'] : null,
+                    isset($reference['confidence']) ? (float) $reference['confidence'] : null
                 );
             }
             return $references === [] ? null : new StyleReferenceSet(
                 $shopProductId,
                 isset($value['occasion']) ? (string) $value['occasion'] : null,
                 $references,
-                (string) ($value['source_provider'] ?? 'glance')
+                (string) ($value['source_provider'] ?? 'stylitics')
             );
         } catch (Throwable) {
             return null;
@@ -147,13 +135,13 @@ final class GlanceStylingProvider implements StylingReferenceProvider
 
     private function category(Throwable $error): string
     {
-        return $error instanceof GlanceMcpException ? $error->category : 'PROVIDER_UNAVAILABLE';
+        return $error instanceof StyliticsApiException ? $error->category : 'PROVIDER_UNAVAILABLE';
     }
 
     private function observe(bool $success, ?string $failureCategory, StyleReferenceSet $set): void
     {
         error_log(json_encode([
-            'provider' => 'glance',
+            'provider' => 'stylitics',
             'operation' => 'style_reference_generation',
             'success' => $success,
             'failure_category' => $failureCategory,

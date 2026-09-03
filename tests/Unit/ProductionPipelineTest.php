@@ -472,6 +472,26 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
         $this->assertSame([], $plan['batches']);
     }
 
+    public function testFootwearWordDoesNotTriggerOldStyleEntityEnrichment(): void
+    {
+        $llm = new FakeEntityEnrichmentLlm([
+            'inferred_fields' => [
+                'style' => ['value' => ['youthful'], 'confidence' => 0.9],
+                'avoid' => ['value' => ['old'], 'confidence' => 0.9],
+            ],
+            'unresolved_remaining' => [],
+        ]);
+
+        $resolution = (new IntentResolver($llm))->resolve(
+            'Áo Sơ Mi Caro Đỏ Đen, mã sản phẩm 63, phối với quần và giày nào?'
+        );
+
+        $this->assertSame('suggest_complementary_products', $resolution['intent']['primary_intent']);
+        $this->assertSame(63, $resolution['intent']['entities']['product_id']);
+        $this->assertSame(0, $llm->calls);
+        $this->assertSame('no_actionable_unresolved_span', $resolution['enrichment']['error']);
+    }
+
     public function testPolicyResponseIdentifiesShopAsPolicySource(): void
     {
         $intent = (new IntentResolver())->extract('Shop có bảo hành lỗi đường may không?');

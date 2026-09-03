@@ -53,6 +53,21 @@ final class ParallelComplementaryProductSearcherTest extends \PHPUnit\Framework\
         $this->assertArrayNotHasKey('provider_color_id', $product);
     }
 
+    public function testIdenticalRequirementsShareOnePrivateCatalogSearch(): void
+    {
+        $gateway = new RecordingConcurrentSearchGateway();
+        $requirement = new ShopComplementaryRequirement(1, 'trousers', 'quần tây', 2, ['formal'], ['gray'], []);
+
+        $groups = (new ParallelComplementaryProductSearcher($gateway, 4))->search([
+            $requirement,
+            $requirement,
+        ]);
+
+        self::assertCount(2, $groups);
+        self::assertCount(1, $gateway->receivedSearches);
+        self::assertSame($groups[0]['products'], $groups[1]['products']);
+    }
+
     public function testZeroResultsRelaxWithinCategoryWithoutFallingBackToAnyProduct(): void
     {
         $gateway = new RelaxingConcurrentSearchGateway();

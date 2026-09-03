@@ -44,8 +44,8 @@ def main() -> int:
 
     result: dict[str, Any] = {
         "mode": (
-            "GLANCE_LIVE_REAL_SHOP_RETRIEVAL"
-            if provider_mode == "glance_live"
+            "STYLITICS_LIVE_REAL_SHOP_RETRIEVAL"
+            if provider_mode == "stylitics_live"
             else "MIXED_REAL_SHOP_RETRIEVAL"
         ),
         "provider_mode": provider_mode,
