@@ -307,6 +307,15 @@ class ProductionPipelineTest extends \PHPUnit\Framework\TestCase
         $this->assertSame([], $intent['missing_slots']);
     }
 
+    public function testVietnameseSingleDigitMeterHeightMeansDecimeters(): void
+    {
+        $intent = (new IntentResolver())->extract('mình nặng 49kg và cao 1m7');
+
+        $this->assertSame('size_advice', $intent['primary_intent']);
+        $this->assertSame(170, $intent['entities']['height_cm']);
+        $this->assertSame(49, $intent['entities']['weight_kg']);
+    }
+
     public function testProductConstraintVerifierFiltersWrongColorCards(): void
     {
         $intent = (new IntentResolver())->extract('tìm áo màu đen');

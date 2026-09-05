@@ -34,11 +34,12 @@ Browser
       -> grounded ResponseGenerator -> native LLM token stream
 
 CartService transaction
+  -> proactive_styling_state (synchronous user-visible state)
   -> fashion_event_outbox
   -> fashion-outbox-publisher
   -> Redis Stream
   -> fashion-event-consumer
-  -> proactive_styling_state
+  -> idempotent state/event consumers
   -> second suitable ChatbotService turn -> shared styling pipeline
 ```
 

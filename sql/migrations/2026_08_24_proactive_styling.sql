@@ -29,7 +29,12 @@ CREATE TABLE IF NOT EXISTS proactive_styling_state (
     pending_variant_id BIGINT NULL,
     remaining_user_turns INT NOT NULL DEFAULT 0,
     source_event_id VARCHAR(80) NULL,
+    state_version BIGINT NOT NULL DEFAULT 0,
     eligible TINYINT(1) NOT NULL DEFAULT 0,
+    status VARCHAR(40) NOT NULL DEFAULT 'not_armed',
+    failure_reason VARCHAR(500) NULL,
+    retry_count INT NOT NULL DEFAULT 0,
+    last_attempt_at TIMESTAMP NULL,
     suggested_anchor_product_id BIGINT NULL,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, session_id)

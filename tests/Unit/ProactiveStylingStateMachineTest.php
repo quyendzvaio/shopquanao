@@ -29,4 +29,25 @@ final class ProactiveStylingStateMachineTest extends \PHPUnit\Framework\TestCase
         self::assertTrue($suppressed['state']['eligible']);
         self::assertSame('suggest', $machine->onUserTurn($suppressed['state'], true, true)['action']);
     }
+
+    public function testDelayedDeliveryOfTheSameCartEventDoesNotResetTurnCountdown(): void
+    {
+        $machine = new ProactiveStylingStateMachine();
+        $state = $machine->onCartItemAdded([], 54, null, 'event-54');
+        $state = $machine->onUserTurn($state, true, false)['state'];
+
+        $redelivered = $machine->onCartItemAdded($state, 54, null, 'event-54');
+
+        self::assertSame(1, $redelivered['remaining_user_turns']);
+        self::assertSame('event-54', $redelivered['source_event_id']);
+    }
+
+    public function testOlderVersionCannotOverwriteLatestAnchor(): void
+    {
+        $machine = new ProactiveStylingStateMachine();
+        $latest = $machine->onCartItemAdded([], 20, null, 'event-new', 20);
+        $delayed = $machine->onCartItemAdded($latest, 10, null, 'event-old', 10);
+        self::assertSame(20, $delayed['pending_product_id']);
+        self::assertSame(20, $delayed['state_version']);
+    }
 }

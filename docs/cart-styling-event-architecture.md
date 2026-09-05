@@ -2,6 +2,11 @@
 
 Redis was already a required service in this project and no other broker existed, so proactive styling uses Redis Streams rather than introducing another messaging system.
 
+The pending user-visible styling state is also armed synchronously in the same
+database transaction as the cart mutation. This prevents a stopped publisher or
+consumer from silently disabling UC2. Redis delivery is idempotent for the same
+`event_id`, so a delayed consumer cannot reset an already-decremented turn count.
+
 ```text
 POST /api/cart
   → CartService transaction: cart write + fashion_event_outbox

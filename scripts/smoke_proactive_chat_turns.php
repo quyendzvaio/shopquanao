@@ -44,7 +44,7 @@ function postJson(string $url, string $token, array $payload, int $expectedStatu
 function proactiveState(PDO $pdo, int $userId, int $sessionId): ?array
 {
     $stmt = $pdo->prepare(
-        'SELECT pending_product_id,remaining_user_turns,eligible,source_event_id '
+        'SELECT pending_product_id,remaining_user_turns,eligible,source_event_id,status '
         . 'FROM proactive_styling_state WHERE user_id=? AND session_id=?'
     );
     $stmt->execute([$userId, (string) $sessionId]);
@@ -121,20 +121,24 @@ try {
     if (($third['primary_intent'] ?? '') !== 'product_search' || (int) ($state['remaining_user_turns'] ?? -1) !== 0) {
         throw new RuntimeException('Suitable retry did not reach the pending styling decision');
     }
-    $demoMode = strtolower((string) (getenv('FINDMINE_DEMO_ENABLED') ?: '')) === 'true';
-    if ($demoMode) {
-        if (empty($third['proactive_styling']) || empty($third['products'])) {
-            throw new RuntimeException('Configured demo provider did not return proactive shop products');
+    $status = (string) ($third['proactive_status'] ?? $state['status'] ?? '');
+    if ($status === 'shown') {
+        if (empty($third['proactive_styling']) || empty($third['products']) || (int) ($state['eligible'] ?? 1) !== 0) {
+            throw new RuntimeException('Shown proactive recommendation did not include shop products or close the opportunity');
         }
-    } elseif ((int) ($state['eligible'] ?? 0) !== 1) {
-        throw new RuntimeException('Suitable retry without a live mapping did not retain the pending anchor');
+    } elseif (in_array($status, ['no_private_catalog_match', 'tool_retryable_failure'], true)) {
+        if ((int) ($state['eligible'] ?? 0) !== 1) {
+            throw new RuntimeException('Retryable/no-match proactive status did not retain the pending anchor');
+        }
+    } else {
+        throw new RuntimeException('Unexpected proactive status after suitable retry: ' . json_encode(['status' => $status, 'state' => $state, 'third' => $third]));
     }
 
     fwrite(STDOUT, "HTTP_CHAT_MESSAGE_1=PASS\n");
     fwrite(STDOUT, "HTTP_CHAT_MESSAGE_2=PASS\n");
     fwrite(STDOUT, "ONLY_USER_TURNS_COUNTED=PASS\n");
     fwrite(STDOUT, "UNSUITABLE_CONTEXT_SUPPRESSED=PASS\n");
-    fwrite(STDOUT, ($demoMode ? "DEMO_PROVIDER_RECOMMENDATION=PASS" : "MISSING_LIVE_MAPPING_RETAINS_ANCHOR=PASS") . "\n");
+    fwrite(STDOUT, "PROACTIVE_STATUS=" . $status . "\n");
     fwrite(STDOUT, "PROACTIVE_CHAT_TURN_SMOKE=PASS\n");
 } finally {
     if ($userId > 0) {

@@ -101,6 +101,10 @@ services:
       CLIENT_CACHE_TTL: ${CLIENT_CACHE_TTL:-60}
       CLIENT_CACHE_STALE_TTL: ${CLIENT_CACHE_STALE_TTL:-30}
       CHATBOT_TOOL_TRANSPORT: ${CHATBOT_TOOL_TRANSPORT:-mcp}
+      CHATBOT_ORCHESTRATOR: ${CHATBOT_ORCHESTRATOR:-langgraph}
+      CHATBOT_ORCHESTRATOR_URL: http://agent-orchestrator:8092
+      AGENT_SERVICE_TOKEN: ${AGENT_SERVICE_TOKEN:-${MCP_SERVICE_TOKEN:-local-dev-mcp-secret-change-in-production}}
+      AGENT_REQUEST_TIMEOUT: ${AGENT_REQUEST_TIMEOUT:-90}
       MCP_SERVICE_TOKEN: ${MCP_SERVICE_TOKEN:-local-dev-mcp-secret-change-in-production}
       MCP_STDIO_NODE: /usr/bin/node
       MCP_STDIO_SCRIPT: /opt/mcp-server/dist/stdio.js
@@ -166,6 +170,56 @@ services:
       timeout: 5s
       start_period: 5s
       retries: 8
+
+  agent-orchestrator:
+    image: ${APP_IMAGE:-shop_quan_ao-app:latest}
+    container_name: shop_quan_ao_agent_orchestrator
+    restart: unless-stopped
+    command: ["/usr/bin/node", "/opt/mcp-server/dist/agent-server.js"]
+    expose:
+      - "8092"
+    environment:
+      AGENT_ORCHESTRATOR_HOST: 0.0.0.0
+      AGENT_ORCHESTRATOR_PORT: 8092
+      AGENT_SERVICE_TOKEN: ${AGENT_SERVICE_TOKEN:-${MCP_SERVICE_TOKEN:-local-dev-mcp-secret-change-in-production}}
+      MCP_SERVICE_TOKEN: ${MCP_SERVICE_TOKEN:-local-dev-mcp-secret-change-in-production}
+      SHOP_INTERNAL_URL: http://app:8080/api/internal/mcp
+      MCP_REQUEST_TIMEOUT_MS: ${MCP_REQUEST_TIMEOUT_MS:-80000}
+      LANGGRAPH_DATABASE_URL: postgresql://langgraph:${LANGGRAPH_POSTGRES_PASSWORD:-local-dev-langgraph}@agent-postgres:5432/langgraph
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-25}
+    depends_on:
+      app:
+        condition: service_healthy
+      agent-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8092/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 8
+
+  agent-postgres:
+    image: postgres:17-alpine
+    container_name: shop_quan_ao_agent_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: langgraph
+      POSTGRES_PASSWORD: ${LANGGRAPH_POSTGRES_PASSWORD:-local-dev-langgraph}
+      POSTGRES_DB: langgraph
+      PGDATA: /var/lib/postgresql/data/pgdata
+    expose:
+      - "5432"
+    volumes:
+      - ${LANGGRAPH_POSTGRES_DATA_DIR:-./.docker-data/agent-postgres}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langgraph -d langgraph"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   fashion-outbox-publisher:
     image: ${APP_IMAGE:-shop_quan_ao-app:latest}

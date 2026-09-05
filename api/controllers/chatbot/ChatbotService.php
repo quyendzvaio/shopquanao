@@ -168,7 +168,8 @@ class ChatbotService {
             $primary=(string)($result['primary_intent']??'unknown');
             $proactive=(new ProactiveChatTurnService(new ProactiveStylingStateStore($this->pdo),new ProactiveStylingStateMachine(),$this->toolGateway))
                 ->handle($this->userId,(string)$this->sessionId,$primary);
-            if(($proactive['status']??'')!=='suggest') return $result;
+            $result['proactive_status'] = (string)($proactive['status']??'not_armed');
+            if(($proactive['status']??'')!=='shown') return $result;
             $cards=array_values(array_filter($proactive['products']??[],fn($item)=>is_array($item)&&(int)($item['id']??0)>0));
             if($cards===[]) return $result;
             $result['message']=rtrim((string)($result['message']??'')).' Mình cũng tìm thấy một vài sản phẩm trong shop có thể phối cùng món bạn vừa thêm vào giỏ.';

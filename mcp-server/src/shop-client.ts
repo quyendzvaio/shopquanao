@@ -61,3 +61,13 @@ export async function callTool(tool: string, arguments_: Record<string, unknown>
   }
   return body.result as Record<string, unknown>;
 }
+
+export async function advanceProactiveTurn(primaryIntent: string, threadId: string, principal: Principal): Promise<Record<string, unknown>> {
+  if (principal.userId === null) return { status: 'not_armed' };
+  return internalCall({
+    operation: 'agent.proactive_turn',
+    primary_intent: primaryIntent,
+    session_id: threadId,
+    user_id: principal.userId,
+  });
+}

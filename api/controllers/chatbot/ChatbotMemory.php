@@ -196,14 +196,15 @@ class ChatbotMemory implements ChatbotMemoryStore {
             $slots['budget'] = $slots['max_price'];
         }
 
-        if (preg_match('/(\d+)\s*m\s*(\d+)/i', $message, $m)) {
-            $slots['height_cm'] = ((int)$m[1] * 100) + (int)$m[2];
+        if (preg_match('/(\d+)\s*m\s*(\d{1,2})\b/i', $message, $m)) {
+            $heightCm = ProductAttributeNormalizer::heightCmFromMeterParts((int)$m[1], $m[2]);
+            if ($heightCm !== null) {
+                $slots['height_cm'] = $heightCm;
+            }
         } elseif (preg_match('/(\d+)\s*cm/i', $message, $m)) {
             $slots['height_cm'] = (int)$m[1];
         } elseif (preg_match('/(\d+[.,]\d+)\s*m\b/i', $message, $m)) {
             $slots['height_cm'] = (int)round((float)str_replace(',', '.', $m[1]) * 100);
-        } elseif (preg_match('/1m(\d+)/i', $message, $m)) {
-            $slots['height_cm'] = 100 + (int)$m[1];
         }
         if (preg_match('/(?:nặng|can nang|cân nặng)?\s*(\d+)\s*kg/ui', $message, $m)) {
             $slots['weight_kg'] = (int)$m[1];

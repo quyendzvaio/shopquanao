@@ -4,12 +4,12 @@
  * POST /api/chatbot
  * Body: { "message": "string", "session_token": "string" }
  *
- * Architecture: deterministic PHP intent resolution and tool planning, with
- * optional LLM entity enrichment that cannot select tools.
+ * Architecture: PHP authenticates and forwards the turn to the LangGraph agent
+ * orchestrator. The legacy PHP pipeline remains only for image-level rollback.
  */
 
 require_once __DIR__ . '/../../config.php';
-require_once __DIR__ . '/ChatbotService.php';
+require_once __DIR__ . '/LangGraphChatbotService.php';
 require_once __DIR__ . '/ChatbotSessionContext.php';
 
 /** @var PDO $pdo */
@@ -28,8 +28,9 @@ if (!$message) {
 
 $context = ChatbotSessionContext::resolve($pdo, $sessionToken, getBearerToken());
 
-// ChatbotService persists messages and tool diagnostics.
-$chatbot = new ChatbotService($pdo, $context->sessionId, $context->userId);
+// The LangGraph service persists messages and tool diagnostics while PHP keeps
+// the HTTP/auth/session boundary stable for the existing frontend.
+$chatbot = new LangGraphChatbotService($pdo, $context->sessionId, $context->userId);
 $result = $chatbot->respond($message);
 
 $responseText = $result['message'];
@@ -46,7 +47,7 @@ $response = [
     'session_id' => $context->sessionId,
 ];
 
-foreach (['answer', 'response_type', 'primary_intent', 'secondary_intents', 'requested_fields', 'cards', 'missing_slots', 'trace_id', 'latency', 'proactive_styling', 'proactive_styling_metrics'] as $key) {
+foreach (['answer', 'response_type', 'primary_intent', 'secondary_intents', 'requested_fields', 'cards', 'missing_slots', 'trace_id', 'latency', 'proactive_styling', 'proactive_status', 'proactive_styling_metrics'] as $key) {
     if (array_key_exists($key, $result)) {
         $response[$key] = $result[$key];
     }

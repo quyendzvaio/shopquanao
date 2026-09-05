@@ -85,6 +85,33 @@ class ChatbotAPITest extends \PHPUnit\Framework\TestCase
         $this->assertContains('weight', $result['missing_slots']);
     }
 
+    public function testSizeAdviceContinuesWhenMeasurementsArriveOnTheNextTurn(): void
+    {
+        $this->pdo->beginTransaction();
+        try {
+        $this->pdo->exec("DELETE FROM size_guides WHERE category_id = 1");
+        $this->pdo->exec("INSERT INTO size_guides
+            (category_id, size_name, height_from, height_to, weight_from, weight_to)
+            VALUES (1, 'S', 155, 165, 45, 55),
+                   (1, 'M', 160, 170, 55, 65)");
+
+        $sessionId = $this->createSession();
+        $service = new ChatbotService($this->pdo, $sessionId, null);
+        $service->respond('áo polo màu đỏ');
+        $clarification = $service->respond('size S thì phù hợp với kích cỡ cơ thể nào');
+        $result = $service->respond('mình nặng 49kg và cao 1m7');
+
+        $this->assertSame('clarification', $clarification['response_type']);
+        $this->assertSame('size_advice', $result['primary_intent']);
+        $this->assertSame('final_answer', $result['response_type']);
+        $this->assertStringContainsString('size S', $result['message']);
+        $this->assertStringContainsString('155', $result['message']);
+        $this->assertStringNotContainsString('chưa có bảng size', mb_strtolower($result['message']));
+        } finally {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+        }
+    }
+
     public function testMixedProductPolicyCallsProductAndKnowledge(): void
     {
         $sessionId = $this->createSession();

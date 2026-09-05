@@ -20,7 +20,7 @@ final class CartItemAddedConsumer
                 return false;
             }
             $userId=(int)$event['user_id']; $sessionId=(string)$event['session_id'];
-            $state=$this->machine->onCartItemAdded($this->states->get($userId,$sessionId),(int)$event['product_id'],isset($event['variant_id'])?(int)$event['variant_id']:null,(string)$event['event_id']);
+            $state=$this->machine->onCartItemAdded($this->states->get($userId,$sessionId),(int)$event['product_id'],isset($event['variant_id'])?(int)$event['variant_id']:null,(string)$event['event_id'],(int)($event['state_version']??0));
             $this->states->put($userId,$sessionId,$state); $this->pdo->commit(); return true;
         } catch (Throwable $error) { if($this->pdo->inTransaction())$this->pdo->rollBack(); throw $error; }
     }

@@ -2,6 +2,10 @@
 
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../services/ToolApplicationService.php';
+require_once __DIR__ . '/../chatbot/ToolRegistry.php';
+require_once __DIR__ . '/../../services/Fashion/ProactiveStylingStateMachine.php';
+require_once __DIR__ . '/../../services/Fashion/ProactiveStylingStateStore.php';
+require_once __DIR__ . '/../../services/Fashion/ProactiveChatTurnService.php';
 
 /** @var PDO $pdo */
 
@@ -14,6 +18,18 @@ if ($expectedToken === '' || !hash_equals($expectedToken, $providedToken)) {
 $data = getJsonInput();
 $operation = (string) ($data['operation'] ?? 'tool.call');
 try {
+    if ($operation === 'agent.proactive_turn') {
+        $userId = isset($data['user_id']) && (int)$data['user_id'] > 0 ? (int)$data['user_id'] : null;
+        if ($userId === null) errorResponse('Authentication required', 401);
+        $sessionId = trim((string)($data['session_id'] ?? ''));
+        if ($sessionId === '') errorResponse('session_id is required', 400);
+        $service = new ProactiveChatTurnService(
+            new ProactiveStylingStateStore($pdo),
+            new ProactiveStylingStateMachine(),
+            new ToolRegistry($pdo, $userId)
+        );
+        jsonResponse($service->handle($userId, $sessionId, (string)($data['primary_intent'] ?? 'unknown')));
+    }
     if ($operation !== 'tool.call') {
         errorResponse('Unknown internal operation', 400);
     }

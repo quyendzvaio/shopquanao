@@ -213,10 +213,13 @@ class DeterministicIntentParser {
             $result->addResolvedField('height_cm', (int)$m[1]);
             $result->addMatchedRule('height_cm');
             $matchedPatterns[] = '/(\d+)\s*cm/ui';
-        } elseif (preg_match('/(\d+)\s*m\s*(\d+)/ui', $lower, $m)) {
-            $result->addResolvedField('height_cm', ((int)$m[1] * 100) + (int)$m[2]);
-            $result->addMatchedRule('height_cm');
-            $matchedPatterns[] = '/(\d+)\s*m\s*(\d+)/ui';
+        } elseif (preg_match('/(\d+)\s*m\s*(\d{1,2})\b/ui', $lower, $m)) {
+            $heightCm = ProductAttributeNormalizer::heightCmFromMeterParts((int)$m[1], $m[2]);
+            if ($heightCm !== null) {
+                $result->addResolvedField('height_cm', $heightCm);
+                $result->addMatchedRule('height_cm');
+                $matchedPatterns[] = '/(\d+)\s*m\s*(\d{1,2})\b/ui';
+            }
         } elseif (preg_match('/(\d+[.,]\d+)\s*m\b/ui', $lower, $m)) {
             $heightCm = (int)round((float)str_replace(',', '.', $m[1]) * 100);
             $result->addResolvedField('height_cm', $heightCm);
@@ -252,6 +255,19 @@ class DeterministicIntentParser {
     private function applySlotMemory(string $lower, array $memoryContext, PartialParseResult $result): void {
         $data = $result->toArray();
         $slots = is_array($memoryContext['slots'] ?? null) ? $memoryContext['slots'] : [];
+
+        // Measurement-only replies are a common continuation of the previous
+        // size question. Carry only size-specific context here so the reply
+        // cannot accidentally become a product-search intent.
+        if ($this->isSizeAdvice($lower)) {
+            foreach (['category_id', 'size'] as $field) {
+                if (empty($data['resolved_fields'][$field]) && !empty($slots[$field])) {
+                    $result->addResolvedField($field, $slots[$field], 'slot_memory', 0.85, true);
+                    $result->addMatchedRule('slot_memory:' . $field);
+                }
+            }
+            $data = $result->toArray();
+        }
 
         $referencesPreviousProduct = (bool)preg_match(
             '/\b(cái|mẫu|sản phẩm|áo|quần|váy)\s*(này|đó)\b|\b(cai|mau|san pham|ao|quan|vay)\s*(nay|do)\b/ui',

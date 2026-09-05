@@ -132,13 +132,31 @@ class ResponseGenerator {
 
     private function sizeAnswer(array $intent, array $evidence): string {
         $recommended = null;
+        $sizeChart = [];
         foreach ($evidence as $item) {
             if (($item['fact_type'] ?? '') === 'recommended_size') {
                 $recommended = $item;
-                break;
+            } elseif (($item['fact_type'] ?? '') === 'size_chart' && is_array($item['value'] ?? null)) {
+                $sizeChart = $item['value'];
             }
         }
         if ($recommended === null || trim((string)($recommended['value'] ?? '')) === '') {
+            $requestedSize = strtoupper(trim((string)($intent['entities']['size'] ?? '')));
+            if ($requestedSize !== '') {
+                foreach ($sizeChart as $row) {
+                    if (!is_array($row) || strtoupper((string)($row['size_name'] ?? '')) !== $requestedSize) {
+                        continue;
+                    }
+                    $height = (int)($intent['entities']['height'] ?? 0);
+                    $weight = (int)($intent['entities']['weight'] ?? 0);
+                    $heightRange = (int)($row['height_from'] ?? 0) . '-' . (int)($row['height_to'] ?? 0) . 'cm';
+                    $weightRange = (int)($row['weight_from'] ?? 0) . '-' . (int)($row['weight_to'] ?? 0) . 'kg';
+                    return "Theo bảng size của shop, size $requestedSize phù hợp khoảng cao $heightRange "
+                        . "và nặng $weightRange. Với {$height}cm và {$weight}kg, hai số đo của bạn nằm ở hai "
+                        . "khoảng size khác nhau, nên mình chưa thể khẳng định size $requestedSize sẽ vừa; "
+                        . 'bạn nên ưu tiên số đo chi tiết của sản phẩm hoặc thử trực tiếp.';
+                }
+            }
             return 'Mình chưa có bảng size phù hợp để tư vấn chắc chắn. Bạn có thể gửi thêm sản phẩm hoặc danh mục bạn đang xem.';
         }
 

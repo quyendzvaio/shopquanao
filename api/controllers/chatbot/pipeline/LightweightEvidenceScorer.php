@@ -55,7 +55,9 @@ class LightweightEvidenceScorer {
         $facts = match ($primary) {
             'product_search' => ['result_count', 'product_cards'],
             'product_detail' => ['product_id', 'product_name', 'price', 'stock', 'product_card_url', 'product_card_image'],
-            'size_advice' => ['height', 'weight', 'recommended_size', 'size_chart'],
+            'size_advice' => empty($intent['entities']['size'])
+                ? ['height', 'weight', 'recommended_size', 'size_chart']
+                : ['height', 'weight', 'size_chart'],
             'return_exchange', 'shipping', 'policy' => ['policy_source', 'policy_content'],
             'mixed_product_policy' => ['product_evidence', 'policy_source', 'policy_content'],
             'order_status' => ['order_status_or_login'],
@@ -202,6 +204,13 @@ class LightweightEvidenceScorer {
             if (($item['fact_type'] ?? '') === 'available_sizes') {
                 $sizes = array_map('strtoupper', array_map('strval', is_array($item['value'] ?? null) ? $item['value'] : []));
                 if (in_array($requestedSize, $sizes, true)) return true;
+            }
+            if (($item['fact_type'] ?? '') === 'size_chart' && is_array($item['value'] ?? null)) {
+                foreach ($item['value'] as $row) {
+                    if (is_array($row) && strtoupper((string)($row['size_name'] ?? '')) === $requestedSize) {
+                        return true;
+                    }
+                }
             }
         }
         return false;

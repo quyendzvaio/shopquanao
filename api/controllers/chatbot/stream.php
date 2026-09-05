@@ -5,7 +5,7 @@
  */
 
 require_once __DIR__ . '/../../config.php';
-require_once __DIR__ . '/ChatbotService.php';
+require_once __DIR__ . '/LangGraphChatbotService.php';
 require_once __DIR__ . '/ChatbotSessionContext.php';
 
 /** @var PDO $pdo */
@@ -30,7 +30,7 @@ $emit = static function (array $event): void {
 try {
     $context = ChatbotSessionContext::resolve($pdo, $sessionToken, getBearerToken());
     $emit(['type' => 'chat.progress', 'stage' => 'pipeline']);
-    $chatbot = new ChatbotService($pdo, $context->sessionId, $context->userId);
+    $chatbot = new LangGraphChatbotService($pdo, $context->sessionId, $context->userId);
     $result = $chatbot->respondStreaming($message, static function (string $delta) use ($emit): void {
         $emit(['type' => 'chat.delta', 'delta' => $delta]);
     });
@@ -46,6 +46,7 @@ try {
         'primary_intent' => $result['primary_intent'] ?? 'unknown',
         'trace_id' => $result['trace_id'] ?? null,
         'proactive_styling' => (bool)($result['proactive_styling'] ?? false),
+        'proactive_status' => (string)($result['proactive_status'] ?? 'not_armed'),
         'product_count' => count($cards),
         'latency' => is_array($result['latency'] ?? null) ? $result['latency'] : [],
     ]);

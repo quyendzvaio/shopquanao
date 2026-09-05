@@ -31,20 +31,26 @@ try {
     $statusLine = $http_response_header[0] ?? '';
     if (!preg_match('/\s201\s/', $statusLine)) throw new RuntimeException('HTTP add-to-cart did not return 201: ' . $statusLine);
 
-    $state = null;
-    for ($attempt = 0; $attempt < 40; $attempt++) {
-        $stmt = $pdo->prepare('SELECT pending_product_id,remaining_user_turns,eligible,source_event_id FROM proactive_styling_state WHERE user_id=? AND session_id=?');
-        $stmt->execute([$userId, (string) $sessionId]);
-        $state = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-        if ($state !== null) break;
-        usleep(250000);
-    }
-    if ($state === null) throw new RuntimeException('Event was not consumed into proactive styling state');
+    $stmt = $pdo->prepare('SELECT pending_product_id,remaining_user_turns,eligible,source_event_id,state_version FROM proactive_styling_state WHERE user_id=? AND session_id=?');
+    $stmt->execute([$userId, (string) $sessionId]);
+    $state = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    if ($state === null) throw new RuntimeException('Synchronous add-to-cart did not create proactive styling state');
     $eventId = (string) $state['source_event_id'];
-    if ((int) $state['pending_product_id'] !== $productId || (int) $state['remaining_user_turns'] !== 2 || (int) $state['eligible'] !== 1) {
-        throw new RuntimeException('Consumed proactive state is invalid');
+    if ((int) $state['pending_product_id'] !== $productId
+        || (int) $state['remaining_user_turns'] !== 2
+        || (int) $state['eligible'] !== 1
+        || (int) $state['state_version'] <= 0
+    ) {
+        throw new RuntimeException('Synchronous proactive state is invalid');
     }
     $published = $pdo->prepare("SELECT COUNT(*) FROM fashion_event_outbox WHERE event_id=? AND status='published'");
+    for ($attempt = 0; $attempt < 40; $attempt++) {
+        $published->execute([$eventId]);
+        if ((int) $published->fetchColumn() === 1) {
+            break;
+        }
+        usleep(250000);
+    }
     $published->execute([$eventId]);
     if ((int) $published->fetchColumn() !== 1) throw new RuntimeException('Outbox event was not marked published');
 
@@ -74,7 +80,7 @@ try {
         || (string) ($duplicateState['source_event_id'] ?? '') !== $eventId
     ) throw new RuntimeException('Duplicate delivery changed the logical pending state');
 
-    fwrite(STDOUT, "HTTP_CART_ADD=PASS\nTRANSACTIONAL_OUTBOX=PASS\nREDIS_STREAM_DELIVERY=PASS\nAGENT_EVENT_CONSUMER=PASS\nPENDING_TURNS=2\nDUPLICATE_DELIVERY_IDEMPOTENCY=PASS\nCART_EVENT_PIPELINE_STATUS=PASS\n");
+    fwrite(STDOUT, "HTTP_CART_ADD=PASS\nSYNCHRONOUS_UC2_STATE=PASS\nTRANSACTIONAL_OUTBOX=PASS\nREDIS_STREAM_DELIVERY=PASS\nAGENT_EVENT_CONSUMER=PASS\nPENDING_TURNS=2\nDUPLICATE_DELIVERY_IDEMPOTENCY=PASS\nCART_EVENT_PIPELINE_STATUS=PASS\n");
 } finally {
     if ($userId > 0) {
         $pdo->beginTransaction();

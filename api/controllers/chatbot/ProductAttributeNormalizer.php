@@ -1,6 +1,25 @@
 <?php
 
 class ProductAttributeNormalizer {
+    /**
+     * Convert Vietnamese meter notation to centimeters.
+     *
+     * A single digit after "m" denotes decimeters (1m7 = 1.70m), while two
+     * digits denote centimeters (1m70 = 1.70m).
+     */
+    public static function heightCmFromMeterParts(int $meters, string $fraction): ?int {
+        $fraction = trim($fraction);
+        if ($meters < 1 || $meters > 2 || !preg_match('/^\d{1,2}$/', $fraction)) {
+            return null;
+        }
+
+        $centimeters = (int)$fraction;
+        if (strlen($fraction) === 1) {
+            $centimeters *= 10;
+        }
+
+        return ($meters * 100) + $centimeters;
+    }
     private const CANONICAL_COLOR_ALIASES = [
         'multi' => ['multi', 'multicolor', 'multi color', 'đa màu', 'da mau', 'phối màu', 'phoi mau'],
         'navy' => ['navy', 'navy blue', 'xanh navy', 'xanh đen', 'xanh dam', 'xanh đậm'],

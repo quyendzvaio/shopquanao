@@ -6,12 +6,17 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/stdio.js",
+    "start:agent": "node dist/agent-server.js",
+    "start:agent": "node dist/agent-server.js",
     "dev": "tsx src/stdio.ts",
     "test": "node --test --import tsx tests/*.test.ts"
   },
   "dependencies": {
+    "@langchain/langgraph": "^1.4.13",
+    "@langchain/langgraph-checkpoint-postgres": "^1.0.5",
     "@modelcontextprotocol/sdk": "1.30.0",
     "mcp-remote": "0.6.0",
+    "pg": "^8.23.0",
     "ws": "8.21.3",
     "zod": "4.4.3"
   },
