@@ -385,7 +385,9 @@ jobs:
             echo "AGENT_REQUEST_TIMEOUT=${{ secrets.AGENT_REQUEST_TIMEOUT || '90' }}" >> .env
             echo "MCP_REQUEST_TIMEOUT_MS=80000" >> .env
             echo "MCP_REQUEST_TIMEOUT=85" >> .env
-            echo "LANGGRAPH_POSTGRES_PASSWORD=${{ secrets.LANGGRAPH_POSTGRES_PASSWORD || secrets.MCP_SERVICE_TOKEN }}" >> .env
+            # Keep the fallback aligned with the historical compose default so
+            # deployments do not silently rotate an existing PostgreSQL volume.
+            echo "LANGGRAPH_POSTGRES_PASSWORD=${{ secrets.LANGGRAPH_POSTGRES_PASSWORD || 'local-dev-langgraph' }}" >> .env
             echo "LANGGRAPH_POSTGRES_DATA_DIR=${{ secrets.LANGGRAPH_POSTGRES_DATA_DIR || './.docker-data/agent-postgres' }}" >> .env
             echo "REDIS_TIMEOUT=0.15" >> .env
             echo "CLIENT_CACHE_TTL=60" >> .env
@@ -523,16 +525,46 @@ jobs:
             echo " ✅"
 
             echo "Checking agent orchestrator..."
-            docker compose exec -T agent-orchestrator node -e "fetch('http://127.0.0.1:8092/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
-            echo " ✅"
+            for i in $(seq 1 30); do
+              if docker compose exec -T agent-orchestrator node -e "fetch('http://127.0.0.1:8092/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
+                echo " ✅"
+                break
+              fi
+              if [ "$i" -eq 30 ]; then
+                echo "❌ agent-orchestrator health check failed"
+                docker compose logs agent-orchestrator --tail=60 2>/dev/null || true
+                exit 1
+              fi
+              sleep 2
+            done
 
             echo "Checking chat stream..."
-            docker compose exec -T chat-stream node -e "fetch('http://127.0.0.1:8090/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
-            echo " ✅"
+            for i in $(seq 1 30); do
+              if docker compose exec -T chat-stream node -e "fetch('http://127.0.0.1:8090/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
+                echo " ✅"
+                break
+              fi
+              if [ "$i" -eq 30 ]; then
+                echo "❌ chat-stream health check failed"
+                docker compose logs chat-stream --tail=60 2>/dev/null || true
+                exit 1
+              fi
+              sleep 2
+            done
 
             echo "Checking chatbot LangGraph route..."
-            docker compose exec -T chat-stream node -e "fetch('http://app:8080/api/chatbot',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:'áo polo màu đỏ'})}).then(async r=>{const b=await r.json(); if(!r.ok || b.latency?.pipeline!=='langgraph' || b.primary_intent!=='product_search') process.exit(1)}).catch(() => process.exit(1))"
-            echo " ✅"
+            for i in $(seq 1 15); do
+              if docker compose exec -T chat-stream node -e "fetch('http://app:8080/api/chatbot',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:'áo polo màu đỏ'})}).then(async r=>{const b=await r.json(); if(!r.ok || b.latency?.pipeline!=='langgraph' || b.primary_intent!=='product_search') process.exit(1)}).catch(() => process.exit(1))"; then
+                echo " ✅"
+                break
+              fi
+              if [ "$i" -eq 15 ]; then
+                echo "❌ chatbot LangGraph route check failed"
+                docker compose logs app agent-orchestrator --tail=60 2>/dev/null || true
+                exit 1
+              fi
+              sleep 2
+            done
 
             # Final cleanup
             docker image prune -f 2>/dev/null || true
