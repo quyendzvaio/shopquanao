@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { AgentOrchestrator, classifySizeFit } from '../src/agent/orchestrator.js';
+import { AgentOrchestrator, classifySizeFit, productSearchQueries } from '../src/agent/orchestrator.js';
 import { parseFirstJsonObject } from '../src/agent/llm.js';
 import { normalizeMeasurements, normalizeVietnameseHeight, productCards } from '../src/agent/normalization.js';
 import { UnderstandingSchema, type Understanding } from '../src/agent/schemas.js';
@@ -78,6 +78,25 @@ test('private cards whitelist fields and never expose provider identifiers', () 
   assert.equal('provider_product_id' in cards[0]!, false);
   assert.equal('sku' in cards[0]!, false);
   assert.deepEqual(cards[0]?.variants, [{ size: 'S' }]);
+});
+
+test('product search keeps a softer fallback query for Vietnamese color wording', () => {
+  const queries = productSearchQueries('áo polo màu đỏ', {
+    product_id: null,
+    product_query: 'áo polo màu đỏ',
+    category_id: 1,
+    color: 'đỏ',
+    size: null,
+    height_cm: null,
+    weight_kg: null,
+    min_price: null,
+    max_price: null,
+    occasion: null,
+    order_id: null,
+    cart_id: null,
+    quantity: null,
+  });
+  assert.deepEqual(queries.slice(0, 2), ['áo polo màu đỏ', 'áo polo']);
 });
 
 test('graph returns the compatible response contract and isolates thread history', async () => {

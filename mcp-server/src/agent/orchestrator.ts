@@ -167,9 +167,9 @@ export class AgentOrchestrator {
       const e = u.entities;
       if (u.confidence < 0.55 || u.primary_intent === 'unknown' || u.missing_slots.length > 0) return { toolCalls: [] };
       const calls: ToolCall[] = [];
-      const searchArgs = () => compact({ search: e.product_query || state.message, category_id: e.category_id, color: e.color, size: e.size, min_price: e.min_price, max_price: e.max_price, occasion: e.occasion, semantic_query: state.message, in_stock: true });
+      const searchCalls = () => productSearchToolCalls(state.message, e);
       switch (u.primary_intent) {
-        case 'product_search': calls.push({ tool: 'search_products', arguments: searchArgs() }); break;
+        case 'product_search': calls.push(searchCalls()[0]!); break;
         case 'product_detail': if (e.product_id) calls.push({ tool: 'get_product_detail', arguments: { product_id: e.product_id } }); break;
         case 'size_advice': calls.push({ tool: 'suggest_size', arguments: compact({ height: e.height_cm, weight: e.weight_kg, category_id: e.category_id }) }); break;
         case 'return_exchange': calls.push({ tool: 'retrieve_knowledge', arguments: { query: state.message, category: 'return', limit: 5 } }); break;
@@ -180,7 +180,7 @@ export class AgentOrchestrator {
         case 'list_orders': calls.push({ tool: 'list_orders', arguments: {} }); break;
         case 'suggest_complementary_products': calls.push(e.product_id
           ? { tool: 'suggest_complementary_products', arguments: { product_id: e.product_id } }
-          : { tool: 'search_products', arguments: searchArgs() }); break;
+          : searchCalls()[0]!); break;
         case 'occasion_styling': {
           const shared = compact({ occasion: e.occasion, semantic_query: state.message, in_stock: true });
           calls.push(
@@ -204,7 +204,12 @@ export class AgentOrchestrator {
       executions.push(...await Promise.all(state.toolCalls.map(call => execute(call, principal))));
       const u = state.understanding ?? fallbackUnderstanding();
       if (u.primary_intent === 'product_search' && state.toolCalls.some(call => call.tool === 'search_products') && productCards(executions).length === 0) {
-        executions.push(await execute({ tool: 'search_products', arguments: { search: state.message, semantic_query: state.message, in_stock: true } }, principal));
+        const executed = new Set(state.toolCalls.map(toolCallSignature));
+        for (const call of productSearchToolCalls(state.message, u.entities)) {
+          if (executed.has(toolCallSignature(call))) continue;
+          executions.push(await execute(call, principal));
+          if (productCards(executions).length > 0) break;
+        }
       }
       if (u.primary_intent === 'occasion_styling') {
         const currentCards = productCards(executions);
@@ -308,6 +313,74 @@ async function execute(call: ToolCall, principal: Principal): Promise<ToolExecut
 
 function compact(value: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== null && item !== undefined && item !== ''));
+}
+
+function productSearchToolCalls(message: string, entities: Understanding['entities']): ToolCall[] {
+  const shared = compact({
+    category_id: entities.category_id,
+    color: entities.color,
+    size: entities.size,
+    min_price: entities.min_price,
+    max_price: entities.max_price,
+    occasion: entities.occasion,
+    semantic_query: message,
+    in_stock: true,
+  });
+  return productSearchQueries(message, entities).map(search => ({
+    tool: 'search_products',
+    arguments: compact({ ...shared, search }),
+  }));
+}
+
+export function productSearchQueries(message: string, entities: Understanding['entities']): string[] {
+  const primary = safeSearchText(entities.product_query) || safeSearchText(message);
+  const raw = [
+    primary,
+    stripSearchDecorators(primary, entities),
+    safeSearchText(message),
+    stripSearchDecorators(message, entities),
+  ];
+  const seen = new Set<string>();
+  const queries: string[] = [];
+  for (const candidate of raw) {
+    const normalized = collapseSearchText(candidate);
+    const key = normalized.toLocaleLowerCase('vi-VN');
+    if (normalized.length < 2 || seen.has(key)) continue;
+    seen.add(key);
+    queries.push(normalized);
+  }
+  return queries.length > 0 ? queries.slice(0, 4) : [message.trim()];
+}
+
+function stripSearchDecorators(input: string, entities: Understanding['entities']): string {
+  let text = safeSearchText(input);
+  text = text.replace(/^\s*(?:cho\s+(?:mình|minh)\s+xem|(?:mình|minh|tôi|toi|em|anh|chị|chi)\s+(?:muốn|muon|cần|can)\s+(?:xem|tìm|tim|kiếm|kiem)?|(?:tìm|tim|kiếm|kiem|xem|có|co|shop\s+có|shop\s+co))\s+/iu, ' ');
+  text = text.replace(/(^|\s)(?:size|cỡ|co)\s*[a-z0-9]{1,4}(?=\s|$)/giu, '$1');
+  const color = safeSearchText(entities.color);
+  if (color !== '') {
+    const escapedColor = escapeRegExp(color).replace(/\s+/g, '\\s+');
+    text = text.replace(new RegExp(`(^|\\s)(?:màu|mau)\\s+${escapedColor}(?=\\s|$)`, 'giu'), '$1');
+    text = text.replace(new RegExp(`(^|\\s)${escapedColor}(?=\\s|$)`, 'giu'), '$1');
+  }
+  text = text.replace(/(^|\s)(?:màu|mau)\s+[\p{L}\p{N}-]+(?=\s|$)/giu, '$1');
+  return collapseSearchText(text);
+}
+
+function safeSearchText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function collapseSearchText(value: string): string {
+  return value.replace(/[?!.,;:()[\]{}"“”'’]+/gu, ' ').replace(/\s+/gu, ' ').trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function toolCallSignature(call: ToolCall): string {
+  const sortedArguments = Object.fromEntries(Object.entries(call.arguments).sort(([left], [right]) => left.localeCompare(right)));
+  return `${call.tool}:${JSON.stringify(sortedArguments)}`;
 }
 
 function fallbackUnderstanding(): Understanding {
