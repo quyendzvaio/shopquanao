@@ -91,10 +91,12 @@ class IntentResolver {
         if ($name === 'unknown' || $confidence < 0.6) return true;
         if ($name !== 'product_search') return false;
 
+        // A confident search with a locked product type needs no full LLM
+        // re-parse: residual descriptive spans go to the bounded entity
+        // enricher instead (L1), everything else is already sufficient (L0).
+        // Only a missing product type justifies the extra round trip.
         $productType = trim((string)($deterministic['resolved_fields']['product_type']['value'] ?? ''));
-        $coverage = (float)($deterministic['parser_metadata']['coverage'] ?? 0.0);
-        $genericTypes = ['áo', 'quần', 'váy', 'phụ kiện', 'giày'];
-        return $productType === '' || (in_array($productType, $genericTypes, true) && $coverage < 0.45);
+        return $productType === '';
     }
 
     public function extract(string $message, array $memoryContext = []): array {

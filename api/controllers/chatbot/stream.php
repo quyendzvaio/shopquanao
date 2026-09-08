@@ -5,7 +5,7 @@
  */
 
 require_once __DIR__ . '/../../config.php';
-require_once __DIR__ . '/LangGraphChatbotService.php';
+require_once __DIR__ . '/ChatbotService.php';
 require_once __DIR__ . '/ChatbotSessionContext.php';
 
 /** @var PDO $pdo */
@@ -30,7 +30,7 @@ $emit = static function (array $event): void {
 try {
     $context = ChatbotSessionContext::resolve($pdo, $sessionToken, getBearerToken());
     $emit(['type' => 'chat.progress', 'stage' => 'pipeline']);
-    $chatbot = new LangGraphChatbotService($pdo, $context->sessionId, $context->userId);
+    $chatbot = new ChatbotService($pdo, $context->sessionId, $context->userId);
     $result = $chatbot->respondStreaming($message, static function (string $delta) use ($emit): void {
         $emit(['type' => 'chat.delta', 'delta' => $delta]);
     });

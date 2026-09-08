@@ -245,6 +245,13 @@ The live styling report was published to dataset
 
 ## Kết quả cuối — 2026-08-26
 
+> Lưu ý (2026-09-08): các số liệu dưới đây đo trên đường LangGraph agent
+> orchestrator đã gỡ bỏ. Chatbot hiện chạy pipeline PHP deterministic-first
+> (`latency.pipeline=deterministic_hybrid_pipeline`); chất lượng hồi quy được
+> giữ bằng PHPUnit suite mới (`tests/Unit`, `tests/Integration`) và corpus
+> offline `php scripts/run_findmine_offline_eval.php`. Chạy lại các lệnh eval
+> trong mục Kiểm thử để tái tạo số liệu trên pipeline hiện tại.
+
 Environment: Docker Compose local qua Nginx port 80; LLM/evaluator `oc/mimo-v2.5-free`; embedding evaluator `bkai-foundation-models/vietnamese-bi-encoder` qua `rag-ml`.
 
 ### Agent Evaluation 50 câu
@@ -312,8 +319,7 @@ App và hai worker dùng cùng `${APP_IMAGE:-shop_quan_ao-app:latest}`, vì vậ
 
 | File | Nội dung |
 | --- | --- |
-| `reports/eval/stylitics_agent_eval_50_live_after_fix_20260830.json` | Live 50-case Stylitics evaluation và stage latency |
-| `reports/eval/stylitics_ragas_10_live_after_fix_20260830.json` | RAGAS live (10/30 sampled cases) |
+| `reports/eval/` (tạo lại bằng lệnh eval, gitignored) | Stylitics agent evaluation và RAGAS report mới nhất |
 | `docs/findmine-agent-evaluation-results.md` | Bảng PASS/latency của 50 cases |
 | `docs/findmine-ragas-results.md` | RAGAS metrics và Langfuse parameters |
 | `docs/findmine-use-case-1.md` | UC1 contract |

@@ -17,6 +17,8 @@ require_once __DIR__ . '/contracts/ChatbotMemoryStore.php';
 require_once __DIR__ . '/contracts/ChatbotConversationStore.php';
 require_once __DIR__ . '/ProductAttributeNormalizer.php';
 require_once __DIR__ . '/pipeline/CapabilityRegistry.php';
+require_once __DIR__ . '/pipeline/ChatbotToolManifest.php';
+require_once __DIR__ . '/pipeline/TurnTierGate.php';
 require_once __DIR__ . '/pipeline/IntentResolver.php';
 require_once __DIR__ . '/pipeline/PlanValidator.php';
 require_once __DIR__ . '/pipeline/ToolPlanner.php';
@@ -68,15 +70,32 @@ class ChatbotService {
             ? ($llm instanceof StreamingLLMProvider ? $llm : null)
             : LLMFactory::streamingFromEnv();
         $this->toolGateway = $toolGateway ?? $this->createToolGateway($pdo, $userId);
+        // CHATBOT_FORCE_L0=1 pins the turn to the deterministic tier: no LLM
+        // enrichment and template-only answers (no native token streaming).
+        if (!$llmWasInjected && self::envFlag('CHATBOT_FORCE_L0')) {
+            $this->llm = null;
+            $this->streamingLlm = null;
+        }
         $this->memory = $memory ?? new ChatbotMemory($pdo, $sessionId, $userId);
         $this->conversationStore = $conversationStore ?? new PdoChatbotConversationStore($pdo, $sessionId);
         $this->responseGenerator = $responseGenerator ?? new ResponseGenerator();
         $this->memory->ensureSchema();
     }
 
+    /**
+     * Read a boolean env flag. PHP-FPM may run with clear_env, so fall back
+     * to $_ENV/$_SERVER like LLMFactory does.
+     */
+    private static function envFlag(string $key): bool {
+        $value = getenv($key);
+        if ($value === false || $value === '') {
+            $value = $_ENV[$key] ?? $_SERVER[$key] ?? '';
+        }
+        return $value === '1' || strtolower((string)$value) === 'true';
+    }
+
     private function createToolGateway(PDO $pdo, ?int $userId): ChatbotToolGateway
-    {
-        $isTest = strtolower((string) (getenv('APP_ENV') ?: '')) === 'test';
+    {        $isTest = strtolower((string) (getenv('APP_ENV') ?: '')) === 'test';
         $transport = strtolower((string) (getenv('CHATBOT_TOOL_TRANSPORT') ?: ($isTest ? 'internal' : 'mcp')));
         if ($transport === 'internal') {
             return new ToolRegistry($pdo, $userId);
@@ -137,16 +156,24 @@ class ChatbotService {
         $result = $this->runPipeline($message, $memoryContext, $memoryLoadMs);
         $result = $this->attachProactiveStyling($result);
 
-        if ($this->streamingLlm === null) {
+        // Template-only mode (CHATBOT_TEMPLATE_RESPONSE=1) takes precedence:
+        // emit the grounded draft as a single delta instead of paying a
+        // native token-stream round trip (L0 fast path).
+        if (self::envFlag('CHATBOT_TEMPLATE_RESPONSE')) {
+            $onDelta((string)$result['message']);
+            $streamed = (string)$result['message'];
+            $result['latency']['llm_stream_ms'] = 0;
+            $result['latency']['streaming'] = 'template';
+        } elseif ($this->streamingLlm === null) {
             throw new RuntimeException('Configured LLM provider does not support native token streaming');
+        } else {
+            $streamStart = microtime(true);
+            $streamed = (new StreamingResponseGenerator())->stream($this->streamingLlm, $message, $result, $onDelta);
+            $result['message'] = $streamed;
+            $result['answer'] = $streamed;
+            $result['latency']['llm_stream_ms'] = (int)((microtime(true) - $streamStart) * 1000);
+            $result['latency']['streaming'] = true;
         }
-
-        $streamStart = microtime(true);
-        $streamed = (new StreamingResponseGenerator())->stream($this->streamingLlm, $message, $result, $onDelta);
-        $result['message'] = $streamed;
-        $result['answer'] = $streamed;
-        $result['latency']['llm_stream_ms'] = (int)((microtime(true) - $streamStart) * 1000);
-        $result['latency']['streaming'] = true;
 
         $this->conversationStore->saveMessages(
             $message,
@@ -216,6 +243,8 @@ class ChatbotService {
         $conflictResolution = $resolution['conflict_resolution'];
         $enrichment = $resolution['enrichment'];
         $intent = $resolution['intent'];
+        $spans['turn_tier'] = TurnTierGate::tier($partial);
+        $spans['llm_enrichment_used'] = (bool)($enrichment['used'] ?? false);
 
         if (!empty($conflictResolution['unresolved_conflicts'])) {
             return $this->clarificationResponse(

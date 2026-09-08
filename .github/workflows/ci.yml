@@ -378,17 +378,9 @@ jobs:
             echo "RERANKER_URL=http://reranker:8000" >> .env
             echo "RAG_ML_WARMUP_ON_START=${{ secrets.RAG_ML_WARMUP_ON_START || 'true' }}" >> .env
             echo "CHATBOT_TOOL_TRANSPORT=mcp" >> .env
-            echo "CHATBOT_ORCHESTRATOR=langgraph" >> .env
-            echo "CHATBOT_ORCHESTRATOR_URL=http://agent-orchestrator:8092" >> .env
             echo "MCP_SERVICE_TOKEN=${{ secrets.MCP_SERVICE_TOKEN }}" >> .env
-            echo "AGENT_SERVICE_TOKEN=${{ secrets.AGENT_SERVICE_TOKEN || secrets.MCP_SERVICE_TOKEN }}" >> .env
-            echo "AGENT_REQUEST_TIMEOUT=${{ secrets.AGENT_REQUEST_TIMEOUT || '90' }}" >> .env
             echo "MCP_REQUEST_TIMEOUT_MS=80000" >> .env
             echo "MCP_REQUEST_TIMEOUT=85" >> .env
-            # Keep the fallback aligned with the historical compose default so
-            # deployments do not silently rotate an existing PostgreSQL volume.
-            echo "LANGGRAPH_POSTGRES_PASSWORD=${{ secrets.LANGGRAPH_POSTGRES_PASSWORD || 'local-dev-langgraph' }}" >> .env
-            echo "LANGGRAPH_POSTGRES_DATA_DIR=${{ secrets.LANGGRAPH_POSTGRES_DATA_DIR || './.docker-data/agent-postgres' }}" >> .env
             echo "REDIS_TIMEOUT=0.15" >> .env
             echo "CLIENT_CACHE_TTL=60" >> .env
             echo "CLIENT_CACHE_STALE_TTL=30" >> .env
@@ -520,24 +512,6 @@ jobs:
             echo "Checking rag-ml..."
             docker compose exec -T rag-ml python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5).read()" && echo " ✅" || echo " ⚠️ rag-ml health check failed"
 
-            echo "Checking LangGraph Postgres..."
-            docker compose exec -T agent-postgres pg_isready -U langgraph -d langgraph
-            echo " ✅"
-
-            echo "Checking agent orchestrator..."
-            for i in $(seq 1 30); do
-              if docker compose exec -T agent-orchestrator node -e "fetch('http://127.0.0.1:8092/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
-                echo " ✅"
-                break
-              fi
-              if [ "$i" -eq 30 ]; then
-                echo "❌ agent-orchestrator health check failed"
-                docker compose logs agent-orchestrator --tail=60 2>/dev/null || true
-                exit 1
-              fi
-              sleep 2
-            done
-
             echo "Checking chat stream..."
             for i in $(seq 1 30); do
               if docker compose exec -T chat-stream node -e "fetch('http://127.0.0.1:8090/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
@@ -552,15 +526,15 @@ jobs:
               sleep 2
             done
 
-            echo "Checking chatbot LangGraph route..."
+            echo "Checking chatbot PHP pipeline route..."
             for i in $(seq 1 15); do
-              if docker compose exec -T chat-stream node -e "fetch('http://app:8080/api/chatbot',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:'áo polo màu đỏ'})}).then(async r=>{const b=await r.json(); if(!r.ok || b.latency?.pipeline!=='langgraph' || b.primary_intent!=='product_search') process.exit(1)}).catch(() => process.exit(1))"; then
+              if docker compose exec -T chat-stream node -e "fetch('http://app:8080/api/chatbot',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:'áo polo màu đỏ'})}).then(async r=>{const b=await r.json(); if(!r.ok || b.latency?.pipeline!=='deterministic_hybrid_pipeline' || b.primary_intent!=='product_search') process.exit(1)}).catch(() => process.exit(1))"; then
                 echo " ✅"
                 break
               fi
               if [ "$i" -eq 15 ]; then
-                echo "❌ chatbot LangGraph route check failed"
-                docker compose logs app agent-orchestrator --tail=60 2>/dev/null || true
+                echo "❌ chatbot PHP pipeline route check failed"
+                docker compose logs app --tail=60 2>/dev/null || true
                 exit 1
               fi
               sleep 2

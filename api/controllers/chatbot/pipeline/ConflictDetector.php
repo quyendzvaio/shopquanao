@@ -12,26 +12,45 @@ class ConflictDetector {
                 continue;
             }
 
-            $distinct = [];
-            foreach ($values as $value) {
-                if (!is_array($value)) continue;
-                $distinct[(string)($value['value'] ?? '')] = true;
-            }
-            if (count($distinct) < 2) {
-                continue;
-            }
+            // SRS FR-011: only same-scope candidates can conflict. A product
+            // budget and a shipping threshold are different facts even when
+            // both parse as max_price.
+            foreach ($this->groupByScope($values) as $scope => $scoped) {
+                if (count($scoped) < 2) {
+                    continue;
+                }
+                $distinct = [];
+                foreach ($scoped as $value) {
+                    if (!is_array($value)) continue;
+                    $distinct[(string)($value['value'] ?? '')] = true;
+                }
+                if (count($distinct) < 2) {
+                    continue;
+                }
 
-            $conflicts[] = [
-                'field' => (string)$field,
-                'values' => array_values(array_map(fn($value) => [
-                    'value' => $value['value'] ?? null,
-                    'position' => (int)($value['position'] ?? 0),
-                    'text' => (string)($value['text'] ?? ''),
-                ], $values)),
-            ];
+                $conflicts[] = [
+                    'field' => (string)$field,
+                    'scope' => $scope,
+                    'values' => array_values(array_map(fn($value) => [
+                        'value' => $value['value'] ?? null,
+                        'position' => (int)($value['position'] ?? 0),
+                        'text' => (string)($value['text'] ?? ''),
+                    ], $scoped)),
+                ];
+            }
         }
 
         return $this->dedupe($conflicts);
+    }
+
+    /** @return array<string, array> */
+    private function groupByScope(array $values): array {
+        $groups = [];
+        foreach ($values as $value) {
+            $scope = is_array($value) ? (string)($value['scope'] ?? 'product') : 'product';
+            $groups[$scope][] = $value;
+        }
+        return $groups;
     }
 
     private function dedupe(array $conflicts): array {

@@ -4,12 +4,13 @@
  * POST /api/chatbot
  * Body: { "message": "string", "session_token": "string" }
  *
- * Architecture: PHP authenticates and forwards the turn to the LangGraph agent
- * orchestrator. The legacy PHP pipeline remains only for image-level rollback.
+ * Architecture: deterministic-first PHP pipeline (ChatbotService). PHP parses
+ * intent, plans tools and verifies evidence; the optional LLM only enriches
+ * unresolved descriptive entities. Turn tier (L0/L1) is reported in latency.
  */
 
 require_once __DIR__ . '/../../config.php';
-require_once __DIR__ . '/LangGraphChatbotService.php';
+require_once __DIR__ . '/ChatbotService.php';
 require_once __DIR__ . '/ChatbotSessionContext.php';
 
 /** @var PDO $pdo */
@@ -28,9 +29,9 @@ if (!$message) {
 
 $context = ChatbotSessionContext::resolve($pdo, $sessionToken, getBearerToken());
 
-// The LangGraph service persists messages and tool diagnostics while PHP keeps
+// The PHP service persists messages and tool diagnostics while keeping
 // the HTTP/auth/session boundary stable for the existing frontend.
-$chatbot = new LangGraphChatbotService($pdo, $context->sessionId, $context->userId);
+$chatbot = new ChatbotService($pdo, $context->sessionId, $context->userId);
 $result = $chatbot->respond($message);
 
 $responseText = $result['message'];

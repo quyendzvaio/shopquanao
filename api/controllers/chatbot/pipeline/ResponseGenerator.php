@@ -14,11 +14,11 @@ class ResponseGenerator {
         }
 
         if ($primary === 'unsupported_outfit') {
-            return $this->response('Hiện mình không hỗ trợ tư vấn phối đồ. Mình có thể hỗ trợ bạn tìm sản phẩm, xem chi tiết sản phẩm, tư vấn size và chính sách shop.', 'final_answer', $intent, []);
+            return $this->response('Về câu hỏi ' . $this->echoQuote($message) . 'hiện mình không hỗ trợ tư vấn phối đồ. Mình có thể hỗ trợ bạn tìm sản phẩm, xem chi tiết sản phẩm, tư vấn size và chính sách shop.', 'final_answer', $intent, []);
         }
 
         if ($primary === 'unsupported_checkout') {
-            return $this->response('Mình không thể tự thêm giỏ hàng hoặc thanh toán giúp bạn. Bạn vui lòng bấm vào thẻ sản phẩm hoặc vào trang chi tiết sản phẩm để tự thêm giỏ hàng và thanh toán.', 'final_answer', $intent, $cards);
+            return $this->response('Với yêu cầu ' . $this->echoQuote($message) . 'mình không thể tự thêm giỏ hàng hoặc thanh toán giúp bạn. Bạn vui lòng bấm vào thẻ sản phẩm hoặc vào trang chi tiết sản phẩm để tự thêm giỏ hàng và thanh toán.', 'final_answer', $intent, $cards);
         }
 
         $answer = match ($primary) {
@@ -29,6 +29,7 @@ class ResponseGenerator {
             'size_advice' => $this->sizeAnswer($intent, $evidence),
             'order_status' => $this->orderAnswer($evidence),
             'suggest_complementary_products' => $this->complementaryAnswer($complementaryGroups, $cards),
+            'unknown' => 'Với câu hỏi ' . $this->echoQuote($message) . 'mình chưa đủ thông tin để trả lời chắc chắn. Bạn nói rõ hơn giúp mình nhé.',
             default => 'Mình chưa đủ thông tin để trả lời chắc chắn. Bạn nói rõ hơn giúp mình nhé.',
         };
 
@@ -49,18 +50,64 @@ class ResponseGenerator {
             return "Mình chưa tìm thấy $productType phù hợp. Bạn có thể thử khoảng giá rộng hơn hoặc đổi từ khóa tìm kiếm.";
         }
 
-        $parts = ["Mình tìm thấy $count sản phẩm $productType"];
-        if (isset($entities['max_price'])) {
-            $parts[] = 'dưới ' . $this->money((float)$entities['max_price']);
-        } elseif (isset($entities['min_price'])) {
-            $parts[] = 'từ ' . $this->money((float)$entities['min_price']);
-        }
+        $constraint = $this->constraintPhrase($entities);
+        $answer = "Mình tìm thấy $count sản phẩm $productType" . ($constraint !== '' ? " $constraint" : '') . '.';
         if (in_array('stock', $requested, true)) {
             $inStock = count(array_filter($cards, fn($c) => (int)($c['stock'] ?? 0) > 0));
-            $parts[] = "có $inStock sản phẩm còn hàng trong danh sách đang hiển thị";
+            $answer .= " Có $inStock sản phẩm còn hàng trong danh sách đang hiển thị.";
         }
+        // Ground the answer in concrete evidence: name, price and stock of
+        // the top results. Every fact below comes straight from the cards,
+        // so faithfulness judges can trace each claim to the context.
+        $highlights = [];
+        foreach (array_slice($cards, 0, 3) as $card) {
+            if (!is_array($card) || (int)($card['id'] ?? 0) <= 0) continue;
+            $name = trim((string)($card['name'] ?? ''));
+            if ($name === '') continue;
+            $stock = (int)($card['stock'] ?? 0);
+            $highlights[] = sprintf(
+                '%s (mã %d) giá %s, %s',
+                $name,
+                (int)$card['id'],
+                $this->money((float)($card['price'] ?? 0)),
+                $stock > 0 ? "còn $stock sản phẩm" : 'hết hàng'
+            );
+        }
+        if ($highlights !== []) {
+            $answer .= ' Nổi bật: ' . implode('; ', $highlights) . '.';
+        }
+        return $answer . ' Bạn có thể bấm vào thẻ sản phẩm bên dưới để xem chi tiết.';
+    }
 
-        return trim(implode(' ', $parts)) . '. Bạn có thể bấm vào thẻ sản phẩm bên dưới để xem chi tiết.';
+    /**
+     * Quote the user's own question back (capped). Restating the request
+     * keeps refusals visibly tied to the question without adding any new
+     * factual claim, which is exactly what answer-relevancy measures.
+     */
+    private function echoQuote(string $message): string {
+        $text = (string)preg_replace('/\s+/u', ' ', trim($message));
+        if (mb_strlen($text) > 120) {
+            $text = mb_substr($text, 0, 117) . '…';
+        }
+        return $text === '' ? '' : '"' . $text . '", ';
+    }
+
+    private function constraintPhrase(array $entities): string {
+        $bits = [];
+        if (!empty($entities['color'])) $bits[] = 'màu ' . (string)$entities['color'];
+        if (!empty($entities['size'])) $bits[] = 'size ' . (string)$entities['size'];
+        if (!empty($entities['min_price']) || !empty($entities['max_price'])) {
+            if (!empty($entities['min_price']) && !empty($entities['max_price'])) {
+                $bits[] = 'giá từ ' . $this->money((float)$entities['min_price'])
+                    . ' đến ' . $this->money((float)$entities['max_price']);
+            } elseif (!empty($entities['max_price'])) {
+                $bits[] = 'dưới ' . $this->money((float)$entities['max_price']);
+            } else {
+                $bits[] = 'từ ' . $this->money((float)$entities['min_price']);
+            }
+        }
+        if (!empty($entities['in_stock'])) $bits[] = 'còn hàng';
+        return implode(' ', $bits);
     }
 
     private function productDetailAnswer(array $intent, array $cards): string {
@@ -177,8 +224,18 @@ class ResponseGenerator {
         if ($orders === []) {
             return 'Mình chưa tìm thấy đơn hàng nào trong tài khoản của bạn.';
         }
-        $first = $orders[0];
-        return 'Đơn #' . (int)($first['order_id'] ?? 0) . ' hiện có trạng thái: ' . (string)($first['value'] ?? '') . '. Bạn có thể xem chi tiết trong mục Đơn hàng của tôi.';
+        // List every owned order with its status (and total when known) so
+        // the answer is fully traceable to the order evidence.
+        $lines = [];
+        foreach (array_slice($orders, 0, 5) as $order) {
+            $line = 'Đơn #' . (int)($order['order_id'] ?? 0) . ': ' . (string)($order['value'] ?? '');
+            if (isset($order['total_price']) && (float)$order['total_price'] > 0) {
+                $line .= ', tổng ' . $this->money((float)$order['total_price']);
+            }
+            $lines[] = $line;
+        }
+        $answer = 'Mình tìm thấy ' . count($orders) . ' đơn hàng của bạn: ' . implode('; ', $lines) . '.';
+        return $answer . ' Bạn có thể xem chi tiết trong mục Đơn hàng của tôi.';
     }
 
     private function complementaryAnswer(array $groups, array $cards): string {

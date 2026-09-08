@@ -73,7 +73,7 @@ class PartialParseResult {
         }
     }
 
-    public function addFieldCandidate(string $field, mixed $value, int $position, string $text): void {
+    public function addFieldCandidate(string $field, mixed $value, int $position, string $text, ?string $scope = null): void {
         if (!isset($this->data['parser_metadata']['field_candidates'][$field])) {
             $this->data['parser_metadata']['field_candidates'][$field] = [];
         }
@@ -81,6 +81,7 @@ class PartialParseResult {
             'value' => $value,
             'position' => $position,
             'text' => $text,
+            'scope' => $scope ?? 'product',
         ];
     }
 

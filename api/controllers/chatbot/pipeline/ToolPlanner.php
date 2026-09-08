@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/ChatbotToolManifest.php';
+
 class ToolPlanner {
     private array $capabilities;
 
@@ -7,77 +9,91 @@ class ToolPlanner {
         $this->capabilities = $capabilities;
     }
 
+    /**
+     * Tool selection is driven by the manifest (config/chatbot_tools.php):
+     * the allowed tool set and required slots come from one source of truth,
+     * while per-tool argument builders stay here next to the tool contracts.
+     */
     public function plan(array $intent): array {
         $primary = (string)($intent['primary_intent'] ?? 'unknown');
         $entities = is_array($intent['entities'] ?? null) ? $intent['entities'] : [];
+        $allowed = ChatbotToolManifest::toolsFor($primary);
+
+        if ($allowed === []) {
+            return ['batches' => [], 'response_type' => ChatbotToolManifest::emptyResponse($primary)];
+        }
+
+        foreach (ChatbotToolManifest::requiredSlots($primary) as $slot) {
+            if (empty($entities[$slot])) {
+                return ['batches' => [], 'response_type' => ChatbotToolManifest::emptyResponse($primary)];
+            }
+        }
+
         $calls = [];
+        foreach ($allowed as $tool) {
+            $built = $this->buildCall($tool, $primary, $intent, $entities);
+            if ($built !== null) $calls[] = $built;
+        }
 
-        switch ($primary) {
-            case 'suggest_complementary_products':
-                if (empty($entities['product_id'])) {
-                    return ['batches' => [], 'response_type' => 'clarification'];
-                }
-                $args = ['product_id' => (int) $entities['product_id']];
-                if (!empty($entities['variant_id'])) $args['variant_id'] = (int) $entities['variant_id'];
-                $calls[] = ['tool' => 'suggest_complementary_products', 'args' => $args, 'id' => 'complementary_products'];
-                break;
-            case 'unsupported_outfit':
-            case 'unsupported_checkout':
-            case 'unknown':
-                return ['batches' => [], 'response_type' => $primary === 'unknown' ? 'fallback' : 'final_answer'];
+        // size_advice resolves measurements into missing_slots instead of
+        // manifest required slots; never call the tool while slots are open.
+        if ($primary === 'size_advice' && !empty($intent['missing_slots'])) {
+            return ['batches' => [], 'response_type' => 'clarification'];
+        }
 
-            case 'size_advice':
-                if (!empty($intent['missing_slots'])) {
-                    return ['batches' => [], 'response_type' => 'clarification'];
-                }
-                $args = [
-                    'height' => (int)$entities['height'],
-                    'weight' => (int)$entities['weight'],
-                ];
-                if (!empty($entities['category_id'])) $args['category_id'] = (int)$entities['category_id'];
-                $calls[] = ['tool' => 'suggest_size', 'args' => $args, 'id' => 'size'];
-                break;
-
-            case 'product_detail':
-                if (empty($entities['product_id'])) return ['batches' => [], 'response_type' => 'fallback'];
-                $calls[] = ['tool' => 'get_product_detail', 'args' => ['product_id' => (int)$entities['product_id']], 'id' => 'product_detail'];
-                break;
-
-            case 'product_search':
-                if (empty($entities['product_type'])) return ['batches' => [], 'response_type' => 'fallback'];
-                $args = $this->searchArgs($entities);
-                $calls[] = ['tool' => 'search_products', 'args' => $args, 'id' => 'product_search'];
-                break;
-
-            case 'return_exchange':
-            case 'shipping':
-            case 'policy':
-                $calls[] = ['tool' => 'retrieve_knowledge', 'args' => $this->knowledgeArgs($intent), 'id' => 'knowledge'];
-                break;
-
-            case 'mixed_product_policy':
-                if (!empty($entities['product_id'])) {
-                    $calls[] = ['tool' => 'get_product_detail', 'args' => ['product_id' => (int)$entities['product_id']], 'id' => 'product_detail'];
-                } elseif (!empty($entities['product_type'])) {
-                    $args = $this->searchArgs($entities);
-                    $calls[] = ['tool' => 'search_products', 'args' => $args, 'id' => 'product_search'];
-                }
-                $calls[] = ['tool' => 'retrieve_knowledge', 'args' => $this->knowledgeArgs($intent), 'id' => 'knowledge'];
-                break;
-
-            case 'order_status':
-                $args = [];
-                if (!empty($entities['order_id'])) $args['order_id'] = (int)$entities['order_id'];
-                $calls[] = ['tool' => 'get_order_status', 'args' => $args, 'id' => 'order'];
-                break;
+        if ($calls === []) {
+            return ['batches' => [], 'response_type' => ChatbotToolManifest::emptyResponse($primary)];
         }
 
         return [
-            'batches' => empty($calls) ? [] : [$calls],
+            'batches' => [$calls],
             'response_type' => 'final_answer',
             'selected_capabilities' => array_values(array_unique(array_map(fn($call) => (string)$call['tool'], $calls))),
             'capability_definitions_version' => $this->capabilities === [] ? 'legacy' : 'capability_registry_v1',
         ];
+    }
+
+    /** @return array{tool:string,args:array,id:string}|null */
+    private function buildCall(string $tool, string $primary, array $intent, array $entities): ?array {
+        switch ($tool) {
+            case 'suggest_complementary_products':
+                if ($primary !== 'suggest_complementary_products') return null;
+                $args = ['product_id' => (int)$entities['product_id']];
+                if (!empty($entities['variant_id'])) $args['variant_id'] = (int)$entities['variant_id'];
+                return ['tool' => $tool, 'args' => $args, 'id' => 'complementary_products'];
+
+            case 'get_product_detail':
+                if (empty($entities['product_id'])) return null;
+                return ['tool' => $tool, 'args' => ['product_id' => (int)$entities['product_id']], 'id' => 'product_detail'];
+
+            case 'search_products':
+                if ($primary === 'suggest_complementary_products') return null;
+                if (empty($entities['product_type']) && $primary !== 'mixed_product_policy') return null;
+                if ($primary === 'mixed_product_policy' && (!empty($entities['product_id']) || empty($entities['product_type']))) return null;
+                return ['tool' => $tool, 'args' => $this->searchArgs($entities), 'id' => 'product_search'];
+
+            case 'retrieve_knowledge':
+                if (!in_array($primary, ['return_exchange', 'shipping', 'policy', 'mixed_product_policy'], true)) return null;
+                return ['tool' => $tool, 'args' => $this->knowledgeArgs($intent), 'id' => 'knowledge'];
+
+            case 'suggest_size':
+                if ($primary !== 'size_advice') return null;
+                $args = [
+                    'height' => (int)($entities['height'] ?? 0),
+                    'weight' => (int)($entities['weight'] ?? 0),
+                ];
+                if (!empty($entities['category_id'])) $args['category_id'] = (int)$entities['category_id'];
+                return ['tool' => $tool, 'args' => $args, 'id' => 'size'];
+
+            case 'get_order_status':
+                if ($primary !== 'order_status') return null;
+                $args = [];
+                if (!empty($entities['order_id'])) $args['order_id'] = (int)$entities['order_id'];
+                return ['tool' => $tool, 'args' => $args, 'id' => 'order'];
+
+            default:
+                return null;
+        }
     }
 
     private function knowledgeArgs(array $intent): array {

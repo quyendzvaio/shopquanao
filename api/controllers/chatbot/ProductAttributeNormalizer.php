@@ -95,7 +95,9 @@ class ProductAttributeNormalizer {
             return null;
         }
 
-        if ($value === 'tim' || preg_match('/\btím\b|\bpurple\b|\b(?:màu|mau)\s+tim\b/ui', $raw)) {
+        // SRS FR-003: bare "tim" is not purple ("cổ tim" neckline, or unaccented
+        // "tìm" = to search). Purple requires tím/purple or a màu/mau prefix.
+        if (preg_match('/\btím\b|\bpurple\b|\b(?:màu|mau)\s+tim\b/ui', $raw)) {
             return 'tím';
         }
 
@@ -154,12 +156,16 @@ class ProductAttributeNormalizer {
         foreach (self::CANONICAL_COLOR_ALIASES as $canonical => $aliases) {
             foreach ($aliases as $alias) {
                 if ($canonical === 'red' && self::normalizeText($alias) === 'do') continue;
+                // Guard (SRS FR-003): bare "tim" is a neckline ("cổ tim"), not a
+                // color. Only accept purple when the guarded color pattern hits.
+                if ($canonical === 'purple' && self::normalizeText($alias) === 'tim') continue;
                 if (self::containsToken($text, self::normalizeText($alias))) {
                     $colors[] = $canonical;
                     break;
                 }
             }
         }
+        if (preg_match('/\btím\b|\bpurple\b|\b(?:màu|mau)\s+tim\b/ui', $originalText)) $colors[] = 'purple';
         if (preg_match('/\bđỏ\b|\bred\b/ui', $originalText)) $colors[] = 'red';
         if (in_array('multi', $colors, true)) return ['multi'];
         if (in_array('navy', $colors, true) || in_array('green', $colors, true)) {

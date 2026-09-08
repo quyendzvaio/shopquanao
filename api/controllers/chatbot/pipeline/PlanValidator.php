@@ -69,6 +69,7 @@ class PlanValidator {
         unset($batch, $call);
 
         $tools = $this->selectedTools($sanitized);
+        $errors = array_merge($errors, $this->validateAgainstManifest($primary, $tools));
         $errors = array_merge($errors, $this->validateUseCase($primary, $entities, $requested, $query, $tools, $sanitized));
 
         return [
@@ -122,6 +123,24 @@ class PlanValidator {
         }
 
         return $args;
+    }
+
+    /**
+     * Manifest cross-check: no planned tool may fall outside the manifest
+     * allow-list for the primary intent. Terminal intents must plan nothing.
+     */
+    private function validateAgainstManifest(string $primary, array $tools): array {
+        if (!class_exists('ChatbotToolManifest')) {
+            require_once __DIR__ . '/ChatbotToolManifest.php';
+        }
+        $allowed = ChatbotToolManifest::toolsFor($primary);
+        $errors = [];
+        foreach ($tools as $tool) {
+            if (!in_array($tool, $allowed, true)) {
+                $errors[] = "manifest_tool_not_allowed:$primary.$tool";
+            }
+        }
+        return $errors;
     }
 
     private function validateUseCase(string $primary, array $entities, array $requested, string $query, array $tools, array $plan): array {

@@ -385,6 +385,11 @@ def run_cases(
             products = response.get("products") or []
             sources = response.get("knowledge_sources") or []
             rag_documents = call_knowledge(base_url, turn["question"], infer_category(turn), timeout) if turn.get("expect_knowledge") else []
+            if turn.get("expect_knowledge") and not rag_documents:
+                # The chatbot's own hybrid retrieval may succeed where the
+                # eval's categorized probe finds nothing; retry unfiltered so
+                # faithfulness is scored against real evidence, not emptiness.
+                rag_documents = call_knowledge(base_url, turn["question"], None, timeout)
             contexts = build_evaluation_contexts(rag_documents, products, turn, answer, bearer_token)
             turn = dict(turn)
             turn["actual_response_type"] = response.get("response_type")
@@ -521,6 +526,7 @@ def run_ragas(rows: list[EvalRow]) -> dict[str, Any] | None:
         from ragas.llms import LangchainLLMWrapper
         from ragas.llms.prompt import Prompt
         from ragas.metrics import answer_relevancy, context_precision, context_recall, faithfulness
+        from ragas.run_config import RunConfig
         from langchain_openai import ChatOpenAI
     except Exception as exc:
         return {"skipped": f"RAGAS unavailable: {type(exc).__name__}: {exc}"}
@@ -612,14 +618,29 @@ def run_ragas(rows: list[EvalRow]) -> dict[str, Any] | None:
             if not answer_rows:
                 return result
             if "embeddings" in kwargs:
-                answer_result = evaluate(Dataset.from_list(answer_rows), metrics=[answer_relevancy], **kwargs)
+                run_config = RunConfig(
+                    timeout=int(os.getenv("RAGAS_TIMEOUT", "180")),
+                    max_retries=int(os.getenv("RAGAS_MAX_RETRIES", "8")),
+                    max_wait=int(os.getenv("RAGAS_MAX_WAIT", "300")),
+                    max_workers=int(os.getenv("RAGAS_MAX_WORKERS", "1")),
+                    log_tenacity=True,
+                )
+                answer_result = evaluate(Dataset.from_list(answer_rows), metrics=[answer_relevancy], run_config=run_config, **kwargs)
                 answer_values = dict(answer_result)
                 result.update({key: value for key, value in answer_values.items() if not key.startswith("_" )})
                 result["valid_metrics"]["answer_relevancy"] = len(answer_rows)
             if grounded_rows:
+                run_config = RunConfig(
+                    timeout=int(os.getenv("RAGAS_TIMEOUT", "180")),
+                    max_retries=int(os.getenv("RAGAS_MAX_RETRIES", "8")),
+                    max_wait=int(os.getenv("RAGAS_MAX_WAIT", "300")),
+                    max_workers=int(os.getenv("RAGAS_MAX_WORKERS", "1")),
+                    log_tenacity=True,
+                )
                 grounded_result = evaluate(
                     Dataset.from_list(grounded_rows),
                     metrics=[faithfulness, context_precision, context_recall],
+                    run_config=run_config,
                     **kwargs,
                 )
                 grounded_values = dict(grounded_result)

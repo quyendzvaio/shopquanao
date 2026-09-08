@@ -120,7 +120,13 @@ class DeterministicIntentParser {
     }
 
     private function parseProductType(string $lower, PartialParseResult $result, array &$matchedPatterns): void {
+        // "liên quan" (unrelated) contains standalone "quan" — it must not
+        // resolve to trousers. Specific multi-word patterns still apply.
+        $hasLienQuan = (bool)preg_match('/liên\s+quan|lien\s+quan/ui', $lower);
         foreach (self::PRODUCT_TYPES as $pattern => $metadata) {
+            if ($hasLienQuan && str_contains($pattern, '(?<![a-z])quan(?![a-z])')) {
+                continue;
+            }
             if (preg_match($pattern, $lower)) {
                 [$type, $categoryId, $category] = $metadata;
                 $result->addResolvedField('product_type', $type);
@@ -150,15 +156,23 @@ class DeterministicIntentParser {
         $firstByField = [];
         foreach ($candidates as $candidate) {
             $field = $candidate['field'];
-            $result->addFieldCandidate($field, $candidate['value'], $candidate['position'], $candidate['text']);
-            if (!isset($firstByField[$field])) {
-                $firstByField[$field] = $candidate;
+            $result->addFieldCandidate($field, $candidate['value'], $candidate['position'], $candidate['text'], $candidate['scope'] ?? 'product');
+            // Product-scope prices win for execution fields; shipping-scope
+            // prices (e.g. free-shipping thresholds) never become the budget.
+            $slot = ($candidate['scope'] ?? 'product') === 'product' ? $field : $field . ':shipping';
+            if (!isset($firstByField[$slot])) {
+                $firstByField[$slot] = $candidate;
             }
         }
 
-        foreach ($firstByField as $field => $candidate) {
-            $result->addResolvedField($field, $candidate['value']);
-            $result->addMatchedRule($field);
+        foreach ($firstByField as $slot => $candidate) {
+            // Shipping-scope prices are evidence for the policy turn, not an
+            // execution constraint: never resolve them as product budget.
+            if (str_ends_with($slot, ':shipping')) {
+                continue;
+            }
+            $result->addResolvedField($slot, $candidate['value']);
+            $result->addMatchedRule($slot);
             $matchedPatterns[] = '/' . preg_quote($candidate['text'], '/') . '/ui';
         }
 
@@ -176,8 +190,9 @@ class DeterministicIntentParser {
             foreach ($matches as $m) {
                 $unitA = $m[2][0] ?? '';
                 $unitB = $m[4][0] ?? $unitA;
-                $candidates[] = ['field' => 'min_price', 'value' => $this->parsePrice($m[1][0], $unitA), 'position' => $m[0][1], 'text' => $m[0][0]];
-                $candidates[] = ['field' => 'max_price', 'value' => $this->parsePrice($m[3][0], $unitB), 'position' => $m[0][1], 'text' => $m[0][0]];
+                $scope = $this->priceScope($lower, (int)$m[0][1], strlen((string)$m[0][0]));
+                $candidates[] = ['field' => 'min_price', 'value' => $this->parsePrice($m[1][0], $unitA), 'position' => $m[0][1], 'text' => $m[0][0], 'scope' => $scope];
+                $candidates[] = ['field' => 'max_price', 'value' => $this->parsePrice($m[3][0], $unitB), 'position' => $m[0][1], 'text' => $m[0][0], 'scope' => $scope];
             }
         }
 
@@ -189,6 +204,7 @@ class DeterministicIntentParser {
                     'value' => $this->parsePrice($m[1][0], $m[2][0] ?? ''),
                     'position' => $m[0][1],
                     'text' => $m[0][0],
+                    'scope' => $this->priceScope($lower, (int)$m[0][1], strlen((string)$m[0][0])),
                 ];
             }
         }
@@ -201,11 +217,27 @@ class DeterministicIntentParser {
                     'value' => $this->parsePrice($m[1][0], $m[2][0] ?? ''),
                     'position' => $m[0][1],
                     'text' => $m[0][0],
+                    'scope' => $this->priceScope($lower, (int)$m[0][1], strlen((string)$m[0][0])),
                 ];
             }
         }
 
         return $candidates;
+    }
+
+    /**
+     * SRS FR-011: a price mentioned next to shipping words (đơn, ship, phí…)
+     * belongs to the shipping scope, never to the product budget. Only the
+     * words immediately BEFORE the price count ("áo thun dưới 300k" vs
+     * "đơn dưới 500k"); a wide window would bleed scopes into each other.
+     */
+    private function priceScope(string $lower, int $position, int $length): string {
+        $start = max(0, $position - 25);
+        $window = mb_substr($lower, $start, ($position - $start) + $length);
+        if (preg_match('/đơn|don|ship|phí ship|phi ship|giao hàng|giao hang|vận chuyển|van chuyen|freeship/ui', $window)) {
+            return 'shipping';
+        }
+        return 'product';
     }
 
     private function parseSizeAndMeasurements(string $lower, string $text, PartialParseResult $result, array &$matchedPatterns): void {
@@ -385,6 +417,8 @@ class DeterministicIntentParser {
     }
 
     private function isProductIntent(string $text): bool {
+        // "liên quan" (unrelated) must not count as a trousers signal.
+        $text = (string)preg_replace('/liên\s+quan|lien\s+quan/ui', ' ', $text);
         return (bool)preg_match('/sản phẩm|san pham|áo|ao|quần|quan|váy|vay|đầm|dam|phụ kiện|phu kien|giày|giay|shoes?|sneakers?/ui', $text);
     }
 
