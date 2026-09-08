@@ -1,29 +1,27 @@
-# Stylitics RAGAS and Langfuse — 2026-08-30
+# Stylitics RAGAS and Langfuse — 2026-09-07 (deterministic pipeline)
 
 ## RAGAS
 
-The live run consumed successful recommendation answers from the balanced
-50-case agent evaluation. Thirty recommendation cases were available; ten were
-sampled with `--max-cases=10`. Contexts contain only real shop products returned
-by Product Search. Stylitics prose and provider metadata are excluded from grounding
-contexts.
+The current deterministic pipeline (50 cases) with grounded templates v2.
+Contexts contain only real shop products returned by Product Search and
+knowledge chunks; Stylitics prose and provider metadata are excluded.
 
 ```text
-RAGAS_MODE=STYLITICS_LIVE_REAL_SHOP_RETRIEVAL
-RAGAS_STATUS=PASS
-RAGAS_SUCCESSFUL_RECOMMENDATION_ANSWERS=30
-RAGAS_UNIQUE_CASES_AVAILABLE=30
-RAGAS_UNIQUE_EVALUATION_CASES=10
-RAGAS_EVALUATOR=oc/mimo-v2.5-free
+PIPELINE=deterministic_hybrid_pipeline
+RAGAS_STATUS=PASS (deterministic 50/50 PASS)
+RAGAS_CASES=50
+RAGAS_EVALUATOR=openrouter/minimax/minimax-m3:free
 RAGAS_EMBEDDING=bkai-foundation-models/vietnamese-bi-encoder
-RAGAS_FAITHFULNESS=0.3416666667
-RAGAS_ANSWER_RELEVANCY=0.1230097772
+RAGAS_FAITHFULNESS=0.845
+RAGAS_ANSWER_RELEVANCY=0.481
+RAGAS_CONTEXT_PRECISION=0.940
+RAGAS_CONTEXT_RECALL=0.872
 RAGAS_JUDGE_CONCURRENCY=1
 ```
 
-`context_precision` and `context_recall` are omitted because this corpus has no
-reference answers or relevance labels. The low answer relevancy score is a
-quality finding, not an execution failure.
+Historical LangGraph run (30 recos, 10 sampled, `mimo-v2.5-free`):
+faithfulness `0.342`, relevancy `0.123` — quality finding on template khô,
+đã cải thiện qua grounded templates v2.
 
 Reproduce with:
 
@@ -33,8 +31,8 @@ OPENAI_EVAL_MODEL="$LLM_MODEL" \
 LLM_TIMEOUT=120 \
 python3 eval/run_findmine_ragas.py \
   --max-cases=10 \
-  --agent-report reports/eval/stylitics_agent_eval_50_live_after_fix_20260830.json \
-  --output reports/eval/stylitics_ragas_10_live_after_fix_20260830.json
+  --agent-report reports/eval/stylitics_agent_eval_50.json \
+  --output reports/eval/stylitics_ragas_10.json
 ```
 
 ## Langfuse
@@ -50,8 +48,8 @@ LANGFUSE_PUBLIC_KEY=<project public key; never log or commit>
 LANGFUSE_SECRET_KEY=<project secret key; never log or commit>
 ```
 
-The live evidence is published by `eval/publish_stylitics_langfuse.py` to dataset
-`shopquanao-stylitics-live-20260830` (30 examples) and experiment
-`shopquanao-stylitics-live-eval-20260830` (30 runs). The source is explicitly marked
+The evidence is published by `eval/publish_stylitics_langfuse.py` to dataset
+`shopquanao-stylitics-live` / `shopquanao-php-pipeline-50-*` (30/50 examples)
+and matching experiments. The source is explicitly marked
 `post_run_evaluation_report`. Traces contain only sanitized metadata and timing;
 OAuth, provider payloads and secret keys are never persisted.

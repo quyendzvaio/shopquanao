@@ -1,10 +1,14 @@
-# Stylitics styling-reference agent evaluation — 2026-08-26
+# Stylitics styling-reference agent evaluation
 
-The reproducible default run is the balanced 50-case corpus selected from the
-70-case source corpus (`--cases=50`). It exercises 15 explicit UC1 cases, 15
-proactive UC2 cases, 10 suppression cases and 10 unrelated cases.
+> Historical: 2026-08-26 on LangGraph agent orchestrator (50/50 PASS).
+> Current: `deterministic_hybrid_pipeline` with the same balanced 50-case corpus
+> (15 UC1 explicit, 15 UC2 proactive, 10 suppression, 10 unrelated). The provider
+> boundary remains `stylitics_demo` reference path with parallel private Product Search;
+> live mode stays blocked until vendor endpoint/auth/schema is supplied.
+> Re-run `php scripts/run_stylitics_agent_eval.php --cases=50` on the current
+> pipeline to reproduce; the numbers below are the historical run.
 
-## Result
+## Result (historical — LangGraph)
 
 | Metric | Result |
 | --- | ---: |
@@ -17,12 +21,9 @@ proactive UC2 cases, 10 suppression cases and 10 unrelated cases.
 | Provider-ID leakage count | `0` |
 | RAGAS-eligible cases | `30` |
 
-The provider boundary is the configured `stylitics_demo` reference path. It then
-runs strict extraction, taxonomy normalization and parallel private Product
-Search. Stylitics live mode remains blocked until vendor endpoint, authentication
-and tool schema are supplied.
+Deterministic pipeline (2026-09-07): also **50/50 PASS** (validator: deterministic).
 
-## Latency (milliseconds)
+## Latency — historical (LangGraph, milliseconds)
 
 | Boundary / stage | Count | Avg | p50 | p95 | Max |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -37,8 +38,7 @@ and tool schema are supplied.
 | Parallel Product Search | 30 | 8683.00 | 8889 | 13126 | 13699 |
 | Total recommendation core | 30 | 9186.93 | 9620 | 13772 | 14341 |
 
-Product Search is the measured bottleneck; suppression and unrelated intents
-short-circuit before the styling provider.
+Deterministic pipeline (50 cases, grounded templates v2): avg **1415ms**, p95 **2543ms**.
 
 ## Reproduction
 
@@ -47,6 +47,7 @@ docker compose exec -T app php scripts/run_stylitics_agent_eval.php \
   --cases=50 --output=/tmp/findmine-agent-eval-50.json
 ```
 
-The full machine-readable report used for the final run is
+The full machine-readable report used for the historical run was
 `/tmp/findmine-agent-eval-50-final.json` (also copied to
-`reports/eval/findmine_agent_eval_50_final.json` when reports are retained).
+`reports/eval/findmine_agent_eval_50_final.json` when reports were retained).
+Current runs write to `reports/eval/stylitics_agent_eval_50.json`.

@@ -178,11 +178,11 @@ python3 -m venv .venv-eval
 pip install -r eval/requirements-eval.txt
 ```
 
-The 50-case live Stylitics report can be published after the project keys are set:
+The 50-case Stylitics report can be published after the project keys are set:
 
 ```bash
 python3 eval/publish_stylitics_langfuse.py \
-  --report reports/eval/stylitics_agent_eval_50_live_after_fix_20260830.json
+  --report reports/eval/stylitics_agent_eval_50.json
 ```
 
 The publisher sends only sanitized questions, final answers, private

@@ -144,15 +144,15 @@ Routing metadata ghi rõ `tool_selection_mode=deterministic_php`, tool được 
 
 ## 7. Characterization Tests
 
-`tests/Unit/ProductionPipelineTest.php` xác nhận:
-
-- Query deterministic chọn đúng tool khi không có LLM.
-- Bật LLM entity enrichment không làm đổi tool đã chọn.
-- LLM được gọi với `tools=[]`, `toolChoice=none`.
-- `thêm áo mã 52 vào giỏ` route thành `unsupported_checkout`, không gọi LLM và không gọi product tool.
-- LLM không ghi đè giá, màu hoặc product type đã khóa.
-
-`tests/Integration/ChatbotAPITest.php` xác nhận production service, persistence, routing metadata, product constraints và session continuity.
+- `ChatbotToolManifestTest` — manifest là single source of truth, guardrail/mutation invariants.
+- `TurnTierGateTest` — L0 (0 LLM call) vs L1 (LLM chỉ trám unresolved spans); safety intents never reach LLM.
+- `ColorGuardTest` — bare `tim` ≠ `tím`; `cổ tim` không match `purple`.
+- `ConflictGateTest` — hai giá trị cùng scope mâu thuẫn phải hỏi lại; shipping-scope không conflict với product budget.
+- `ManifestPlannerTest` — mọi tool do `ToolPlanner` chọn đều nằm trong manifest (`manifest_tool_not_allowed`).
+- `ChatbotGuardrailTest` — thêm giỏ/checkout → `unsupported_checkout` với 0 tool.
+- `InputParserGateTest` — confident search/detail bỏ qua full LLM re-parse.
+- `ResponseGeneratorGroundingTest` + `RefusalEchoTest` — answer bám evidence (giá/kho/tổng tiền) và quote lại câu hỏi gốc ở refusal.
+- `CatalogColorSearchTest` (integration, DB thật) — `tìm áo màu đen` ra 52/63, `tím` loại `Cổ Tim`.
 
 ## 8. Mã Legacy Đã Loại Bỏ
 

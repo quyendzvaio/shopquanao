@@ -170,7 +170,7 @@ python3 eval/run_chatbot_eval.py \
 
 php scripts/run_stylitics_agent_eval.php \
   --cases=50 --anchor-product-id=57 \
-  --output=reports/eval/stylitics_agent_eval_50_live_after_fix_20260830.json
+  --output=reports/eval/stylitics_agent_eval_50.json
 ```
 
 RAGAS cho recommendation answers:
@@ -179,17 +179,17 @@ RAGAS cho recommendation answers:
 RAGAS_EMBEDDING_URL="http://$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' shop_quan_ao_rag_ml):8000" \
 OPENAI_EVAL_MODEL="$LLM_MODEL" LLM_TIMEOUT=120 \
 python3 eval/run_findmine_ragas.py --max-cases=10 \
-  --agent-report reports/eval/stylitics_agent_eval_50_live_after_fix_20260830.json \
-  --output reports/eval/stylitics_ragas_10_live_after_fix_20260830.json
+  --agent-report reports/eval/stylitics_agent_eval_50.json \
+  --output reports/eval/stylitics_ragas_10.json
 ```
 
-RAGAS final live parameters: `RAGAS_MODE=STYLITICS_LIVE_REAL_SHOP_RETRIEVAL`,
-evaluator `oc/mimo-v2.5-free`, embedding `bkai-foundation-models/vietnamese-bi-encoder`
-via `rag-ml`, judge concurrency `1`, 30 available recommendation cases and 10
-evaluated cases. Scores: faithfulness `0.3416666667`, answer relevancy
-`0.1230097772`. Context precision/recall are omitted because no reference labels
-exist. These scores are a quality baseline and must not be interpreted as a
-production SLA.
+RAGAS trên pipeline PHP deterministic-first (judge `openrouter/minimax/minimax-m3:free`,
+embedding `vietnamese-bi-encoder` via `rag-ml`, 50 cases): faithfulness `0.845`,
+answer relevancy `0.481`, precision `0.940`, recall `0.872`
+(validator deterministic 50/50 PASS). Relevancy thấp do template khô ở nhóm
+product/order — đã cải thiện qua grounded templates v2; xem
+`docs/findmine-ragas-results.md` để tái tạo. Đây là baseline chất lượng, không
+phải SLA production.
 
 ### Langfuse tracing
 
@@ -228,7 +228,7 @@ To publish the sanitized live Stylitics run (after installing
 
 ```bash
 python3 eval/publish_stylitics_langfuse.py \
-  --report reports/eval/stylitics_agent_eval_50_live_after_fix_20260830.json
+  --report reports/eval/stylitics_agent_eval_50.json
 ```
 
 The command requires the three Langfuse runtime variables above and is
@@ -239,8 +239,8 @@ Compose defaults are sufficient; replace every `local-only-change-me` value in
 64-character encryption key with `openssl rand -hex 32`.
 
 The live styling report was published to dataset
-`shopquanao-stylitics-live-20260830` (30 examples) and experiment
-`shopquanao-stylitics-live-eval-20260830` (30 runs). The source is explicitly marked
+`shopquanao-stylitics-live` (30 examples) and experiment
+`shopquanao-stylitics-live-eval` (30 runs). The source is explicitly marked
 `post_run_evaluation_report`; no provider payloads or credentials are stored.
 
 ## Kết quả cuối — 2026-08-26
@@ -269,9 +269,12 @@ Environment: Docker Compose local qua Nginx port 80; LLM/evaluator `oc/mimo-v2.5
 
 Corpus styling 70 câu vẫn được giữ để mở rộng; lệnh mặc định chọn balanced 50 câu nêu trên.
 
-### Latency cuối
+### Latency cuối (lịch sử — pipeline cũ)
 
-Hai boundary được báo riêng vì không cùng ý nghĩa đo:
+> Các số dưới đo trên LangGraph agent orchestrator đã gỡ bỏ (2026-08-26).
+> Pipeline hiện tại là `deterministic_hybrid_pipeline` (L0 ~0.5s, toàn bộ
+> 50 cases avg ~1.4s, p95 ~2.5s sau grounded templates v2). Chạy lại
+> `php scripts/run_stylitics_agent_eval.php` trên pipeline hiện tại để tái tạo.
 
 | Boundary | Avg | p50 | p95 | Max |
 | --- | ---: | ---: | ---: | ---: |
@@ -281,27 +284,17 @@ Hai boundary được báo riêng vì không cùng ý nghĩa đo:
 | 10 suppression | `0.05 ms` | `0.04 ms` | `0.10 ms` | `0.10 ms` |
 | 10 unrelated | `0.06 ms` | `0.04 ms` | `0.11 ms` | `0.11 ms` |
 
-Styling stages trên 30 recommendation cases:
+### RAGAS cuối (lịch sử)
 
-| Stage | Avg | p95 | Max |
-| --- | ---: | ---: | ---: |
-| Stylitics demo reference provider | `321.43 ms` | `383 ms` | `430 ms` |
-| LLM extraction | `174.63 ms` | `461 ms` | `488 ms` |
-| Normalization | `7.97 ms` | `14 ms` | `14 ms` |
-| Parallel Product Search | `8683.00 ms` | `13126 ms` | `13699 ms` |
-
-Product Search là bottleneck chính. HTTP p95 cao chủ yếu do entity enrichment và một số policy turns qua evaluator gateway; xem `server_latency` trong report JSON để phân tích từng span.
-
-### RAGAS cuối
-
-RAGAS chấm 2/30 recommendation answers (bounded `--max-cases=2`); Stylitics reference prose bị loại khỏi grounding context. Không tính `context_precision`/`context_recall` vì corpus này chưa có reference answers hoặc relevance labels.
+RAGAS lịch sử chấm 2/30 recommendation answers (bounded `--max-cases=2`) trên
+pipeline cũ:
 
 | Metric | Điểm |
 | --- | ---: |
 | Faithfulness | `0.75` |
 | Answer relevancy | `0.1501948092` |
 
-Answer relevancy thấp là kết quả chất lượng thật: nhiều câu hỏi biến thể nhận response template dài và giống nhau. Đây là mục tiêu tối ưu tiếp theo, không phải execution failure.
+Pipeline hiện tại (50 cases, minimax-m3): faithfulness `0.845`, relevancy `0.481`, precision `0.940`, recall `0.872`.
 
 ## CI/CD
 

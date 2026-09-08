@@ -345,7 +345,7 @@ classDiagram
   - LLM-generated SQL is never executed.
   - A result violating any explicit constraint is removed before response generation.
   - No matching card produces an explicit no-result answer and count zero.
-- Verification: `ToolRegistryTest`, `ProductionPipelineTest`, integration tests and manual product-search cases.
+- Verification: `CatalogColorSearchTest`, `ChatbotToolManifestTest`/`ManifestPlannerTest`/`ColorGuardTest`, integration tests and manual product-search cases (historically `ToolRegistryTest`/`ProductionPipelineTest`).
 
 ### FR-005 - Return Product Detail by ID
 
@@ -410,7 +410,7 @@ classDiagram
   - LLM cannot change primary intent or selected tool.
   - LLM cannot overwrite a locked deterministic field.
   - Invalid JSON, timeout or unavailable credentials falls back to deterministic fields.
-- Verification: `ProductionPipelineTest` fake-LLM tests.
+- Verification: `TurnTierGateTest`/`ConflictGateTest` and fake-LLM unit tests (historically `ProductionPipelineTest`).
 
 ### FR-011 - Detect Conflicts and Request Clarification
 
@@ -747,7 +747,7 @@ Acceptance rules:
 | Requirement | Use case | Primary module/interface | Tool/API | Verification |
 |---|---|---|---|---|
 | FR-001 | UC-07 | `chatbot/index.php`, `ChatbotService` | API-001 | `ChatbotAPITest` |
-| FR-002 | UC-01..UC-09 | `IntentResolver`, `DeterministicIntentParser` | Internal | `ProductionPipelineTest` |
+| FR-002 | UC-01..UC-09 | `IntentResolver`, `DeterministicIntentParser` | Internal | `ManifestPlannerTest`/`TurnTierGateTest`/`ColorGuardTest` (historically `ProductionPipelineTest`) |
 | FR-003 | UC-01, UC-02 | `ProductAttributeNormalizer`, parser | `search_products` | Normalizer/parser unit tests |
 | FR-004 | UC-01 | `ToolRegistry`, `ProductConstraintVerifier` | `search_products` | `ToolRegistryTest`, integration/eval cases |
 | FR-005 | UC-02 | `ToolRegistry`, `ProductConstraintVerifier` | `get_product_detail` | Detail routing and API tests |

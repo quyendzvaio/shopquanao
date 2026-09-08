@@ -35,7 +35,11 @@ Các route chính gồm auth, products, cart, orders, chatbot, knowledge và adm
 
 ## Chatbot
 
-Chatbot dùng deterministic-first hybrid pipeline. `ChatbotService` là application boundary thật; `IntentResolver` và `ToolPlanner` PHP quyết định intent/tool. LLM chỉ có thể bổ sung structured entity JSON và không nhận tool definitions.
+Chatbot dùng deterministic-first hybrid pipeline (`deterministic_hybrid_pipeline`).
+`ChatbotService` là application boundary thật; `IntentResolver` và manifest-driven
+`ToolPlanner`/`PlanValidator` quyết định intent/tool. `TurnTierGate` giữ các turn
+L0 ở 0 LLM call và template streaming (`CHATBOT_TEMPLATE_RESPONSE=1`); L1 chỉ trám
+unresolved spans. LLM không nhận tool definitions và không được ghi đè field đã khóa.
 
 Chi tiết call graph, WebSocket event contract, intent-tool mapping, constraint
 validation, memory và test nằm tại [chatbot-spec.md](chatbot-spec.md).
@@ -73,7 +77,7 @@ Secrets chỉ được truyền qua environment và không được commit. Prod
 | Nguyên tắc | Trạng thái | Bằng chứng và giới hạn |
 |---|---|---|
 | Single Responsibility | Đạt một phần | `ChatbotService` điều phối use case; SQL lưu hội thoại và telemetry đã chuyển sang `PdoChatbotConversationStore`. `KnowledgeRetriever` và `ToolRegistry` vẫn là các module lớn, cần tách theo adapter nếu tiếp tục mở rộng. |
-| Open/Closed | Đạt một phần | Tool contract được cô lập qua `ChatbotToolGateway`; tuy nhiên thêm một intent/tool mới vẫn cần cập nhật `CapabilityRegistry`, `ToolPlanner` và validator tương ứng. |
+| Open/Closed | Đạt | Tool routing tập trung qua `config/chatbot_tools.php` + `ChatbotToolManifest`; thêm intent/tool mới chỉ cần thêm một entry manifest + một test, không sửa switch phân tán. |
 | Liskov Substitution | Đạt | Các implementation được gọi qua contract không thay đổi precondition hoặc response shape của contract. |
 | Interface Segregation | Đạt | `ChatbotToolGateway`, `ChatbotMemoryStore`, `ChatbotConversationStore` và `LLMProvider` chỉ công bố các thao tác consumer cần. |
 | Dependency Inversion | Đạt ở application boundary | `ChatbotService` phụ thuộc vào interface cho tool, memory và persistence; production inject adapter PDO/ToolRegistry mặc định. Các component thuần như parser/generator vẫn được khởi tạo trực tiếp vì không có I/O dependency. |
