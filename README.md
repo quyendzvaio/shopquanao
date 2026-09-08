@@ -187,9 +187,8 @@ RAGAS trên pipeline PHP deterministic-first (judge `openrouter/minimax/minimax-
 embedding `vietnamese-bi-encoder` via `rag-ml`, 50 cases): faithfulness `0.845`,
 answer relevancy `0.481`, precision `0.940`, recall `0.872`
 (validator deterministic 50/50 PASS). Relevancy thấp do template khô ở nhóm
-product/order — đã cải thiện qua grounded templates v2; xem
-`docs/findmine-ragas-results.md` để tái tạo. Đây là baseline chất lượng, không
-phải SLA production.
+product/order — đã cải thiện qua grounded templates v2. Đây là baseline chất
+lượng, không phải SLA production.
 
 ### Langfuse tracing
 
@@ -313,11 +312,10 @@ App và hai worker dùng cùng `${APP_IMAGE:-shop_quan_ao-app:latest}`, vì vậ
 | File | Nội dung |
 | --- | --- |
 | `reports/eval/` (tạo lại bằng lệnh eval, gitignored) | Stylitics agent evaluation và RAGAS report mới nhất |
-| `docs/findmine-agent-evaluation-results.md` | Bảng PASS/latency của 50 cases |
-| `docs/findmine-ragas-results.md` | RAGAS metrics và Langfuse parameters |
-| `docs/findmine-use-case-1.md` | UC1 contract |
-| `docs/findmine-use-case-2.md` | UC2 contract |
 | `docs/cart-styling-event-architecture.md` | Outbox/Redis/consumer architecture |
-| `docs/findmine-live-onboarding-guide.md` | Live tenant gate |
+| `docs/chatbot-spec.md` | Chatbot deterministic pipeline spec |
+| `docs/technical-spec.md` | Tổng quan kiến trúc hệ thống |
+| `docs/langfuse-observability.md` | Langfuse self-hosted setup |
+| `docs/styling-providers.md` (quy tắc) | Stylitics UC1/UC2 provider contract |
 
 Reports, `.env`, model cache và local database artifacts phải giữ ngoài Git. `.gitignore`/`.dockerignore` đã loại các file này khỏi commit và production image.

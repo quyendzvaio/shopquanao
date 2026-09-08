@@ -1,6 +1,6 @@
 # Fashion extraction failure analysis
 
-Baseline run: 2026-08-24, unchanged 32-case corpus in `tests/fixtures/findmine/fashion-extraction-cases.php`.
+Baseline run: 2026-08-24, unchanged 32-case corpus (historical FindMine fixture path; current provider is Stylitics, corpus remains provider-agnostic).
 
 ## Baseline metrics
 

@@ -3,7 +3,7 @@
 ## V1 Architecture
 
 ```
-FindMine Demo MCP
+Stylitics Demo (styling references)
   → RawFashionSuggestion[]
   → LlmFashionAttributeExtractor
       ├── Fast path: DeterministicFashionAttributeParser (trivial inputs)
@@ -68,6 +68,6 @@ FindMine Demo MCP
 
 The semantic validator always returns the deterministic parser output. Material, color, style, fit, and pattern are extracted only when explicitly present in the source text. This hard invariant is enforced at the `FashionExtractionSemanticValidator` level and tracked by the 32-case extraction evaluation.
 
-## Future Optional Upgrade: findmine_live
+## Provider
 
-Current V1 uses `FASHION_PROVIDER=findmine_demo`. Live tenant connectivity (`FINDMINE_APP_ID`, tenant catalog mapping) is a future optional upgrade only. `FINDMINE_LIVE_UPGRADE_STATUS=NOT_CONFIGURED` is informational and does NOT block `FASHION_INTEGRATION_GATE`.
+Current V1 uses `FASHION_PROVIDER=stylitics` in demo mode (`STYLITICS_PROVIDER_MODE=demo`, `STYLITICS_LIVE_VERIFIED=false`). The extraction pipeline and hallucination invariant above are provider-agnostic and apply equally to Stylitics references.
