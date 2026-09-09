@@ -260,7 +260,7 @@ class ChatbotService {
 
         if (($intent['primary_intent'] ?? 'unknown') === 'unknown' || (float)($intent['confidence'] ?? 0) < 0.6) {
             return $this->clarificationResponse(
-                'Mình chưa đủ thông tin để chọn đúng cách hỗ trợ. Bạn nói rõ hơn là muốn tìm sản phẩm, xem chi tiết, hỏi size, chính sách hay đơn hàng nhé.',
+                'Với câu hỏi ' . $this->echoQuote($message) . 'mình chưa đủ thông tin để chọn đúng cách hỗ trợ. Bạn nói rõ hơn là muốn tìm sản phẩm, xem chi tiết, hỏi size, chính sách hay đơn hàng nhé.',
                 $traceId,
                 $partial,
                 $conflictResolution,
@@ -390,6 +390,14 @@ class ChatbotService {
         ];
         $this->conversationStore->logToolExecution('routing_pipeline', [], $routing, 0, true);
         return $response;
+    }
+
+    private function echoQuote(string $message): string {
+        $text = (string)preg_replace('/\s+/u', ' ', trim($message));
+        if (mb_strlen($text) > 120) {
+            $text = mb_substr($text, 0, 117) . '…';
+        }
+        return $text === '' ? '' : '"' . $text . '", ';
     }
 
     private function routingLog(array $partial, array $enrichment, array $intent, array $plan, array $validationErrors): array {
