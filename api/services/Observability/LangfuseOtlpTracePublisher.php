@@ -210,7 +210,11 @@ final class LangfuseOtlpTracePublisher
             return ['key' => $key, 'value' => ['boolValue' => $value]];
         }
         if (is_int($value)) {
-            return ['key' => $key, 'value' => ['intValue' => (string) $value]];
+            // Langfuse OTEL ingestion (3.x worker zod schema) rejects
+            // string-encoded intValue and drops the whole observation, so
+            // emit a JSON number. Values here are small stage latencies and
+            // counters, safely within exact integer range.
+            return ['key' => $key, 'value' => ['intValue' => $value]];
         }
         if (is_float($value)) {
             return ['key' => $key, 'value' => ['doubleValue' => $value]];
