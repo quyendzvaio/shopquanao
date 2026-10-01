@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Hỏi nhanh / thảo luận
+    url: https://github.com/quyendzvaio/shopquanao/discussions
+    about: Câu hỏi không phải bug cũng không phải feature cụ thể

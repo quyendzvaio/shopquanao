@@ -1,0 +1,45 @@
+name: Bug report
+description: Báo lỗi để team reproduce và fix
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Tóm tắt lỗi
+      description: Một câu mô tả lỗi
+      placeholder: Chatbot trả về 0 sản phẩm khi tìm "quần dưới 500k" dù DB còn hàng
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Các bước reproduce
+      description: Lệnh / request cụ thể, kèm trace_id nếu có
+      placeholder: |
+        1. `curl -X POST http://localhost/api/chatbot -d '{"message":"..."}'`
+        2. trace_id: ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Kết quả mong đợi vs thực tế
+    validations:
+      required: true
+  - type: dropdown
+    id: env
+    attributes:
+      label: Môi trường
+      options:
+        - local docker
+        - staging
+        - production
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log / bằng chứng
+      description: Dán đoạn log, response JSON, hoặc link Langfuse trace (không dán secret, token, cookie)
+      render: shell

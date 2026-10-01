@@ -1,0 +1,34 @@
+name: Feature request
+description: Đề xuất tính năng / cải tiến mới
+title: "[feat]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Vấn đề đang gặp
+      description: Vì sao cần tính năng này, ai bị ảnh hưởng
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Đề xuất
+      description: Mô tả giải pháp, API/UX thay đổi (nếu có)
+    validations:
+      required: true
+  - type: checkboxes
+    id: gates
+    attributes:
+      label: Gate liên quan (đánh dấu nếu áp dụng)
+      options:
+        - label: Cần migration DB mới
+        - label: Ảnh hưởng pipeline chatbot (intent/evidence/response)
+        - label: Cần eval lại (corpus 70 case / RAGAS)
+        - label: Ảnh hưởng MCP contract (mcp-server)
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Tiêu chí nghiệm thu
+      description: Làm sao biết xong (test, metric, trace)
+      placeholder: "- [ ] Unit test mới pass\n- [ ] Trace Langfuse decision=return"
