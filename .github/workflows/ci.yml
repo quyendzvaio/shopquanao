@@ -2,9 +2,9 @@ name: CI/CD
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, develop]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, develop]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -426,8 +426,17 @@ jobs:
             echo "LANGFUSE_SALT=${{ secrets.LANGFUSE_SALT }}" >> .env
             echo "LANGFUSE_ENCRYPTION_KEY=${{ secrets.LANGFUSE_ENCRYPTION_KEY }}" >> .env
             echo "LANGFUSE_NEXTAUTH_SECRET=${{ secrets.LANGFUSE_NEXTAUTH_SECRET }}" >> .env
+            echo "LANGFUSE_INIT_ORG_ID=${{ secrets.LANGFUSE_INIT_ORG_ID || 'shop-quanao-org' }}" >> .env
+            echo "LANGFUSE_INIT_ORG_NAME=${{ secrets.LANGFUSE_INIT_ORG_NAME || 'shop-quanao' }}" >> .env
+            echo "LANGFUSE_INIT_PROJECT_ID=${{ secrets.LANGFUSE_INIT_PROJECT_ID || 'shopquanao-chatbot' }}" >> .env
+            echo "LANGFUSE_INIT_PROJECT_NAME=${{ secrets.LANGFUSE_INIT_PROJECT_NAME || 'fashion-shop-chatbot-eval' }}" >> .env
+            echo "LANGFUSE_INIT_PROJECT_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }}" >> .env
+            echo "LANGFUSE_INIT_PROJECT_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}" >> .env
+            echo "LANGFUSE_INIT_USER_EMAIL=${{ secrets.LANGFUSE_INIT_USER_EMAIL || 'admin@shopquanao.local' }}" >> .env
+            echo "LANGFUSE_INIT_USER_NAME=${{ secrets.LANGFUSE_INIT_USER_NAME || 'shop-admin' }}" >> .env
+            echo "LANGFUSE_INIT_USER_PASSWORD=${{ secrets.LANGFUSE_INIT_USER_PASSWORD }}" >> .env
             if grep -qx 'LANGFUSE_ENABLED=true' .env; then
-              for required in LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_POSTGRES_PASSWORD LANGFUSE_REDIS_PASSWORD LANGFUSE_CLICKHOUSE_PASSWORD LANGFUSE_MINIO_SECRET_KEY LANGFUSE_SALT LANGFUSE_ENCRYPTION_KEY LANGFUSE_NEXTAUTH_SECRET; do
+              for required in LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_POSTGRES_PASSWORD LANGFUSE_REDIS_PASSWORD LANGFUSE_CLICKHOUSE_PASSWORD LANGFUSE_MINIO_SECRET_KEY LANGFUSE_SALT LANGFUSE_ENCRYPTION_KEY LANGFUSE_NEXTAUTH_SECRET LANGFUSE_INIT_USER_PASSWORD; do
                 if ! grep -q "^${required}=." .env; then
                   echo "❌ ${required} must be configured when LANGFUSE_ENABLED=true"
                   exit 1
