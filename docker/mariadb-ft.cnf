@@ -1,3 +1,7 @@
 [mariadbd]
 # Allow FULLTEXT indexing of short Vietnamese words like "áo" (2 chars)
 innodb_ft_min_token_size=2
+# Tier-4 cache: keep hot product/faq/size data in RAM instead of disk.
+# Local default 512M (was server default 128M); production overrides via
+# --innodb-buffer-pool-size in docker-compose (MARIADB_BUFFER_POOL_SIZE).
+innodb_buffer_pool_size=512M

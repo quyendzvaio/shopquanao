@@ -374,6 +374,7 @@ jobs:
             echo "LLM_TIMEOUT=${{ secrets.LLM_TIMEOUT || '25' }}" >> .env
             echo "MARIADB_ROOT_PASSWORD=${{ secrets.MARIADB_ROOT_PASSWORD }}" >> .env
             echo "DB_PASS=${{ secrets.DB_PASS }}" >> .env
+            echo "MARIADB_BUFFER_POOL_SIZE=${{ secrets.MARIADB_BUFFER_POOL_SIZE || '1G' }}" >> .env
             echo "PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}" >> .env
             echo "RERANKER_URL=http://reranker:8000" >> .env
             echo "RAG_ML_WARMUP_ON_START=${{ secrets.RAG_ML_WARMUP_ON_START || 'true' }}" >> .env
