@@ -267,6 +267,7 @@ services:
     container_name: shop_quan_ao_db
     env_file: .env
     restart: unless-stopped
+    command: ["--innodb-buffer-pool-size=${MARIADB_BUFFER_POOL_SIZE:-512M}"]
     environment:
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-root_pass}
       MARIADB_DATABASE: shop_db
@@ -289,9 +290,11 @@ services:
     image: redis:7-alpine
     container_name: shop_quan_ao_redis
     restart: unless-stopped
-    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     expose:
       - "6379"
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -522,6 +525,7 @@ services:
 
 volumes:
   db_data:
+  redis_data:
   qdrant_data:
   hf_cache:
   langfuse_clickhouse_data_v2:
