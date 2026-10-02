@@ -383,7 +383,10 @@ services:
       start_period: 10s
 
   langfuse-minio:
-    image: minio/minio:RELEASE.2025-02-18T16-25-55Z
+    # Bitnami legacy build: upstream minio/minio tags were removed from
+    # Docker Hub and quay.io refuses pulls from some cloud egress IPs, which
+    # broke fresh deploys. Pinned by digest for determinism.
+    image: bitnamilegacy/minio@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c
     container_name: shop_quan_ao_langfuse_minio
     profiles: [observability]
     restart: unless-stopped
@@ -392,18 +395,17 @@ services:
         limits:
           cpus: ${LANGFUSE_MINIO_CPU_LIMIT:-0.50}
           memory: ${LANGFUSE_MINIO_MEMORY_LIMIT:-256m}
-    entrypoint: ["sh"]
-    command: ["-c", "mkdir -p /data/langfuse && minio server --address ':9000' --console-address ':9001' /data"]
     environment:
       MINIO_ROOT_USER: ${LANGFUSE_MINIO_ACCESS_KEY:-minio}
       MINIO_ROOT_PASSWORD: ${LANGFUSE_MINIO_SECRET_KEY:-local-dev-langfuse-minio}
+      MINIO_DEFAULT_BUCKETS: langfuse
     ports:
       - "${LANGFUSE_MINIO_PORT:-9090}:9000"
       - "127.0.0.1:${LANGFUSE_MINIO_CONSOLE_PORT:-9091}:9001"
     volumes:
-      - langfuse_minio_data:/data
+      - langfuse_minio_data:/bitnami/minio/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/ready || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -498,9 +500,9 @@ services:
     command: ["php", "/var/www/html/scripts/publish_langfuse_trace_outbox.php"]
     environment:
       DB_HOST: db
-      DB_NAME: ${MYSQL_DATABASE:-shop_db}
-      DB_USER: ${MYSQL_USER:-shop_user}
-      DB_PASS: ${MYSQL_PASSWORD:-shop_pass}
+      DB_NAME: ${DB_NAME:-shop_db}
+      DB_USER: ${DB_USER:-shop_user}
+      DB_PASS: ${DB_PASS:-shop_pass}
       LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
       LANGFUSE_INGESTION_URL: ${LANGFUSE_INGESTION_URL:-http://langfuse-web:3000}
       LANGFUSE_PROJECT: ${LANGFUSE_PROJECT:-fashion-shop-chatbot-eval}
