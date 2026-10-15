@@ -88,6 +88,12 @@ class ChatbotService {
         $memoryLoadMs = (int)((microtime(true) - $memoryStart) * 1000);
 
         $result = $this->runPipeline($message, $memoryContext, $memoryLoadMs);
+        $nudge = $this->freeShippingNudge($result);
+        $result = $this->withNudgeCard($result, $nudge);
+        if ($nudge !== null) {
+            $result['message'] = rtrim((string)$result['message']) . ' ' . $nudge['text'];
+            $result['answer'] = $result['message'];
+        }
         $this->conversationStore->saveMessages(
             $message,
             $result['message'],
@@ -121,6 +127,8 @@ class ChatbotService {
         $memoryLoadMs = (int)((microtime(true) - $memoryStart) * 1000);
 
         $result = $this->runPipeline($message, $memoryContext, $memoryLoadMs);
+        $nudge = $this->freeShippingNudge($result);
+        $result = $this->withNudgeCard($result, $nudge);
 
         // Template-only mode (CHATBOT_TEMPLATE_RESPONSE=1) takes precedence:
         // emit the grounded draft as a single delta instead of paying a
@@ -141,6 +149,14 @@ class ChatbotService {
             $result['latency']['streaming'] = true;
         }
 
+        // The nudge is its own delta after the answer so an LLM rewrite cannot drop it.
+        if ($nudge !== null) {
+            $onDelta(' ' . $nudge['text']);
+            $streamed .= ' ' . $nudge['text'];
+            $result['message'] = $streamed;
+            $result['answer'] = $streamed;
+        }
+
         $this->conversationStore->saveMessages(
             $message,
             $streamed,
@@ -151,6 +167,43 @@ class ChatbotService {
         );
         $this->enqueueLangfuseTrace($message, $result);
         $this->memory->refreshSummary();
+        return $result;
+    }
+
+    /**
+     * UC-C proactive nudge: computed after the grounded answer, at most once
+     * per cart state. Failures never break the chat turn.
+     *
+     * @return array{text:string,card:array}|null
+     */
+    private function freeShippingNudge(array $result): ?array
+    {
+        if ($this->userId === null) return null;
+        try {
+            $policy = FreeShippingPolicy::fromEnvironment();
+            $ledger = new FreeShippingNudge($this->pdo, $this->sessionId);
+            $advice = (new FreeShippingService($this->pdo, $policy))->suggest($this->userId, ['limit' => 1]);
+            if (!FreeShippingNudge::eligible($result, $advice, $ledger->lastFingerprint(), $policy)) return null;
+            $ledger->remember((string)$advice['cart_fingerprint']);
+            $cards = (new EvidenceNormalizer())->productCards($advice['products']);
+            return $cards === [] ? null : ['text' => FreeShippingNudge::message($advice), 'card' => $cards[0]];
+        } catch (Throwable) {
+            error_log(json_encode(['operation' => 'freeship_nudge', 'success' => false, 'error_category' => 'suppressed_runtime_failure']));
+            return null;
+        }
+    }
+
+    private function withNudgeCard(array $result, ?array $nudge): array
+    {
+        $result['freeship_nudge'] = $nudge !== null;
+        if ($nudge === null) return $result;
+        $byId = [];
+        foreach (($result['products'] ?? []) as $card) {
+            if (is_array($card)) $byId[(int)($card['id'] ?? 0)] = $card;
+        }
+        $byId[(int)$nudge['card']['id']] ??= $nudge['card'];
+        $result['products'] = array_values($byId);
+        $result['cards'] = $result['products'];
         return $result;
     }
 

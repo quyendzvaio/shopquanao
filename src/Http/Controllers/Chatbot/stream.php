@@ -44,6 +44,7 @@ try {
         'trace_id' => $result['trace_id'] ?? null,
         'outfits' => $result['outfits'] ?? [],
         'freeship_status' => $result['freeship_status'] ?? null,
+        'freeship_nudge' => (bool)($result['freeship_nudge'] ?? false),
         'product_count' => count($cards),
         'latency' => is_array($result['latency'] ?? null) ? $result['latency'] : [],
     ]);
