@@ -1,13 +1,5 @@
 <?php
 
-require_once __DIR__ . '/PartialParseResult.php';
-require_once __DIR__ . '/CapabilityRegistry.php';
-require_once __DIR__ . '/DeterministicIntentParser.php';
-require_once __DIR__ . '/LlmInputParser.php';
-require_once __DIR__ . '/ConflictDetector.php';
-require_once __DIR__ . '/ConflictResolver.php';
-require_once __DIR__ . '/SemanticEntityEnricher.php';
-require_once __DIR__ . '/MergeEngine.php';
 
 /**
  * Resolves a query into a structured intent. All decisions remain deterministic;

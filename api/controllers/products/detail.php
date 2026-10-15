@@ -1,6 +1,5 @@
 <?php
 require_once __DIR__ . '/../../config.php';
-require_once __DIR__ . '/../../services/Catalog/CatalogVariantHydrator.php';
 
 global $pdo, $route_params;
 $id = (int)($route_params['id'] ?? 0);

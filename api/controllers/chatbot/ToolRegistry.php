@@ -5,14 +5,6 @@
  * Hỗ trợ reranking sản phẩm qua sidecar Python TF-IDF.
  */
 
-require_once __DIR__ . '/../../cache/Cache.php';
-require_once __DIR__ . '/KnowledgeRetriever.php';
-require_once __DIR__ . '/ProductAttributeNormalizer.php';
-require_once __DIR__ . '/contracts/ChatbotToolGateway.php';
-require_once __DIR__ . '/ToolDefinitionCatalog.php';
-require_once __DIR__ . '/llm/LLMFactory.php';
-require_once __DIR__ . '/../../services/Catalog/CatalogTaxonomy.php';
-require_once __DIR__ . '/../../services/Catalog/CatalogVariantHydrator.php';
 
 class ToolRegistry implements ChatbotToolGateway {
     private PDO $pdo;

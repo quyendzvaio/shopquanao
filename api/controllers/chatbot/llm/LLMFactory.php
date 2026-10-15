@@ -3,7 +3,6 @@
  * LLM Factory
  * Tạo provider từ config.
  */
-require_once __DIR__ . '/DeepSeekProvider.php';
 
 class LLMFactory {
     /**

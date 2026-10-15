@@ -1,7 +1,5 @@
 <?php
 
-require_once __DIR__ . '/../llm/StreamingLLMProvider.php';
-require_once __DIR__ . '/../llm/LLMResponse.php';
 
 /**
  * Generates the user-visible answer through the provider's native token

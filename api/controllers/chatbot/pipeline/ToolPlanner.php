@@ -1,6 +1,5 @@
 <?php
 
-require_once __DIR__ . '/ChatbotToolManifest.php';
 
 class ToolPlanner {
     private array $capabilities;

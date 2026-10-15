@@ -1,6 +1,5 @@
 <?php
 
-require_once __DIR__ . '/../ProductAttributeNormalizer.php';
 
 class EvidenceNormalizer {
     public function normalize(array $intent, array $execution): array {

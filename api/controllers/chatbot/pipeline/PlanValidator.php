@@ -131,7 +131,6 @@ class PlanValidator {
      */
     private function validateAgainstManifest(string $primary, array $tools): array {
         if (!class_exists('ChatbotToolManifest')) {
-            require_once __DIR__ . '/ChatbotToolManifest.php';
         }
         $allowed = ChatbotToolManifest::toolsFor($primary);
         $errors = [];

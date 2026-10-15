@@ -1,6 +1,5 @@
 <?php
 
-require_once __DIR__ . '/../ProductAttributeNormalizer.php';
 
 class DeterministicIntentParser {
     private const PRODUCT_TYPES = [

@@ -1,6 +1,4 @@
 <?php
-require_once __DIR__ . '/ProductAttributeNormalizer.php';
-require_once __DIR__ . '/contracts/ChatbotMemoryStore.php';
 
 /**
  * Conversation memory for the sales chatbot.

@@ -1,6 +1,5 @@
 <?php
 
-require_once __DIR__ . '/../ProductAttributeNormalizer.php';
 
 class LightweightEvidenceScorer {
     public const MIN_EVIDENCE_SCORE = 0.75;

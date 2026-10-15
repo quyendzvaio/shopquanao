@@ -1,10 +1,5 @@
 <?php
 
-require_once __DIR__ . '/ProductService.php';
-require_once __DIR__ . '/KnowledgeService.php';
-require_once __DIR__ . '/SizeService.php';
-require_once __DIR__ . '/CartService.php';
-require_once __DIR__ . '/OrderService.php';
 
 final class ToolApplicationService
 {

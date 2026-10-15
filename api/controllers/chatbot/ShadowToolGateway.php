@@ -1,6 +1,5 @@
 <?php
 
-require_once __DIR__ . '/contracts/ChatbotToolGateway.php';
 
 /** Executes MCP as primary and compares it with the legacy gateway during rollout. */
 final class ShadowToolGateway implements ChatbotToolGateway

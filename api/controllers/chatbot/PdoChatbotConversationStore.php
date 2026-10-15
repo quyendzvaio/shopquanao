@@ -1,6 +1,5 @@
 <?php
 
-require_once __DIR__ . '/contracts/ChatbotConversationStore.php';
 
 class PdoChatbotConversationStore implements ChatbotConversationStore
 {

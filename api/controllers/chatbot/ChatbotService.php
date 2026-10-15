@@ -4,35 +4,6 @@
  * Application service for the deterministic-first chatbot pipeline.
  * PHP resolves intent and selects tools; an optional LLM only enriches entities.
  */
-require_once __DIR__ . '/../../cache/Cache.php';
-require_once __DIR__ . '/ToolRegistry.php';
-require_once __DIR__ . '/McpToolGateway.php';
-require_once __DIR__ . '/ShadowToolGateway.php';
-require_once __DIR__ . '/llm/LLMFactory.php';
-require_once __DIR__ . '/llm/StreamingLLMProvider.php';
-require_once __DIR__ . '/ChatbotMemory.php';
-require_once __DIR__ . '/PdoChatbotConversationStore.php';
-require_once __DIR__ . '/contracts/ChatbotToolGateway.php';
-require_once __DIR__ . '/contracts/ChatbotMemoryStore.php';
-require_once __DIR__ . '/contracts/ChatbotConversationStore.php';
-require_once __DIR__ . '/ProductAttributeNormalizer.php';
-require_once __DIR__ . '/pipeline/CapabilityRegistry.php';
-require_once __DIR__ . '/pipeline/ChatbotToolManifest.php';
-require_once __DIR__ . '/pipeline/TurnTierGate.php';
-require_once __DIR__ . '/pipeline/IntentResolver.php';
-require_once __DIR__ . '/pipeline/PlanValidator.php';
-require_once __DIR__ . '/pipeline/ToolPlanner.php';
-require_once __DIR__ . '/pipeline/ParallelToolExecutor.php';
-require_once __DIR__ . '/pipeline/EvidenceNormalizer.php';
-require_once __DIR__ . '/pipeline/ProductConstraintVerifier.php';
-require_once __DIR__ . '/pipeline/ObservationEvaluator.php';
-require_once __DIR__ . '/pipeline/LightweightEvidenceScorer.php';
-require_once __DIR__ . '/pipeline/EvidenceDecisionRouter.php';
-require_once __DIR__ . '/pipeline/NoProgressDetector.php';
-require_once __DIR__ . '/pipeline/EvidenceExecutionLoop.php';
-require_once __DIR__ . '/pipeline/ResponseGenerator.php';
-require_once __DIR__ . '/pipeline/StreamingResponseGenerator.php';
-require_once __DIR__ . '/../../services/Observability/LangfuseTraceOutbox.php';
 
 class ChatbotService {
     private PDO $pdo;

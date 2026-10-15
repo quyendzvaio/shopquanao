@@ -2,6 +2,7 @@
 # used only for the private MCP stdio bridge.
 ARG NODE_IMAGE=node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
 ARG PHP_IMAGE=serversideup/php:8.2-fpm-nginx-alpine@sha256:45a19bc2818c3b56e10bf05b63a6361bb85a0081a16382cf04963b6f58124258
+ARG COMPOSER_IMAGE=composer:2.8
 
 FROM ${NODE_IMAGE} AS mcp-build
 WORKDIR /build
@@ -18,6 +19,14 @@ WORKDIR /opt/mcp-server
 COPY --from=mcp-build /build/package.json /build/package-lock.json ./
 COPY --from=mcp-build /build/node_modules ./node_modules
 COPY --from=mcp-build /build/dist/src ./dist
+
+FROM ${COMPOSER_IMAGE} AS php-deps
+WORKDIR /build
+COPY composer.json composer.lock ./
+COPY src/ src/
+COPY api/ api/
+RUN composer install --no-dev --no-interaction --no-progress --no-scripts \
+      --ignore-platform-reqs --classmap-authoritative
 
 FROM ${PHP_IMAGE} AS runtime
 
@@ -40,6 +49,8 @@ COPY --from=mcp-runtime /opt/mcp-server /opt/mcp-server
 COPY docker/app-nginx-api.conf /etc/nginx/server-opts.d/api-router.conf
 COPY docker/php.ini /usr/local/etc/php/conf.d/zz-shop.ini
 
+COPY --from=php-deps --chown=www-data:www-data /build/vendor/ vendor/
+COPY --chown=www-data:www-data src/ src/
 COPY --chown=www-data:www-data api/ api/
 COPY --chown=www-data:www-data config/ config/
 COPY --chown=www-data:www-data includes/ includes/

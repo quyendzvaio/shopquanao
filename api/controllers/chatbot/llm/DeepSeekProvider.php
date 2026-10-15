@@ -4,10 +4,6 @@
  * DeepSeek is the historical default; compatible gateways can use the same
  * wire format through LLM_PROVIDER=openai_compatible or LLM_PROVIDER=litellm.
  */
-require_once __DIR__ . '/LLMProvider.php';
-require_once __DIR__ . '/StreamingLLMProvider.php';
-require_once __DIR__ . '/LLMResponse.php';
-require_once __DIR__ . '/../../../cache/Cache.php';
 
 class DeepSeekProvider implements LLMProvider, StreamingLLMProvider {
     private string $apiKey;

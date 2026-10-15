@@ -1,6 +1,5 @@
 <?php
 
-require_once __DIR__ . '/../../controllers/chatbot/ProductAttributeNormalizer.php';
 
 /** Idempotently converts known legacy size/color facts into variant rows. */
 final class CatalogVariantBackfill

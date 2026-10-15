@@ -7,8 +7,6 @@
  * Vietnamese words like "áo" (2 char) use LIKE fallback.
  */
 require_once __DIR__ . '/../../config.php';
-require_once __DIR__ . '/../../services/Catalog/CatalogTaxonomy.php';
-require_once __DIR__ . '/../../services/Catalog/CatalogVariantHydrator.php';
 
 global $pdo;
 

@@ -1,6 +1,5 @@
 <?php
 
-require_once __DIR__ . '/../../controllers/chatbot/ProductAttributeNormalizer.php';
 
 /** Canonical category/subcategory normalization at the catalog seam. */
 final class CatalogTaxonomy

@@ -1,6 +1,6 @@
 <?php
 // Load DB config from parent
-require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../src/bootstrap.php';
 
 /**
  * Return the client-cache TTL for public, non-personalized GET endpoints.

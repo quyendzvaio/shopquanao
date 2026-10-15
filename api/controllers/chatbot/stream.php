@@ -5,8 +5,6 @@
  */
 
 require_once __DIR__ . '/../../config.php';
-require_once __DIR__ . '/ChatbotService.php';
-require_once __DIR__ . '/ChatbotSessionContext.php';
 
 /** @var PDO $pdo */
 

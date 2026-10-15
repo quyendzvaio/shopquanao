@@ -1,6 +1,5 @@
 <?php
 
-require_once __DIR__ . '/../ProductAttributeNormalizer.php';
 
 /**
  * Optionally fills unresolved descriptive entities with strict JSON from an LLM.

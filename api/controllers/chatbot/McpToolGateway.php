@@ -1,7 +1,5 @@
 <?php
 
-require_once __DIR__ . '/contracts/ChatbotToolGateway.php';
-require_once __DIR__ . '/ToolDefinitionCatalog.php';
 
 /** MCP stdio client. The Node server is a private child process of PHP. */
 final class McpToolGateway implements ChatbotToolGateway

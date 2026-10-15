@@ -19,7 +19,6 @@ final class CatalogColorSearchTest extends TestCase
         if ($host === '') {
             $this->markTestSkipped('DB_HOST not set; live catalog test skipped');
         }
-        require_once ROOT_DIR . '/api/controllers/chatbot/ToolRegistry.php';
         $this->pdo = new PDO(
             sprintf('mysql:host=%s;dbname=%s;charset=utf8mb4', $host, getenv('DB_NAME') ?: 'shop_db'),
             (string)(getenv('DB_USER') ?: 'shop_user'),

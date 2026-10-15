@@ -1,8 +1,5 @@
 <?php
 
-require_once __DIR__ . '/CatalogColor.php';
-require_once __DIR__ . '/ProductVariant.php';
-require_once __DIR__ . '/../../controllers/chatbot/ProductAttributeNormalizer.php';
 
 /** Batch-loads all structured variant/color data behind one catalog interface. */
 final class CatalogVariantHydrator
