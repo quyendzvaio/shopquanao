@@ -1,9 +1,14 @@
 <?php
 require dirname(__DIR__) . '/src/bootstrap.php';
 /**
- * Migration: Ensure admin user exists.
- * Reads ADMIN_EMAIL / ADMIN_PASSWORD from env.
- * Falls back to dev defaults (with warning log).
+ * Optional ops script: ensure at least one admin user exists.
+ *
+ * Run manually (not part of the migration gate):
+ *   php scripts/ensure_admin_user.php
+ *
+ * Does nothing if an admin already exists. Otherwise creates one from the
+ * ADMIN_EMAIL / ADMIN_PASSWORD env vars. If ADMIN_PASSWORD is empty (dev
+ * fallback), a random password is generated and logged via error_log().
  */
 function migrateEnsureAdmin(PDO $pdo): void {
     // Check if any admin exists
