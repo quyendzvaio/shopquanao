@@ -1,4 +1,5 @@
 <?php
+require dirname(__DIR__) . '/src/bootstrap.php';
 /**
  * Migration: Ensure admin user exists.
  * Reads ADMIN_EMAIL / ADMIN_PASSWORD from env.
@@ -25,3 +26,5 @@ function migrateEnsureAdmin(PDO $pdo): void {
     $stmt->execute(['admin', $email, $hash]);
     error_log("✅ Admin user created: $email");
 }
+
+migrateEnsureAdmin($pdo);
