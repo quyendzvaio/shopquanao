@@ -32,9 +32,6 @@ require_once __DIR__ . '/pipeline/NoProgressDetector.php';
 require_once __DIR__ . '/pipeline/EvidenceExecutionLoop.php';
 require_once __DIR__ . '/pipeline/ResponseGenerator.php';
 require_once __DIR__ . '/pipeline/StreamingResponseGenerator.php';
-require_once __DIR__ . '/../../services/Fashion/ProactiveStylingStateMachine.php';
-require_once __DIR__ . '/../../services/Fashion/ProactiveStylingStateStore.php';
-require_once __DIR__ . '/../../services/Fashion/ProactiveChatTurnService.php';
 require_once __DIR__ . '/../../services/Observability/LangfuseTraceOutbox.php';
 
 class ChatbotService {
@@ -120,7 +117,6 @@ class ChatbotService {
         $memoryLoadMs = (int)((microtime(true) - $memoryStart) * 1000);
 
         $result = $this->runPipeline($message, $memoryContext, $memoryLoadMs);
-        $result = $this->attachProactiveStyling($result);
         $this->conversationStore->saveMessages(
             $message,
             $result['message'],
@@ -154,7 +150,6 @@ class ChatbotService {
         $memoryLoadMs = (int)((microtime(true) - $memoryStart) * 1000);
 
         $result = $this->runPipeline($message, $memoryContext, $memoryLoadMs);
-        $result = $this->attachProactiveStyling($result);
 
         // Template-only mode (CHATBOT_TEMPLATE_RESPONSE=1) takes precedence:
         // emit the grounded draft as a single delta instead of paying a
@@ -185,39 +180,6 @@ class ChatbotService {
         );
         $this->enqueueLangfuseTrace($message, $result);
         $this->memory->refreshSummary();
-        return $result;
-    }
-
-    private function attachProactiveStyling(array $result): array
-    {
-        if ($this->userId === null) return $result;
-        try {
-            $primary=(string)($result['primary_intent']??'unknown');
-            $proactive=(new ProactiveChatTurnService(new ProactiveStylingStateStore($this->pdo),new ProactiveStylingStateMachine(),$this->toolGateway))
-                ->handle($this->userId,(string)$this->sessionId,$primary);
-            $result['proactive_status'] = (string)($proactive['status']??'not_armed');
-            if(($proactive['status']??'')!=='shown') return $result;
-            $cards=array_values(array_filter($proactive['products']??[],fn($item)=>is_array($item)&&(int)($item['id']??0)>0));
-            if($cards===[]) return $result;
-            $result['message']=rtrim((string)($result['message']??'')).' Mình cũng tìm thấy một vài sản phẩm trong shop có thể phối cùng món bạn vừa thêm vào giỏ.';
-            $result['answer']=$result['message'];
-            $existing=[]; foreach(($result['products']??[]) as $item)if(is_array($item))$existing[(int)($item['id']??0)]=$item;
-            foreach($cards as $item)$existing[(int)$item['id']]=$item;
-            $result['products']=array_values($existing); $result['cards']=$result['products']; $result['proactive_styling']=true;
-            $result['proactive_styling_metrics'] = [
-                'reference_count' => (int) ($proactive['reference_count'] ?? 0),
-                'mapped_private_product_ids' => array_values(array_map(
-                    static fn (array $item): int => (int) $item['id'],
-                    $cards
-                )),
-                'timings' => array_filter(
-                    is_array($proactive['timings'] ?? null) ? $proactive['timings'] : [],
-                    static fn (mixed $value): bool => is_int($value) || is_float($value)
-                ),
-            ];
-        } catch (Throwable $error) {
-            error_log(json_encode(['operation'=>'proactive_cart_styling','success'=>false,'error_category'=>'suppressed_runtime_failure'],JSON_UNESCAPED_SLASHES));
-        }
         return $result;
     }
 

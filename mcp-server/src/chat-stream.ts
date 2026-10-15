@@ -178,7 +178,6 @@ function safeCompletion(upstream: JsonRecord, cards: JsonRecord[]): JsonRecord {
     trace_id: typeof upstream.trace_id === 'string' ? upstream.trace_id : null,
     product_count: cards.length,
   };
-  if (typeof upstream.proactive_styling === 'boolean') completion.proactive_styling = upstream.proactive_styling;
   if (isRecord(upstream.latency)) {
     completion.latency = Object.fromEntries(Object.entries(upstream.latency).filter(([, value]) => (
       typeof value === 'number' && Number.isFinite(value)

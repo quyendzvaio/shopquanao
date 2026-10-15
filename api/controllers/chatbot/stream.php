@@ -45,8 +45,6 @@ try {
         'response_type' => $result['response_type'] ?? 'final_answer',
         'primary_intent' => $result['primary_intent'] ?? 'unknown',
         'trace_id' => $result['trace_id'] ?? null,
-        'proactive_styling' => (bool)($result['proactive_styling'] ?? false),
-        'proactive_status' => (string)($result['proactive_status'] ?? 'not_armed'),
         'product_count' => count($cards),
         'latency' => is_array($result['latency'] ?? null) ? $result['latency'] : [],
     ]);

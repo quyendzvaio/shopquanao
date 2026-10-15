@@ -48,7 +48,7 @@ $response = [
     'session_id' => $context->sessionId,
 ];
 
-foreach (['answer', 'response_type', 'primary_intent', 'secondary_intents', 'requested_fields', 'cards', 'missing_slots', 'trace_id', 'latency', 'proactive_styling', 'proactive_status', 'proactive_styling_metrics'] as $key) {
+foreach (['answer', 'response_type', 'primary_intent', 'secondary_intents', 'requested_fields', 'cards', 'missing_slots', 'trace_id', 'latency'] as $key) {
     if (array_key_exists($key, $result)) {
         $response[$key] = $result[$key];
     }

@@ -1,9 +1,5 @@
 <?php
 
-require_once __DIR__ . '/Fashion/CartItemAddedOutbox.php';
-require_once __DIR__ . '/Fashion/ProactiveStylingStateMachine.php';
-require_once __DIR__ . '/Fashion/ProactiveStylingStateStore.php';
-
 final class CartService
 {
     public function __construct(private PDO $pdo)
@@ -72,9 +68,6 @@ final class CartService
                     ->execute([$userId, $productId, $quantity, $size]);
                 $cartId = (int) $this->pdo->lastInsertId();
             }
-            $sessionId = $this->resolveSessionId($userId, $arguments['session_id'] ?? null);
-            $variantId = isset($arguments['variant_id']) ? (int) $arguments['variant_id'] : null;
-            $this->publishCartItemAdded($userId, $sessionId, $cartId, $productId, $variantId);
             if ($transactionStarted) {
                 $this->pdo->commit();
             }
@@ -85,48 +78,6 @@ final class CartService
             throw $error;
         }
         return ['message' => 'Added to cart', 'cart_id' => $cartId] + $this->list($userId);
-    }
-
-    private function publishCartItemAdded(int $userId, string $sessionId, int $cartId, int $productId, ?int $variantId): void
-    {
-        try {
-            $exists = $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite'
-                ? $this->pdo->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='fashion_event_outbox'")->fetchColumn()
-                : $this->pdo->query("SELECT 1 FROM information_schema.tables WHERE table_name = 'fashion_event_outbox' LIMIT 1")->fetchColumn();
-        } catch (Throwable) {
-            $exists = false;
-        }
-        if (!$exists) return;
-        $eventId = (new CartItemAddedOutbox($this->pdo))
-            ->publish($userId, $sessionId, $cartId, $productId, $variantId);
-        $versionStatement = $this->pdo->prepare('SELECT id FROM fashion_event_outbox WHERE event_id = ?');
-        $versionStatement->execute([$eventId]);
-        $stateVersion = (int) $versionStatement->fetchColumn();
-
-        // Arm the user-visible workflow in the same transaction as the cart
-        // mutation. Redis/outbox delivery remains useful for other consumers,
-        // but a stopped worker can no longer make UC2 silently disappear.
-        $states = new ProactiveStylingStateStore($this->pdo);
-        $machine = new ProactiveStylingStateMachine();
-        $state = $machine->onCartItemAdded(
-            $states->get($userId, $sessionId),
-            $productId,
-            $variantId,
-            $eventId,
-            $stateVersion
-        );
-        $states->put($userId, $sessionId, $state);
-    }
-
-    private function resolveSessionId(int $userId, mixed $explicit): string
-    {
-        if (trim((string)($explicit ?? '')) !== '') return trim((string)$explicit);
-        try {
-            $stmt=$this->pdo->prepare("SELECT id FROM chat_sessions WHERE user_id=? AND status='active' ORDER BY updated_at DESC LIMIT 1");
-            $stmt->execute([$userId]); $sessionId=$stmt->fetchColumn();
-            if ($sessionId!==false) return (string)$sessionId;
-        } catch (Throwable) {}
-        return 'user:'.$userId;
     }
 
     public function update(int $userId, array $arguments): array
