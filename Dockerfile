@@ -43,7 +43,7 @@ COPY --from=mcp-runtime /usr/lib/libstdc++.so.6* /usr/lib/
 COPY --from=mcp-runtime /usr/lib/libgcc_s.so.1 /usr/lib/libgcc_s.so.1
 COPY --from=mcp-runtime /opt/mcp-server /opt/mcp-server
 
-# Route REST paths to api/index.php while the image's standard Nginx config
+# Route REST paths to public/api/index.php while the image's standard Nginx config
 # continues serving root PHP pages and static assets.
 COPY docker/app-nginx-api.conf /etc/nginx/server-opts.d/api-router.conf
 COPY docker/php.ini /usr/local/etc/php/conf.d/zz-shop.ini

@@ -210,6 +210,10 @@ class EvidenceNormalizer {
             return '/' . $path;
         }
 
+        if (str_starts_with($path, 'images/')) {
+            $path = substr($path, strlen('images/'));
+        }
+
         return '/assets/images/' . $path;
     }
 
