@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Run PHP from the app image for hosts without a local PHP 8.2 toolchain.
+# DEV_DOCKER_NETWORK joins the Compose network (integration tests use DB_HOST=db).
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+exec docker run --rm -i -u "$(id -u):$(id -g)" -v "$PWD":/w -w /w \
+  ${DEV_DOCKER_NETWORK:+--network "$DEV_DOCKER_NETWORK"} \
+  -e APP_ENV -e DB_HOST -e DB_NAME -e DB_USER -e DB_PASS -e CHATBOT_TOOL_TRANSPORT \
+  -e FREE_SHIPPING_THRESHOLD -e FREESHIP_NUDGE_MAX_GAP \
+  --entrypoint php "${DEV_PHP_IMAGE:-shop_quan_ao-app:latest}" "$@"
