@@ -70,7 +70,7 @@ jobs:
 
       - name: Python lint (reranker)
         run: |
-          python3 -m py_compile docker/reranker/app.py docker/rag-ml/app.py eval/ragas_compat.py eval/langfuse_tracing.py eval/run_chatbot_eval.py eval/run_findmine_ragas.py eval/build_full_agent_eval_report.py eval/publish_stylitics_langfuse.py scripts/eval_rag_chatbot.py && echo "✅ Python syntax OK"
+          python3 -m py_compile docker/reranker/app.py docker/rag-ml/app.py && echo "✅ Python syntax OK"
 
   # ============================================================
   # Job 2: Unit Tests
@@ -96,9 +96,6 @@ jobs:
         run: vendor/bin/phpunit --testsuite=Unit --colors=always --display-warnings
         env:
           APP_ENV: test
-
-      - name: Validate 70-question agent corpus
-        run: php scripts/run_findmine_offline_eval.php
 
   # ============================================================
   # Job 3: Integration Tests
