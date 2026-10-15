@@ -22,6 +22,14 @@ class ToolRegistry implements ChatbotToolGateway
 
     public function execute(string $toolName, array $arguments): array
     {
+        $allowed = array_map(
+            static fn(array $definition): string => (string) ($definition['function']['name'] ?? ''),
+            $this->getDefinitions()
+        );
+        if (!in_array($toolName, $allowed, true)) {
+            throw new InvalidArgumentException('Unknown tool: ' . $toolName);
+        }
+
         return $this->tools->execute($toolName, $arguments);
     }
 }

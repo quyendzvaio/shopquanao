@@ -28,4 +28,15 @@ final class ToolRegistryDelegationTest extends TestCase
 
         $this->assertSame('M', $result['recommended']['size_name']);
     }
+
+    public function testMutationToolsAreNotExecutableInProcess(): void
+    {
+        $pdo = new PDO('sqlite::memory:');
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unknown tool: add_to_cart');
+
+        (new ToolRegistry($pdo, 1))->execute('add_to_cart', ['product_id' => 1, 'quantity' => 1]);
+    }
 }
