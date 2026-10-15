@@ -26,6 +26,7 @@ final class ToolApplicationService
             'search_products' => $this->products->search($arguments),
             'get_product_detail' => $this->products->detail($arguments),
             'build_outfit' => (new OutfitService($this->pdo))->build($arguments),
+            'suggest_freeship_items' => (new FreeShippingService($this->pdo))->suggest($this->userId, $arguments),
             'get_categories' => $this->products->categories(),
             'suggest_size' => $this->sizes->suggest($arguments),
             'retrieve_knowledge' => $this->knowledge->retrieve($arguments),

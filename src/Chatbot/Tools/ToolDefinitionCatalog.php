@@ -47,6 +47,10 @@ final class ToolDefinitionCatalog
                     'weight' => ['type' => 'integer'],
                 ],
             ]),
+            self::definition('suggest_freeship_items', 'Kiểm tra giỏ hàng còn thiếu bao nhiêu để được miễn phí ship và gợi ý món còn hàng để bù. Không thêm vào giỏ.', [
+                'type' => 'object',
+                'properties' => ['limit' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 5]],
+            ]),
             self::definition('suggest_size', 'Tư vấn size dựa trên chiều cao, cân nặng và danh mục.', [
                 'type' => 'object',
                 'properties' => [
