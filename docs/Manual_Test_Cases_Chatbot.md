@@ -50,7 +50,7 @@ Chuẩn bị các đối tượng kiểm thử:
 - **User A:** tài khoản test đã đăng nhập và có ít nhất một đơn hàng. Với seed DB hiện tại, user ID 3 sở hữu đơn 1-4.
 - **User B:** tài khoản test khác User A, không sở hữu đơn 1-4; nên để không có đơn hàng để test trường hợp rỗng.
 - **DeepSeek enabled:** cần cho test semantic completion, ghi rõ tại từng test.
-- **Baseline dữ liệu:** dùng `sql/shop_db.sql` chưa chỉnh sửa, trừ test có tiền điều kiện riêng.
+- **Baseline dữ liệu:** dùng `database/schema.sql` chưa chỉnh sửa, trừ test có tiền điều kiện riêng.
 
 Một số sản phẩm seed được dùng để đối chiếu:
 

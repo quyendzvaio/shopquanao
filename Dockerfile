@@ -53,7 +53,7 @@ COPY --chown=www-data:www-data public/ public/
 COPY --chown=www-data:www-data src/ src/
 COPY --chown=www-data:www-data templates/ templates/
 COPY --chown=www-data:www-data config/ config/
-COPY --chown=www-data:www-data sql/ sql/
+COPY --chown=www-data:www-data database/ database/
 COPY --chown=www-data:www-data knowledge/ knowledge/
 COPY --chown=www-data:www-data scripts/run_database_migrations.php scripts/ingest_knowledge.php \
      scripts/publish_langfuse_trace_outbox.php scripts/ensure_admin_user.php scripts/

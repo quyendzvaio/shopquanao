@@ -136,7 +136,7 @@ jobs:
           done
 
       - name: Import schema
-        run: sed '/^CREATE DATABASE/d;/^USE /d' sql/shop_db.sql | mysql -h127.0.0.1 -u root -proot_pass shop_test
+        run: sed '/^CREATE DATABASE/d;/^USE /d' database/schema.sql | mysql -h127.0.0.1 -u root -proot_pass shop_test
 
       - name: Apply database migrations
         env:

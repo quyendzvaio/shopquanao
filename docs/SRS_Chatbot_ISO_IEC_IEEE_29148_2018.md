@@ -67,7 +67,7 @@ The chatbot shall not:
 - `README.md`.
 - `docs/chatbot-spec.md`.
 - `docs/technical-spec.md`.
-- `sql/shop_db.sql`.
+- `database/schema.sql`.
 - `eval/chatbot_eval_cases.jsonl`.
 - `tests/eval/rag_eval_cases.json`.
 
