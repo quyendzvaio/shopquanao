@@ -382,23 +382,6 @@ jobs:
             echo "REDIS_TIMEOUT=0.15" >> .env
             echo "CLIENT_CACHE_TTL=60" >> .env
             echo "CLIENT_CACHE_STALE_TTL=30" >> .env
-            echo "FASHION_PROVIDER=${{ secrets.FASHION_PROVIDER || 'findmine_demo' }}" >> .env
-            echo "FINDMINE_ENABLED=${{ secrets.FINDMINE_ENABLED || 'false' }}" >> .env
-            echo "FINDMINE_DEMO_ENABLED=${{ secrets.FINDMINE_DEMO_ENABLED || 'false' }}" >> .env
-            echo "FINDMINE_DEMO_MODE=${{ secrets.FINDMINE_DEMO_MODE || 'false' }}" >> .env
-            echo "FINDMINE_LIVE_VERIFIED=${{ secrets.FINDMINE_LIVE_VERIFIED || 'false' }}" >> .env
-            echo "FINDMINE_API_URL=${{ secrets.FINDMINE_API_URL || 'https://api.findmine.com' }}" >> .env
-            echo "FINDMINE_APP_ID=${{ secrets.FINDMINE_APP_ID || '' }}" >> .env
-            echo "FINDMINE_API_VERSION=${{ secrets.FINDMINE_API_VERSION || 'v3' }}" >> .env
-            echo "FINDMINE_DEFAULT_REGION=${{ secrets.FINDMINE_DEFAULT_REGION || 'us' }}" >> .env
-            echo "FINDMINE_DEFAULT_LANGUAGE=${{ secrets.FINDMINE_DEFAULT_LANGUAGE || 'en' }}" >> .env
-            echo "FINDMINE_STARTUP_TIMEOUT_MS=${{ secrets.FINDMINE_STARTUP_TIMEOUT_MS || '5000' }}" >> .env
-            echo "FINDMINE_REQUEST_TIMEOUT_MS=${{ secrets.FINDMINE_REQUEST_TIMEOUT_MS || '15000' }}" >> .env
-            echo "FINDMINE_RETRY_ATTEMPTS=${{ secrets.FINDMINE_RETRY_ATTEMPTS || '1' }}" >> .env
-            echo "FINDMINE_PRODUCT_IDENTIFIER_KEY=${{ secrets.FINDMINE_PRODUCT_IDENTIFIER_KEY || 'product_id' }}" >> .env
-            echo "FINDMINE_COLOR_IDENTIFIER_KEY=${{ secrets.FINDMINE_COLOR_IDENTIFIER_KEY || 'product_color_id' }}" >> .env
-            echo "FASHION_EVENT_STREAM=${{ secrets.FASHION_EVENT_STREAM || 'fashion:events' }}" >> .env
-            echo "FASHION_EVENT_GROUP=${{ secrets.FASHION_EVENT_GROUP || 'proactive-styling' }}" >> .env
             # Observability is opt-in and independent of the agent path. The
             # profile starts only when deployment secrets explicitly enable it.
             echo "LANGFUSE_ENABLED=${{ secrets.LANGFUSE_ENABLED || 'false' }}" >> .env

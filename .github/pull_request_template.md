@@ -22,7 +22,6 @@ Closes #(số issue) — PR không có issue link sẽ bị yêu cầu bổ sung
 - [ ] Nếu đổi pipeline chatbot: có unit test tương ứng (corpus gate thôi chưa đủ)
 - [ ] Nếu thêm migration: chạy sau migration gate, không đụng schema cũ
 - [ ] Không commit `.env`, secrets, reports, model cache, DB artifacts
-- [ ] Không lộ provider ID (Stylitics/FindMine) ra API/UI
 - [ ] Đã tự review diff (`git status`, `git diff`, file nhạy cảm?)
 
 ## Bằng chứng test

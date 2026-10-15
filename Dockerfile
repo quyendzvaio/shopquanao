@@ -1,5 +1,5 @@
 # Production image: Alpine-based PHP-FPM + Nginx, with a small Node runtime
-# used only for the private MCP and authenticated Stylitics MCP stdio bridges.
+# used only for the private MCP stdio bridge.
 ARG NODE_IMAGE=node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
 ARG PHP_IMAGE=serversideup/php:8.2-fpm-nginx-alpine@sha256:45a19bc2818c3b56e10bf05b63a6361bb85a0081a16382cf04963b6f58124258
 
@@ -51,9 +51,7 @@ COPY --chown=www-data:www-data admin/ admin/
 COPY --chown=www-data:www-data *.php ./
 
 # Only runtime and operational scripts belong in the production image.
-COPY --chown=www-data:www-data scripts/publish_fashion_outbox.php scripts/publish_fashion_outbox.php
 COPY --chown=www-data:www-data scripts/publish_langfuse_trace_outbox.php scripts/publish_langfuse_trace_outbox.php
-COPY --chown=www-data:www-data scripts/consume_fashion_events.php scripts/consume_fashion_events.php
 COPY --chown=www-data:www-data scripts/run_database_migrations.php scripts/run_database_migrations.php
 COPY --chown=www-data:www-data scripts/ingest_knowledge.php scripts/ingest_knowledge.php
 
