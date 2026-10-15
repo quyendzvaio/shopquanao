@@ -86,6 +86,13 @@ return [
             'needs_auth' => false,
             'mutation' => false,
         ],
+        'freeship_gap' => [
+            'tools' => ['suggest_freeship_items'],
+            'required_slots' => [],
+            'empty_response' => 'final_answer',
+            'needs_auth' => false,
+            'mutation' => false,
+        ],
         'unsupported_checkout' => [
             'tools' => [],
             'required_slots' => [],

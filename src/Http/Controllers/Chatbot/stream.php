@@ -43,6 +43,7 @@ try {
         'primary_intent' => $result['primary_intent'] ?? 'unknown',
         'trace_id' => $result['trace_id'] ?? null,
         'outfits' => $result['outfits'] ?? [],
+        'freeship_status' => $result['freeship_status'] ?? null,
         'product_count' => count($cards),
         'latency' => is_array($result['latency'] ?? null) ? $result['latency'] : [],
     ]);

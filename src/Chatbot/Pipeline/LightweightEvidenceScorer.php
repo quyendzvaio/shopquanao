@@ -61,10 +61,11 @@ class LightweightEvidenceScorer {
             'mixed_product_policy' => ['product_evidence', 'policy_source', 'policy_content'],
             'order_status' => ['order_status_or_login'],
             'build_outfit' => ['outfit_result'],
+            'freeship_gap' => ['freeship_status'],
             'unsupported_checkout', 'unknown' => [],
             default => [],
         };
-        if ($primary === 'build_outfit') return $facts;
+        if (in_array($primary, ['build_outfit', 'freeship_gap'], true)) return $facts;
 
         if (in_array('price', $requested, true) && !in_array('price_constraint', $facts, true)) {
             $facts[] = 'price_constraint';

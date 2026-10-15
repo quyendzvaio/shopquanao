@@ -83,6 +83,10 @@ class ToolPlanner {
                 if (!empty($entities['order_id'])) $args['order_id'] = (int)$entities['order_id'];
                 return ['tool' => $tool, 'args' => $args, 'id' => 'order'];
 
+            case 'suggest_freeship_items':
+                if ($primary !== 'freeship_gap') return null;
+                return ['tool' => $tool, 'args' => ['limit' => 3], 'id' => 'freeship'];
+
             case 'build_outfit':
                 if ($primary !== 'build_outfit') return null;
                 $tags = array_values(array_filter((array)($entities['style_tags'] ?? []), [StyleTag::class, 'isValid']));

@@ -266,6 +266,8 @@ class EvidenceExecutionLoop {
             $missing[] = 'order_status';
         } elseif ($primary === 'build_outfit') {
             $missing[] = 'outfit_result';
+        } elseif ($primary === 'freeship_gap') {
+            $missing[] = 'freeship_status';
         }
         return $missing;
     }
@@ -288,6 +290,7 @@ class EvidenceExecutionLoop {
             'mixed_product_policy' => 'combine_product_and_policy_evidence',
             'order_status' => 'answer_order_status_safely',
             'build_outfit' => 'compose_outfit_from_private_catalog',
+            'freeship_gap' => 'close_free_shipping_gap',
             'unsupported_checkout' => 'explain_unsupported_scope',
             default => 'clarify_user_request',
         };

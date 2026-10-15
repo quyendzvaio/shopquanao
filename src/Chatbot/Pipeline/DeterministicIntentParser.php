@@ -361,6 +361,7 @@ class DeterministicIntentParser {
 
     private function inferIntent(string $lower, array $fields): string {
         if ($this->isCheckout($lower)) return 'unsupported_checkout';
+        if ($this->isFreeShippingGap($lower)) return 'freeship_gap';
         if ($this->isOutfit($lower) || (isset($fields['style_tags']) && $this->asksWhatToWear($lower))) {
             return 'build_outfit';
         }
@@ -517,6 +518,12 @@ class DeterministicIntentParser {
 
     private function isOutfit(string $text): bool {
         return (bool)preg_match('/phối đồ|phoi do|phối với|phoi voi|mặc với|mac voi|outfit|set đồ|set do|set\s+(?:đi chơi|di choi)|(?:gồm|gom)\s+(?:áo|ao)\s+(?:và|va)\s+(?:quần|quan)|(?:áo|ao)\s+(?:và|va)\s+(?:quần|quan)/ui', $text);
+    }
+
+    private function isFreeShippingGap(string $text): bool {
+        $freeShip = preg_match('/free\s*ship|freeship|miễn\s*phí\s*(?:ship|vận\s*chuyển|giao\s*hàng)|mien\s*phi\s*(?:ship|van\s*chuyen)/ui', $text);
+        $gapLanguage = preg_match('/mua\s+thêm|mua\s+them|thêm\s+gì|them\s+gi|còn\s+thiếu|con\s+thieu|thiếu\s+bao\s+nhiêu|thieu\s+bao\s+nhieu|để\s+(?:được|đủ)|de\s+(?:duoc|du)/ui', $text);
+        return $freeShip === 1 && $gapLanguage === 1;
     }
 
     private function isCheckout(string $text): bool {

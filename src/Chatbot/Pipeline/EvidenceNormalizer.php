@@ -30,6 +30,8 @@ class EvidenceNormalizer {
                 $this->normalizeOrder($result, $evidence);
             } elseif ($tool === 'build_outfit') {
                 $this->normalizeOutfits($result, $cards, $evidence, $outfits);
+            } elseif ($tool === 'suggest_freeship_items') {
+                $this->normalizeFreeShipping($result, $cards, $evidence);
             }
         }
 
@@ -51,6 +53,23 @@ class EvidenceNormalizer {
             if ((int)$card['id'] > 0) $cards[] = $card;
         }
         return $cards;
+    }
+
+    private function normalizeFreeShipping(array $result, array &$cards, array &$evidence): void {
+        foreach ($this->productCards(is_array($result['products'] ?? null) ? $result['products'] : []) as $card) {
+            $cards[] = $card;
+            $this->addProductFacts($card, $evidence, 'free_shipping');
+        }
+        $evidence[] = [
+            'source' => 'free_shipping',
+            'fact_type' => 'freeship_status',
+            'value' => (string)($result['status'] ?? ''),
+            'threshold' => (int)($result['threshold'] ?? 0),
+            'subtotal' => (int)($result['subtotal'] ?? 0),
+            'gap' => (int)($result['gap'] ?? 0),
+            'freshness' => date('c'),
+            'confidence' => 1.0,
+        ];
     }
 
     private function normalizeOutfits(array $result, array &$cards, array &$evidence, array &$outfits): void {

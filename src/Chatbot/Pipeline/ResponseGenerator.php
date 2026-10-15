@@ -24,6 +24,7 @@ class ResponseGenerator {
             'size_advice' => $this->sizeAnswer($intent, $evidence),
             'order_status' => $this->orderAnswer($evidence),
             'build_outfit' => $this->outfitAnswer($intent, $normalized),
+            'freeship_gap' => $this->freeShippingAnswer($evidence, $cards),
             'unknown' => 'Với câu hỏi ' . $this->echoQuote($message) . 'mình chưa đủ thông tin để trả lời chắc chắn. Bạn nói rõ hơn giúp mình nhé.',
             default => 'Mình chưa đủ thông tin để trả lời chắc chắn. Bạn nói rõ hơn giúp mình nhé.',
         };
@@ -37,7 +38,43 @@ class ResponseGenerator {
         if ($primary === 'build_outfit') {
             $response['outfits'] = $normalized['outfits'] ?? [];
         }
+        if ($primary === 'freeship_gap') {
+            $response['freeship_status'] = null;
+            foreach ($evidence as $item) {
+                if (($item['fact_type'] ?? '') === 'freeship_status') $response['freeship_status'] = (string)($item['value'] ?? '');
+            }
+        }
         return $response;
+    }
+
+    private function freeShippingAnswer(array $evidence, array $cards): string {
+        $fact = [];
+        foreach ($evidence as $item) {
+            if (($item['fact_type'] ?? '') === 'freeship_status') $fact = $item;
+        }
+        $threshold = $this->money((float)($fact['threshold'] ?? 0));
+        return match ((string)($fact['value'] ?? '')) {
+            'requires_login' => "Shop miễn phí ship cho đơn từ $threshold. Bạn đăng nhập để mình kiểm tra giỏ hàng và gợi ý món phù hợp nhé.",
+            'empty_cart' => "Giỏ hàng của bạn đang trống. Shop miễn phí ship cho đơn từ $threshold.",
+            'qualified' => 'Giỏ hàng của bạn (' . $this->money((float)$fact['subtotal']) . ") đã đạt mức miễn phí ship (đơn từ $threshold).",
+            'gap' => $this->freeShippingGapAnswer($fact, $cards, $threshold),
+            default => 'Mình chưa kiểm tra được giỏ hàng lúc này. Shop miễn phí ship cho đơn từ ' . $threshold . '.',
+        };
+    }
+
+    private function freeShippingGapAnswer(array $fact, array $cards, string $threshold): string {
+        $answer = sprintf(
+            'Giỏ hàng của bạn đang là %s, còn thiếu %s để được miễn phí ship (đơn từ %s).',
+            $this->money((float)$fact['subtotal']), $this->money((float)$fact['gap']), $threshold
+        );
+        $items = [];
+        foreach (array_slice($cards, 0, 3) as $card) {
+            $items[] = sprintf('%s (mã %d) %s', (string)$card['name'], (int)$card['id'], $this->money((float)$card['price']));
+        }
+        if ($items === []) {
+            return $answer . ' Hiện mình chưa tìm được món còn hàng phù hợp để bù.';
+        }
+        return $answer . ' Bạn có thể thêm: ' . implode('; ', $items) . '. Bạn tự thêm vào giỏ từ thẻ sản phẩm nhé.';
     }
 
     private function productSearchAnswer(array $intent, array $cards, array $evidence): string {

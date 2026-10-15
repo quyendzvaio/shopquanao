@@ -146,6 +146,10 @@ class PlanValidator {
         $errors = [];
         $has = fn(string $tool): bool => in_array($tool, $tools, true);
 
+        if ($primary === 'freeship_gap' && !$has('suggest_freeship_items')) {
+            $errors[] = 'freeship_gap_requires_suggest_freeship_items';
+        }
+
         if ($primary === 'build_outfit') {
             $canBuild = !empty($entities['style_tags']) || !empty($entities['product_id']);
             if ($canBuild && !$has('build_outfit')) $errors[] = 'build_outfit_requires_build_outfit';

@@ -39,6 +39,7 @@ class CapabilityRegistry {
             'return_exchange', 'shipping', 'policy' => ['retrieve_knowledge'],
             'mixed_product_policy' => ['get_product_detail', 'search_products', 'retrieve_knowledge'],
             'build_outfit' => ['build_outfit'],
+            'freeship_gap' => ['suggest_freeship_items'],
             default => array_keys($capabilities),
         };
 
@@ -51,6 +52,14 @@ class CapabilityRegistry {
     private static function knownMetadata(string $name, array $inputSchema): array {
         return match ($name) {
             'search_products' => self::productSearch($inputSchema),
+            'suggest_freeship_items' => [
+                'use_when' => ['Người dùng hỏi cần mua thêm gì hoặc còn thiếu bao nhiêu để được miễn phí ship cho giỏ hàng hiện tại.'],
+                'do_not_use_when' => ['Người dùng chỉ hỏi chính sách phí ship chung.', 'Người dùng muốn thêm giỏ hoặc thanh toán.'],
+                'output_schema' => [
+                    'type' => 'object',
+                    'properties' => ['status' => ['type' => 'string'], 'gap' => ['type' => 'integer'], 'threshold' => ['type' => 'integer'], 'products' => ['type' => 'array']],
+                ],
+            ],
             'build_outfit' => [
                 'use_when' => ['Người dùng hỏi nên mặc gì / phối set cho một dịp hoặc phong cách, hoặc phối với một product_id cụ thể.'],
                 'do_not_use_when' => ['Người dùng chỉ tìm một loại sản phẩm đơn lẻ.', 'Người dùng muốn thêm giỏ hoặc thanh toán.'],

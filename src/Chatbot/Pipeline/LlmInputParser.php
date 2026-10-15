@@ -19,6 +19,7 @@ final class LlmInputParser
         'mixed_product_policy',
         'order_status',
         'build_outfit',
+        'freeship_gap',
         'unsupported_checkout',
         'unknown',
     ];
