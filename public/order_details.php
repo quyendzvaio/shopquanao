@@ -1,6 +1,6 @@
 <?php
 session_start();
-require_once 'config/db.php';
+require_once __DIR__ . '/../src/bootstrap.php';
 
 if (!isset($_SESSION['user_id']) || !isset($_GET['id'])) {
     header("Location: login.php");
@@ -46,7 +46,7 @@ $items = $stmt_items->fetchAll();
         <hr>
         <?php foreach ($items as $item): ?>
             <div class="item">
-                <img src="images/<?= $item['image'] ?>" width="80">
+                <img src="/assets/images/<?= $item['image'] ?>" width="80">
                 <div>
                     <h4><?= htmlspecialchars($item['name']) ?></h4>
                     <p>Số lượng: <?= $item['quantity'] ?> x <?= number_format($item['price']) ?>đ</p>

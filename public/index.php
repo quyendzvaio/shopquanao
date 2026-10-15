@@ -1,6 +1,6 @@
 <?php
-require_once 'config/db.php';
-include 'includes/header.php';
+require_once __DIR__ . '/../src/bootstrap.php';
+include __DIR__ . '/../templates/partials/header.php';
 
 // 1. Lấy từ khóa tìm kiếm và danh mục từ URL
 $search = $_GET['search'] ?? '';
@@ -48,7 +48,7 @@ $products = $stmt->fetchAll();
             <?php foreach ($products as $p): ?>
                 <div class="product-card">
                     <a href="product.php?id=<?= $p['id']; ?>">
-                        <img src="images/<?= $p['image']; ?>" alt="<?= $p['name']; ?>">
+                        <img src="/assets/images/<?= $p['image']; ?>" alt="<?= $p['name']; ?>">
                     </a>
 
                     <div class="product-info">
@@ -89,4 +89,4 @@ $products = $stmt->fetchAll();
 
 </div>
 
-<?php include 'includes/footer.php'; ?>
+<?php include __DIR__ . '/../templates/partials/footer.php'; ?>

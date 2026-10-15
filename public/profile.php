@@ -1,6 +1,6 @@
 <?php
 session_start();
-require_once 'config/db.php';
+require_once __DIR__ . '/../src/bootstrap.php';
 
 // 1. Kiểm tra đăng nhập
 if (!isset($_SESSION['user_id'])) {
@@ -35,7 +35,7 @@ $stmt_stat = $pdo->prepare("SELECT SUM(total_price) as total_spent, COUNT(*) as 
 $stmt_stat->execute([$user_id]);
 $stat = $stmt_stat->fetch();
 
-include 'includes/header.php';
+include __DIR__ . '/../templates/partials/header.php';
 ?>
 
 <div class="container" style="max-width: 1100px; margin: 40px auto; padding: 0 15px; font-family: 'Montserrat', sans-serif;">
@@ -131,4 +131,4 @@ include 'includes/header.php';
     </div>
 </div>
 
-<?php include 'includes/footer.php'; ?>
+<?php include __DIR__ . '/../templates/partials/footer.php'; ?>

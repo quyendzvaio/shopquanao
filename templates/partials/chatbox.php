@@ -497,9 +497,9 @@ function fallbackProductUrl(product) {
 function fallbackImageUrl(product) {
     const raw = String(product?.image || '').trim();
     if (!raw) return '';
-    let path = raw.replace(/^https?:\/\/[^/]+\/?/i, '').replace(/^\/?images\//i, '');
+    let path = raw.replace(/^https?:\/\/[^/]+\/?/i, '').replace(/^\/?(?:assets\/)?images\//i, '');
     path = path.split('/').filter(Boolean).map(encodeURIComponent).join('/');
-    return path ? '/images/' + path : '';
+    return path ? '/assets/images/' + path : '';
 }
 
 function normalizeShopPath(raw, fallback, allowExternal = false) {

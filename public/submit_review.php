@@ -1,6 +1,6 @@
 <?php
 session_start();
-require_once 'config/db.php';
+require_once __DIR__ . '/../src/bootstrap.php';
 
 // Kiểm tra nếu người dùng đã đăng nhập và gửi form qua phương thức POST
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_SESSION['user_id'])) {

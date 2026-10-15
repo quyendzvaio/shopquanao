@@ -9,7 +9,7 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
     exit();
 }
 
-require_once '../config/db.php';
+require_once __DIR__ . '/../../src/bootstrap.php';
 
 // 2. XỬ LÝ KHÓA VÀ MỞ KHÓA (Đã sửa lỗi $_GET)
 if (isset($_GET['action']) && isset($_GET['id'])) {

@@ -7,7 +7,7 @@ if (!isset($_SESSION['admin_logged_in']) && (!isset($_SESSION['role']) || $_SESS
     exit(); 
 }
 
-require_once '../config/db.php';
+require_once __DIR__ . '/../../src/bootstrap.php';
 
 // 1. XỬ LÝ CẬP NHẬT TRẠNG THÁI
 if (isset($_POST['update_status'])) {

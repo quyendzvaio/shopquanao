@@ -1,7 +1,7 @@
 <?php
 session_start();
-require_once 'config/db.php';
-include 'includes/header.php';
+require_once __DIR__ . '/../src/bootstrap.php';
+include __DIR__ . '/../templates/partials/header.php';
 
 // 1. Lấy ID sản phẩm từ URL và định nghĩa biến để tránh lỗi Undefined
 $product_id = $_GET['id'] ?? 0;
@@ -13,7 +13,7 @@ $product = $stmt->fetch();
 
 if (!$product) {
     echo "<div class='container'><h3>Sản phẩm không tồn tại!</h3></div>";
-    include 'includes/footer.php';
+    include __DIR__ . '/../templates/partials/footer.php';
     exit;
 }
 
@@ -33,7 +33,7 @@ $reviews = $stmt_rev->fetchAll();
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 50px; align-items: start;">
 
         <div class="product-image">
-            <img src="images/<?= $product['image'] ?>" alt="<?= $product['name'] ?>"
+            <img src="/assets/images/<?= $product['image'] ?>" alt="<?= $product['name'] ?>"
                 style="width: 100%; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.1);">
         </div>
 
@@ -165,4 +165,4 @@ $reviews = $stmt_rev->fetchAll();
     }
 </style>
 
-<?php include 'includes/footer.php'; ?>
+<?php include __DIR__ . '/../templates/partials/footer.php'; ?>

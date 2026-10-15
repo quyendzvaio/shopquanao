@@ -30,7 +30,7 @@ RUN composer install --no-dev --no-interaction --no-progress --no-scripts \
 FROM ${PHP_IMAGE} AS runtime
 
 ENV NGINX_HTTP_PORT=8080 \
-    NGINX_WEBROOT=/var/www/html \
+    NGINX_WEBROOT=/var/www/html/public \
     PHP_OPCACHE_ENABLE=1 \
     SHOW_WELCOME_MESSAGE=false
 
@@ -49,22 +49,14 @@ COPY docker/app-nginx-api.conf /etc/nginx/server-opts.d/api-router.conf
 COPY docker/php.ini /usr/local/etc/php/conf.d/zz-shop.ini
 
 COPY --from=php-deps --chown=www-data:www-data /build/vendor/ vendor/
-COPY --chown=www-data:www-data src/ src/
 COPY --chown=www-data:www-data public/ public/
-COPY --chown=www-data:www-data api/ api/
+COPY --chown=www-data:www-data src/ src/
+COPY --chown=www-data:www-data templates/ templates/
 COPY --chown=www-data:www-data config/ config/
-COPY --chown=www-data:www-data includes/ includes/
-COPY --chown=www-data:www-data css/ css/
 COPY --chown=www-data:www-data sql/ sql/
-COPY --chown=www-data:www-data images/ images/
 COPY --chown=www-data:www-data knowledge/ knowledge/
-COPY --chown=www-data:www-data admin/ admin/
-COPY --chown=www-data:www-data *.php ./
-
-# Only runtime and operational scripts belong in the production image.
-COPY --chown=www-data:www-data scripts/publish_langfuse_trace_outbox.php scripts/publish_langfuse_trace_outbox.php
-COPY --chown=www-data:www-data scripts/run_database_migrations.php scripts/run_database_migrations.php
-COPY --chown=www-data:www-data scripts/ingest_knowledge.php scripts/ingest_knowledge.php
+COPY --chown=www-data:www-data scripts/run_database_migrations.php scripts/ingest_knowledge.php \
+     scripts/publish_langfuse_trace_outbox.php scripts/ensure_admin_user.php scripts/
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl --silent --show-error --fail http://127.0.0.1:8080/api/products?limit=1 >/dev/null || exit 1

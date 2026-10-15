@@ -1,7 +1,7 @@
 <?php
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') { header("Location: ../login.php"); exit(); }
-require_once '../config/db.php';
+require_once __DIR__ . '/../../src/bootstrap.php';
 
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
@@ -34,12 +34,12 @@ if (isset($_POST['update_product'])) {
 
         if (in_array($img_ex, $allowed_exs)) {
             $unique_name = uniqid("IMG-", true) . '.' . $img_ex;
-            $target = "../images/" . $unique_name;
+            $target = __DIR__ . '/../assets/images/' . $unique_name;
 
             if (move_uploaded_file($_FILES['image']['tmp_name'], $target)) {
                 // Xóa ảnh cũ trong thư mục cho sạch máy
-                if (file_exists("../images/" . $product['image'])) {
-                    unlink("../images/" . $product['image']);
+                if (file_exists(__DIR__ . '/../assets/images/' . $product['image'])) {
+                    unlink(__DIR__ . '/../assets/images/' . $product['image']);
                 }
                 $image_to_save = $unique_name;
             }
@@ -113,7 +113,7 @@ if (isset($_POST['update_product'])) {
         </select>
 
         <label>Ảnh hiện tại:</label><br>
-        <img src="../images/<?= $product['image'] ?>" width="100" style="margin: 10px 0; border: 1px solid #ddd;"><br>
+        <img src="/assets/images/<?= $product['image'] ?>" width="100" style="margin: 10px 0; border: 1px solid #ddd;"><br>
         
         <label>Thay ảnh mới (để trống nếu giữ nguyên):</label>
         <input type="file" name="image">

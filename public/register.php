@@ -1,6 +1,6 @@
 <?php
-require_once 'config/db.php';
-include 'includes/header.php';
+require_once __DIR__ . '/../src/bootstrap.php';
+include __DIR__ . '/../templates/partials/header.php';
 
 $error = "";
 // Khởi tạo biến success là rỗng để tránh lỗi Warning
@@ -62,4 +62,4 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     </form>
 </div>
 
-<?php include 'includes/footer.php'; ?>
+<?php include __DIR__ . '/../templates/partials/footer.php'; ?>

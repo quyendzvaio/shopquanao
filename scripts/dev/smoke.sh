@@ -19,8 +19,14 @@ check 200 GET '/product.php?id=50'
 check 200 GET /login.php
 check 200 GET /register.php
 check 200 GET /admin/login.php
-check 200 GET /css/style.css
-check 200 GET /images/at_basic_01.jpg
+check 200 GET /assets/css/style.css
+check 200 GET /assets/images/at_basic_01.jpg
+# image security.conf denies *.sql by extension (403); the file is not under the web root either
+check 403 GET /sql/shop_db.sql
+check 404 GET /config/db.php
+check 404 GET /src/bootstrap.php
+check 404 GET /scripts/run_database_migrations.php
+check 404 GET /templates/partials/header.php
 check 200 GET '/api/products?limit=1'
 check 200 GET /api/products/50
 check 200 GET /api/categories

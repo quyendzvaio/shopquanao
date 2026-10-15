@@ -4,7 +4,7 @@
  * Không hardcode credentials.
  */
 session_start();
-require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../../src/bootstrap.php';
 
 $error = '';
 
@@ -50,7 +50,7 @@ if (isset($_POST['login'])) {
 <html>
 <head>
     <title>Admin Login</title>
-    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
 </head>
 <body style="display:flex; justify-content:center; align-items:center; height:100vh; background:#f4f4f4;">
     <form method="POST" style="background:#fff; padding:30px; border-radius:8px; box-shadow:0 0 10px rgba(0,0,0,0.1); width:300px;">

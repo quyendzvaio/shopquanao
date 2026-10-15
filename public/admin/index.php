@@ -7,7 +7,7 @@ if (!isset($_SESSION['admin_logged_in']) && (!isset($_SESSION['role']) || $_SESS
     exit();
 }
 
-require_once '../config/db.php';
+require_once __DIR__ . '/../../src/bootstrap.php';
 
 try {
     // 1. Đếm tổng số sản phẩm
@@ -33,7 +33,7 @@ try {
 <head>
     <meta charset="UTF-8">
     <title>Admin Dashboard</title>
-    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
 </head>
 <body>
     <div style="display:flex; min-height:100vh;">

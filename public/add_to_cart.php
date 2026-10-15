@@ -2,7 +2,7 @@
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
-require_once 'config/db.php';
+require_once __DIR__ . '/../src/bootstrap.php';
 
 if (!isset($_SESSION['user_id'])) {
     echo "<script>alert('Vui lòng đăng nhập để mua hàng!'); window.location.href='login.php';</script>";

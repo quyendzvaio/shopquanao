@@ -11,8 +11,8 @@ $stmt = $pdo->prepare("SELECT image FROM products WHERE id = ?");
 $stmt->execute([$id]);
 $img = $stmt->fetchColumn();
 
-if ($img && file_exists(__DIR__ . '/../../images/' . $img)) {
-    unlink(__DIR__ . '/../../images/' . $img);
+if ($img && file_exists(dirname(__DIR__, 4) . '/public/assets/images/' . $img)) {
+    unlink(dirname(__DIR__, 4) . '/public/assets/images/' . $img);
 }
 
 $stmt = $pdo->prepare("DELETE FROM products WHERE id = ?");

@@ -5,7 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 // 2. Kết nối database để lấy số lượng giỏ hàng thực tế
-require_once 'config/db.php';
+require_once __DIR__ . '/../../src/bootstrap.php';
 
 $total_items = 0;
 if (isset($_SESSION['user_id'])) {
@@ -23,7 +23,7 @@ if (isset($_SESSION['user_id'])) {
 <head>
     <meta charset="UTF-8">
     <title>FASHION SHOP - Đẳng Cấp Thời Trang</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>

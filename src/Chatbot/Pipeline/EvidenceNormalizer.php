@@ -206,11 +206,11 @@ class EvidenceNormalizer {
         $path = is_string($path) && $path !== '' ? $path : $raw;
         $path = ltrim($path, '/');
 
-        if (str_starts_with($path, 'images/')) {
+        if (str_starts_with($path, 'assets/images/')) {
             return '/' . $path;
         }
 
-        return '/images/' . $path;
+        return '/assets/images/' . $path;
     }
 
     private function addProductFacts(array $card, array &$evidence, string $source): void {

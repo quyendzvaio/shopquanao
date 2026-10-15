@@ -1,5 +1,5 @@
 <?php
-require_once 'config/db.php';
+require_once __DIR__ . '/../src/bootstrap.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -31,7 +31,7 @@ $stmt = $pdo->prepare("
 $stmt->execute([$user_id]);
 $cart_items = $stmt->fetchAll();
 
-include 'includes/header.php'; 
+include __DIR__ . '/../templates/partials/header.php'; 
 ?>
 
 <div class="container" style="max-width: 1100px; margin: 20px auto; padding: 20px; font-family: Arial, sans-serif;">
@@ -62,7 +62,7 @@ include 'includes/header.php';
                         <input type="checkbox" name="selected_items[]" value="<?= $item['cart_id'] ?>" checked>
                     </td>
                     <td style="padding: 10px; border: 1px solid #ddd;">
-                        <img src="images/<?= $item['image'] ?>" width="60" style="border-radius: 4px;">
+                        <img src="/assets/images/<?= $item['image'] ?>" width="60" style="border-radius: 4px;">
                     </td>
                     <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;"><?= $item['name'] ?></td>
                     
@@ -110,4 +110,4 @@ function updateCart(cartId, value, type) {
 }
 </script>
 
-<?php include 'includes/footer.php'; ?>
+<?php include __DIR__ . '/../templates/partials/footer.php'; ?>

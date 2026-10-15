@@ -1,6 +1,6 @@
 <?php
 session_start();
-require_once '../config/db.php';
+require_once __DIR__ . '/../../src/bootstrap.php';
 if (!isset($_SESSION['admin_logged_in'])) header("Location: login.php");
 
 if (isset($_POST['add_product'])) {
@@ -9,8 +9,8 @@ if (isset($_POST['add_product'])) {
     $category_id = $_POST['category_id'];
     $image = $_FILES['image']['name'];
     
-    // Tải ảnh vào thư mục images/
-    move_uploaded_file($_FILES['image']['tmp_name'], "../images/".$image);
+    // Tải ảnh vào thư mục assets/images/
+    move_uploaded_file($_FILES['image']['tmp_name'], __DIR__ . '/../assets/images/'.$image);
 
     $stmt = $pdo->prepare("INSERT INTO products (name, price, category_id, image) VALUES (?, ?, ?, ?)");
     $stmt->execute([$name, $price, $category_id, $image]);

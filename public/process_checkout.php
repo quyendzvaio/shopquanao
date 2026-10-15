@@ -1,6 +1,6 @@
 <?php
 session_start();
-require_once 'config/db.php';
+require_once __DIR__ . '/../src/bootstrap.php';
 
 if (!isset($_SESSION['user_id']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
     header("Location: index.php");

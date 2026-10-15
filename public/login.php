@@ -3,7 +3,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-require_once 'config/db.php';
+require_once __DIR__ . '/../src/bootstrap.php';
 $error = "";
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
@@ -66,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     }
 }
-include 'includes/header.php'; 
+include __DIR__ . '/../templates/partials/header.php'; 
 ?>
 
 <div class="auth-form" style="max-width: 400px; margin: 50px auto; padding: 30px; border: 1px solid #ddd; background: #fff; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
@@ -97,4 +97,4 @@ include 'includes/header.php';
     </p>
 </div>
 
-<?php include 'includes/footer.php'; ?>
+<?php include __DIR__ . '/../templates/partials/footer.php'; ?>

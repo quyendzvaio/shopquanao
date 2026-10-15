@@ -1,6 +1,6 @@
 <?php
 session_start();
-require_once 'config/db.php';
+require_once __DIR__ . '/../src/bootstrap.php';
 
 $cart_id = $_GET['id'] ?? null;
 $value = $_GET['value'] ?? null;

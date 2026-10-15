@@ -1,6 +1,6 @@
 <?php
-require_once 'config/db.php';
-include 'includes/header.php';
+require_once __DIR__ . '/../src/bootstrap.php';
+include __DIR__ . '/../templates/partials/header.php';
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
@@ -20,7 +20,7 @@ $cart_items = $stmt->fetchAll();
 
 if (count($cart_items) == 0) {
     echo "<div class='container' style='margin-top:50px;'>Giỏ hàng của bạn đang trống. <a href='index.php'>Quay lại mua sắm</a></div>";
-    include 'includes/footer.php';
+    include __DIR__ . '/../templates/partials/footer.php';
     exit();
 }
 
@@ -69,4 +69,4 @@ foreach($cart_items as $item) $total_money += $item['subtotal'];
     </div>
 </div>
 
-<?php include 'includes/footer.php'; ?>
+<?php include __DIR__ . '/../templates/partials/footer.php'; ?>
