@@ -50,6 +50,7 @@ COPY docker/php.ini /usr/local/etc/php/conf.d/zz-shop.ini
 
 COPY --from=php-deps --chown=www-data:www-data /build/vendor/ vendor/
 COPY --chown=www-data:www-data src/ src/
+COPY --chown=www-data:www-data public/ public/
 COPY --chown=www-data:www-data api/ api/
 COPY --chown=www-data:www-data config/ config/
 COPY --chown=www-data:www-data includes/ includes/
