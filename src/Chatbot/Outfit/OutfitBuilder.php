@@ -124,19 +124,28 @@ final class OutfitBuilder
     {
         $best = $base;
         $bestScore = $this->score($base, $tags);
-        $bestPrice = PHP_INT_MAX;
+        $chosen = null;
         foreach ($accessories as $accessory) {
             $candidate = [...$base, $accessory];
             if (!$this->paletteOk($candidate)) continue;
             if ($budget !== null && $this->total($candidate) > $budget) continue;
             $score = $this->score($candidate, $tags);
-            if ($score > $bestScore || ($score === $bestScore && $best !== $base && $accessory->price < $bestPrice)) {
+            if ($score > $bestScore || ($score === $bestScore && $chosen !== null && $this->accessoryWins($accessory, $chosen, $budget !== null))) {
                 $best = $candidate;
                 $bestScore = $score;
-                $bestPrice = $accessory->price;
+                $chosen = $accessory;
             }
         }
         return $best;
+    }
+
+    /** Equal score: with a budget the pricier accessory, without one the cheaper; then lower id. */
+    private function accessoryWins(OutfitItem $candidate, OutfitItem $current, bool $hasBudget): bool
+    {
+        if ($candidate->price !== $current->price) {
+            return $hasBudget ? $candidate->price > $current->price : $candidate->price < $current->price;
+        }
+        return $candidate->id < $current->id;
     }
 
     /** @param list<OutfitItem> $items */

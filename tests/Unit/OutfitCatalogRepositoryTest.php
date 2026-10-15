@@ -27,4 +27,21 @@ final class OutfitCatalogRepositoryTest extends TestCase
         $this->assertSame([], $items[99]->sizes);
         $this->assertSame(250000, $items[61]->price);
     }
+
+    public function testMergesActiveInStockVariantSizesAndIgnoresOthers(): void
+    {
+        $pdo = SqliteShop::pdo();
+        $pdo->exec('CREATE TABLE product_variants (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER, size TEXT,
+            stock INTEGER, is_active INTEGER)');
+        SqliteShop::product($pdo, 61, 1, 'Áo Dài Tay Cổ Tim', 250000, 10, 'congso', ['M']);
+        $insert = $pdo->prepare('INSERT INTO product_variants (product_id, size, stock, is_active) VALUES (?, ?, ?, ?)');
+        $insert->execute([61, 'xl', 4, 1]);
+        $insert->execute([61, 'S', 0, 1]);
+        $insert->execute([61, 'L', 5, 0]);
+        $insert->execute([61, 'M', 2, 1]);
+
+        $items = (new OutfitCatalogRepository($pdo))->all();
+
+        $this->assertSame(['M', 'XL'], $items[0]->sizes);
+    }
 }
