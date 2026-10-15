@@ -60,7 +60,7 @@ class LightweightEvidenceScorer {
             'return_exchange', 'shipping', 'policy' => ['policy_source', 'policy_content'],
             'mixed_product_policy' => ['product_evidence', 'policy_source', 'policy_content'],
             'order_status' => ['order_status_or_login'],
-            'unsupported_outfit', 'unsupported_checkout', 'unknown' => [],
+            'unsupported_checkout', 'unknown' => [],
             default => [],
         };
 

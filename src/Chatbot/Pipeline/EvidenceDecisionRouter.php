@@ -4,7 +4,7 @@ class EvidenceDecisionRouter {
     public function decide(array $intent, array $plan, array $normalized, array $observation, array $score, array $budget, bool $noProgress): array {
         $primary = (string)($intent['primary_intent'] ?? 'unknown');
 
-        if (in_array($primary, ['unsupported_outfit', 'unsupported_checkout'], true)) {
+        if (in_array($primary, ['unsupported_checkout'], true)) {
             return $this->decision('return', 'guardrail_fixed_response');
         }
         if ($primary === 'order_status' && $this->hasFact($normalized, 'requires_login')) {

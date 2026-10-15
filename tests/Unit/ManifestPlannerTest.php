@@ -42,7 +42,7 @@ final class ManifestPlannerTest extends TestCase
 
     public function testGuardrailIntentsPlanNoTools(): void
     {
-        foreach (['unsupported_outfit', 'unsupported_checkout'] as $intent) {
+        foreach (['unsupported_checkout'] as $intent) {
             $plan = $this->planner->plan(['primary_intent' => $intent, 'entities' => ['product_id' => 52]]);
             $this->assertSame([], $plan['batches'], $intent);
         }

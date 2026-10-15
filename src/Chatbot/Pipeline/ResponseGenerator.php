@@ -12,10 +12,6 @@ class ResponseGenerator {
             return $this->response($answer, 'clarification', $intent, $cards);
         }
 
-        if ($primary === 'unsupported_outfit') {
-            return $this->response('Về câu hỏi ' . $this->echoQuote($message) . 'hiện mình không hỗ trợ tư vấn phối đồ. Mình có thể hỗ trợ bạn tìm sản phẩm, xem chi tiết sản phẩm, tư vấn size và chính sách shop.', 'final_answer', $intent, []);
-        }
-
         if ($primary === 'unsupported_checkout') {
             return $this->response('Với yêu cầu ' . $this->echoQuote($message) . 'mình không thể tự thêm giỏ hàng hoặc thanh toán giúp bạn. Bạn vui lòng bấm vào thẻ sản phẩm hoặc vào trang chi tiết sản phẩm để tự thêm giỏ hàng và thanh toán.', 'final_answer', $intent, $cards);
         }

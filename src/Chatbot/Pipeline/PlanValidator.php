@@ -207,7 +207,7 @@ class PlanValidator {
             if (!$has('get_order_status')) $errors[] = 'order_status_requires_get_order_status';
         }
 
-        if (in_array($primary, ['unsupported_outfit', 'unsupported_checkout', 'unknown'], true) && $tools !== []) {
+        if (in_array($primary, ['unsupported_checkout', 'unknown'], true) && $tools !== []) {
             $errors[] = $primary . '_must_not_call_tools';
         }
 

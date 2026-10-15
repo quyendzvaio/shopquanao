@@ -79,10 +79,10 @@ return [
             'needs_auth' => false,
             'mutation' => false,
         ],
-        'unsupported_outfit' => [
-            'tools' => [],
+        'build_outfit' => [
+            'tools' => ['build_outfit'],
             'required_slots' => [],
-            'empty_response' => 'final_answer',
+            'empty_response' => 'clarification',
             'needs_auth' => false,
             'mutation' => false,
         ],
@@ -98,6 +98,7 @@ return [
     // Entity fields a required_slots entry may reference.
     'entity_fields' => [
         'product_id',
+        'style_tags',
         'product_query',
         'product_type',
         'category_id',

@@ -43,6 +43,6 @@ class TurnTierGate {
         if (self::tier($partial) !== self::L1) return false;
         $fields = is_array($partial['resolved_fields'] ?? null) ? $partial['resolved_fields'] : [];
         $intent = (string)($fields['intent']['value'] ?? 'unknown');
-        return !in_array($intent, ['unsupported_outfit', 'unsupported_checkout'], true);
+        return !in_array($intent, ['unsupported_checkout'], true);
     }
 }

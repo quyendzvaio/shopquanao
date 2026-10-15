@@ -33,7 +33,7 @@ final class InputParserGateTest extends TestCase
 
     public function testMissingProductTypeStillUsesInputParser(): void
     {
-        $result = $this->resolve('tìm cái mặc đi biển');
+        $result = $this->resolve('tìm cái màu đen');
         $this->assertArrayHasKey('llm_input_parse_ms', $result['timings']);
     }
 

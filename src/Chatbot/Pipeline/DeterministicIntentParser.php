@@ -63,6 +63,7 @@ class DeterministicIntentParser {
         $this->parseProductType($lower, $result, $matchedPatterns);
         $this->parseColor($lower, $result, $matchedPatterns);
         $this->parsePrices($lower, $result, $matchedPatterns);
+        $this->parseStyleTags($lower, $result, $matchedPatterns);
         $this->parseSizeAndMeasurements($lower, $text, $result, $matchedPatterns);
         $this->parseStock($lower, $result, $matchedPatterns);
         $this->applySlotMemory($lower, $memoryContext, $result);
@@ -182,6 +183,16 @@ class DeterministicIntentParser {
         }
     }
 
+    private function parseStyleTags(string $lower, PartialParseResult $result, array &$matchedPatterns): void {
+        $tags = StyleTag::fromText($lower);
+        if ($tags === []) return;
+        $result->addResolvedField('style_tags', $tags);
+        $result->addMatchedRule('style_tags');
+        foreach ($tags as $tag) {
+            $matchedPatterns[] = StyleTag::PATTERNS[$tag];
+        }
+    }
+
     private function priceCandidates(string $lower): array {
         $candidates = [];
 
@@ -214,6 +225,22 @@ class DeterministicIntentParser {
                 $candidates[] = [
                     'field' => 'min_price',
                     'value' => $this->parsePrice($m[1][0], $m[2][0] ?? ''),
+                    'position' => $m[0][1],
+                    'text' => $m[0][0],
+                    'scope' => $this->priceScope($lower, (int)$m[0][1], strlen((string)$m[0][0])),
+                ];
+            }
+        }
+
+        // Outfit budgets: "có 800k", "ngân sách 1 triệu". A money unit is
+        // required so "có 2 cái" never becomes a price.
+        $budgetPattern = '/(?<![\p{L}])(?:ngân sách|ngan sach|budget|có|co)\s*(\d+(?:[.,]\d+)?)\s*(k|nghìn|ngan|ngàn|triệu|trieu|tr)(?![\p{L}])/ui';
+        if (preg_match_all($budgetPattern, $lower, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
+            foreach ($matches as $m) {
+                $unit = in_array(mb_strtolower($m[2][0]), ['tr'], true) ? 'triệu' : $m[2][0];
+                $candidates[] = [
+                    'field' => 'max_price',
+                    'value' => $this->parsePrice($m[1][0], $unit),
                     'position' => $m[0][1],
                     'text' => $m[0][0],
                     'scope' => $this->priceScope($lower, (int)$m[0][1], strlen((string)$m[0][0])),
@@ -264,10 +291,11 @@ class DeterministicIntentParser {
             $matchedPatterns[] = '/(\d+)\s*kg/ui';
         }
 
-        if (preg_match('/\b(xs|s|m|l|xl|xxl)\b/ui', $text, $m)) {
+        $sizePattern = '/(?<![\p{L}\p{N}])(xs|s|m|l|xl|xxl)(?![\p{L}\p{N}])/ui';
+        if (preg_match($sizePattern, $text, $m)) {
             $result->addResolvedField('size', strtoupper($m[1]));
             $result->addMatchedRule('size');
-            $matchedPatterns[] = '/\b(xs|s|m|l|xl|xxl)\b/ui';
+            $matchedPatterns[] = $sizePattern;
         }
     }
 
@@ -326,8 +354,10 @@ class DeterministicIntentParser {
     }
 
     private function inferIntent(string $lower, array $fields): string {
-        if ($this->isOutfit($lower)) return 'unsupported_outfit';
         if ($this->isCheckout($lower)) return 'unsupported_checkout';
+        if ($this->isOutfit($lower) || (isset($fields['style_tags']) && $this->asksWhatToWear($lower))) {
+            return 'build_outfit';
+        }
         if ($this->isOrder($lower)) return 'order_status';
         if (isset($fields['product_id']) && ($this->isReturnExchange($lower) || $this->isShipping($lower))) return 'mixed_product_policy';
         if (isset($fields['product_id'])) return 'product_detail';
@@ -350,6 +380,9 @@ class DeterministicIntentParser {
         if ($intent === 'size_advice') {
             if (!isset($fields['height_cm'])) $result->addMissingField('height');
             if (!isset($fields['weight_kg'])) $result->addMissingField('weight');
+        }
+        if ($intent === 'build_outfit' && !isset($fields['style_tags']) && !isset($fields['product_id'])) {
+            $result->addMissingField('style_tags');
         }
         if ($intent === 'product_search' && !isset($fields['product_type'])) {
             $result->addMissingField('product_type');
@@ -466,6 +499,14 @@ class DeterministicIntentParser {
 
     private function isSizeAdvice(string $text): bool {
         return (bool)preg_match('/\bsize\b|kích cỡ|kich co|mặc cỡ|mac co|mặc size|cao\s*\d+|nặng\s*\d+|\d+\s*kg|\d+\s*cm/ui', $text);
+    }
+
+    private function asksWhatToWear(string $text): bool {
+        return (bool)preg_match(
+            '/mặc gì|mac gi|nên mặc|nen mac|mặc sao|mac sao|mặc đi|mac di|đồ gì|do gi|cần đồ|can do|đồ đi|đồ để|'
+            . 'trang phục|trang phuc|gợi ý (?:đồ|set|cách phối)|goi y (?:do|set)|chọn đồ|chon do/ui',
+            $text
+        );
     }
 
     private function isOutfit(string $text): bool {

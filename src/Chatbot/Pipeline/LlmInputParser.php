@@ -18,7 +18,7 @@ final class LlmInputParser
         'policy',
         'mixed_product_policy',
         'order_status',
-        'unsupported_outfit',
+        'build_outfit',
         'unsupported_checkout',
         'unknown',
     ];
@@ -88,7 +88,7 @@ final class LlmInputParser
                     'Giá dùng VND nguyên: 500k = 500000. Dưới/tối đa là max_price, từ/trên là min_price.',
                     'product_id và order_id chỉ lấy từ mã được user nói rõ, trừ tham chiếu như "món này" có thể dùng đúng memory_hints.last_product_id.',
                     'Các intent cần hỗ trợ: tìm/xem sản phẩm, tư vấn size, chính sách đổi trả/vận chuyển/thanh toán/bảo hành, đơn hàng, guardrail checkout/phối đồ.',
-                    'Câu phối đồ không có product_id là unsupported_outfit. Câu yêu cầu thêm giỏ/checkout/thanh toán hộ là unsupported_checkout.',
+                    'Câu hỏi phối đồ hoặc nên mặc gì cho một dịp/phong cách là build_outfit; style_tags chỉ được chọn trong enum. Câu yêu cầu thêm giỏ/checkout/thanh toán hộ là unsupported_checkout.',
                     'Dùng null cho dữ kiện không xác định.',
                 ]),
             ],
@@ -120,7 +120,7 @@ final class LlmInputParser
                     'required' => [
                         'intent', 'product_query', 'category_id', 'product_id', 'order_id',
                         'min_price', 'max_price', 'color', 'size', 'in_stock', 'height_cm',
-                        'weight_kg', 'occasion', 'style', 'avoid',
+                        'weight_kg', 'occasion', 'style', 'avoid', 'style_tags',
                     ],
                     'properties' => [
                         'intent' => ['type' => 'string', 'enum' => self::INTENTS],
@@ -138,6 +138,7 @@ final class LlmInputParser
                         'occasion' => $nullableString,
                         'style' => ['type' => ['array', 'null'], 'items' => ['type' => 'string']],
                         'avoid' => ['type' => ['array', 'null'], 'items' => ['type' => 'string']],
+                        'style_tags' => ['type' => ['array', 'null'], 'items' => ['type' => 'string', 'enum' => StyleTag::ALL]],
                     ],
                 ],
             ],
@@ -149,7 +150,7 @@ final class LlmInputParser
     {
         $required = [
             'intent', 'product_query', 'category_id', 'product_id', 'order_id', 'min_price',
-            'max_price', 'color', 'size', 'in_stock', 'height_cm', 'weight_kg', 'occasion', 'style', 'avoid',
+            'max_price', 'color', 'size', 'in_stock', 'height_cm', 'weight_kg', 'occasion', 'style', 'avoid', 'style_tags',
         ];
         if (array_diff($required, array_keys($arguments)) !== []) {
             return null;
@@ -216,6 +217,8 @@ final class LlmInputParser
         foreach (['style', 'avoid'] as $field) {
             $result[$field] = $this->nullableTerms($arguments[$field]);
         }
+        $styleTags = array_values(array_filter((array)($arguments['style_tags'] ?? []), [StyleTag::class, 'isValid']));
+        $result['style_tags'] = $styleTags === [] ? null : array_slice($styleTags, 0, StyleTag::MAX_PER_REQUEST);
 
         if (in_array($intent, ['product_search', 'mixed_product_policy'], true) && $result['product_query'] === null) {
             return null;

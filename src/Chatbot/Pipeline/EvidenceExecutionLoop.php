@@ -269,7 +269,7 @@ class EvidenceExecutionLoop {
     }
 
     private function stateName(string $primary, array $missing): string {
-        if (in_array($primary, ['unsupported_outfit', 'unsupported_checkout'], true)) return 'guardrail';
+        if (in_array($primary, ['unsupported_checkout'], true)) return 'guardrail';
         if ($missing === []) return 'ready_to_answer';
         return 'need_' . implode('_and_', array_slice(array_map(
             fn($item) => preg_replace('/[^a-z0-9_]+/i', '_', (string)$item) ?: 'evidence',
@@ -285,7 +285,8 @@ class EvidenceExecutionLoop {
             'return_exchange', 'shipping', 'policy' => 'answer_policy_from_knowledge',
             'mixed_product_policy' => 'combine_product_and_policy_evidence',
             'order_status' => 'answer_order_status_safely',
-            'unsupported_outfit', 'unsupported_checkout' => 'explain_unsupported_scope',
+            'build_outfit' => 'compose_outfit_from_private_catalog',
+            'unsupported_checkout' => 'explain_unsupported_scope',
             default => 'clarify_user_request',
         };
     }
