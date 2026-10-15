@@ -63,11 +63,22 @@ class ProductConstraintVerifier {
                 $total += (int)round((float)($card['price'] ?? 0));
             }
             if (!$valid || ($budget > 0 && $total > $budget)) continue;
+            $newIndex = count($kept) + 1;
+            $outfit['outfit_index'] = $newIndex;
+            $outfit['total_price'] = $total;
             $kept[] = $outfit;
-            $keptIds = array_merge($keptIds, $ids);
+            foreach ($ids as $id) {
+                if (!isset($keptIds[$id])) $keptIds[$id] = $newIndex;
+            }
         }
         $normalized['outfits'] = $kept;
-        $normalized['cards'] = array_values(array_filter($cards, fn(array $card) => in_array((int)$card['id'], $keptIds, true)));
+        $out = [];
+        foreach ($cards as $id => $card) {
+            if (!isset($keptIds[$id])) continue;
+            $card['outfit_index'] = $keptIds[$id];
+            $out[] = $card;
+        }
+        $normalized['cards'] = $out;
         return $normalized;
     }
 

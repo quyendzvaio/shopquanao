@@ -69,4 +69,42 @@ final class OutfitResponseTest extends TestCase
         $this->assertSame('clarification', $response['response_type']);
         $this->assertStringContainsString('phỏng vấn', $response['message']);
     }
+
+    public function testPartialDropRenumbersSetsAndCards(): void
+    {
+        $normalized = (new EvidenceNormalizer())->normalize($this->intent(), $this->toolResult(
+            [
+                ['outfit_index' => 1, 'product_ids' => [57, 66], 'total_price' => 1430000, 'matched_tags' => ['phongvan']],
+                ['outfit_index' => 2, 'product_ids' => [61, 82], 'total_price' => 720000, 'matched_tags' => ['phongvan']],
+            ],
+            [
+                ['id' => 57, 'name' => 'Áo Vest', 'price' => 890000, 'stock' => 2, 'outfit_index' => 1],
+                ['id' => 66, 'name' => 'Quần Tây', 'price' => 540000, 'stock' => 11, 'outfit_index' => 1],
+                ['id' => 61, 'name' => 'Áo Dài Tay', 'price' => 250000, 'stock' => 10, 'outfit_index' => 2],
+                ['id' => 82, 'name' => 'Chân Váy', 'price' => 470000, 'stock' => 5, 'outfit_index' => 2],
+            ]
+        ));
+        $normalized = (new ProductConstraintVerifier())->verify($this->intent(), $normalized);
+        $response = (new ResponseGenerator())->generate('800k', $this->intent(), $normalized, ['response_type' => 'final_answer']);
+
+        $this->assertStringContainsString('Set 1, tổng 720.000đ', $response['message']);
+        $this->assertSame(1, $response['outfits'][0]['outfit_index']);
+        $this->assertSame([1, 1], array_column($response['cards'], 'outfit_index'));
+    }
+
+    public function testVerifiedTotalOverridesToolTotal(): void
+    {
+        $normalized = (new EvidenceNormalizer())->normalize($this->intent(), $this->toolResult(
+            [['outfit_index' => 1, 'product_ids' => [61, 66], 'total_price' => 100000, 'matched_tags' => ['phongvan']]],
+            [
+                ['id' => 61, 'name' => 'Áo', 'price' => 250000, 'stock' => 10, 'outfit_index' => 1],
+                ['id' => 66, 'name' => 'Quần', 'price' => 540000, 'stock' => 11, 'outfit_index' => 1],
+            ]
+        ));
+        $normalized = (new ProductConstraintVerifier())->verify($this->intent(), $normalized);
+        $response = (new ResponseGenerator())->generate('800k', $this->intent(), $normalized, ['response_type' => 'final_answer']);
+
+        $this->assertSame(790000, $response['outfits'][0]['total_price']);
+        $this->assertStringContainsString('Set 1, tổng 790.000đ', $response['message']);
+    }
 }

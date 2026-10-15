@@ -289,7 +289,7 @@ class ResponseGenerator {
                 if ($card === null) continue;
                 $parts[] = sprintf('%s (mã %d) %s', (string)$card['name'], (int)$id, $this->money((float)$card['price']));
             }
-            $lines[] = sprintf('Set %d, tổng %s: %s', $i + 1, $this->money((float)($outfit['total_price'] ?? 0)), implode(' + ', $parts));
+            $lines[] = sprintf('Set %d, tổng %s: %s', (int)($outfit['outfit_index'] ?? $i + 1), $this->money((float)($outfit['total_price'] ?? 0)), implode(' + ', $parts));
         }
         return 'Mình gợi ý ' . count($outfits) . ' set'
             . ($occasion !== '' ? " cho dịp $occasion" : '')
