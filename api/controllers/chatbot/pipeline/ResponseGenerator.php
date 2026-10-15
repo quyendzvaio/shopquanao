@@ -6,7 +6,6 @@ class ResponseGenerator {
         $responseType = (string)($plan['response_type'] ?? 'final_answer');
         $cards = $normalized['cards'] ?? [];
         $evidence = $normalized['evidence'] ?? [];
-        $complementaryGroups = $normalized['complementary_groups'] ?? [];
 
         if ($responseType === 'clarification') {
             $answer = $this->clarificationAnswer($intent);
@@ -28,7 +27,6 @@ class ResponseGenerator {
             'return_exchange', 'shipping', 'policy' => $this->policyAnswer($evidence, $primary),
             'size_advice' => $this->sizeAnswer($intent, $evidence),
             'order_status' => $this->orderAnswer($evidence),
-            'suggest_complementary_products' => $this->complementaryAnswer($complementaryGroups, $cards),
             'unknown' => 'Với câu hỏi ' . $this->echoQuote($message) . 'mình chưa đủ thông tin để trả lời chắc chắn. Bạn nói rõ hơn giúp mình nhé.',
             default => 'Mình chưa đủ thông tin để trả lời chắc chắn. Bạn nói rõ hơn giúp mình nhé.',
         };
@@ -236,29 +234,6 @@ class ResponseGenerator {
         }
         $answer = 'Mình tìm thấy ' . count($orders) . ' đơn hàng của bạn: ' . implode('; ', $lines) . '.';
         return $answer . ' Bạn có thể xem chi tiết trong mục Đơn hàng của tôi.';
-    }
-
-    private function complementaryAnswer(array $groups, array $cards): string {
-        if ($cards === []) {
-            return 'Mình chưa tìm thấy sản phẩm phối hợp phù hợp trong shop lúc này.';
-        }
-        $items = [];
-        $seen = [];
-        foreach ($cards as $card) {
-            if (!is_array($card)) continue;
-            $id = (int) ($card['id'] ?? 0);
-            if ($id <= 0 || isset($seen[$id])) continue;
-            $seen[$id] = true;
-            $name = trim((string) ($card['name'] ?? ''));
-            if ($name === '') continue;
-            $items[] = sprintf('%s (mã %d)', $name, $id);
-        }
-        if ($items === []) {
-            return 'Mình chưa tìm thấy sản phẩm phối hợp phù hợp trong shop lúc này.';
-        }
-        return 'Để phối cùng món bạn đang xem, mình tìm thấy trong catalog của shop: '
-            . implode('; ', array_slice($items, 0, 5))
-            . '. Bạn có thể xem các thẻ sản phẩm bên dưới.';
     }
 
     private function clarificationAnswer(array $intent): string {

@@ -56,15 +56,6 @@ export function createMcpServer(principal: Principal): McpServer {
     inputSchema: { product_id: z.number().int().positive() }, outputSchema, annotations: readOnly,
   }, async (args) => result(await callTool('get_product_detail', args, principal)));
 
-  server.registerTool('suggest_complementary_products', {
-    title: 'Suggest complementary products',
-    description: 'Use this when the user asks what would coordinate with a specific shop product. Recommendations are grounded in the shop catalog after styling analysis.',
-    inputSchema: {
-      product_id: z.number().int().positive(),
-      variant_id: z.number().int().positive().optional(),
-    }, outputSchema, annotations: readOnly,
-  }, async (args) => result(await callTool('suggest_complementary_products', args, principal)));
-
   server.registerTool('suggest_size', {
     title: 'Suggest a size',
     description: 'Use this when the user provides height and weight and wants a clothing size recommendation.',

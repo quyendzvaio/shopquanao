@@ -60,7 +60,6 @@ final class ManifestPlannerTest extends TestCase
             'order_status' => [],
             'mixed_product_policy' => ['product_id' => 52],
             'mixed_product_policy_search' => null,
-            'suggest_complementary_products' => ['product_id' => 52],
         ];
         foreach ($cases as $intent => $entities) {
             if ($entities === null) {
@@ -86,13 +85,8 @@ final class ManifestPlannerTest extends TestCase
         }
     }
 
-    public function testComplementaryWithoutAnchorAsksClarification(): void
+    public function testManifestNoLongerDeclaresProviderStylingIntent(): void
     {
-        $plan = $this->planner->plan([
-            'primary_intent' => 'suggest_complementary_products',
-            'entities' => [],
-        ]);
-        $this->assertSame([], $plan['batches']);
-        $this->assertSame('clarification', $plan['response_type']);
+        $this->assertNotContains('suggest_complementary_products', ChatbotToolManifest::knownIntents());
     }
 }

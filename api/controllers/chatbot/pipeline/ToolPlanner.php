@@ -56,18 +56,11 @@ class ToolPlanner {
     /** @return array{tool:string,args:array,id:string}|null */
     private function buildCall(string $tool, string $primary, array $intent, array $entities): ?array {
         switch ($tool) {
-            case 'suggest_complementary_products':
-                if ($primary !== 'suggest_complementary_products') return null;
-                $args = ['product_id' => (int)$entities['product_id']];
-                if (!empty($entities['variant_id'])) $args['variant_id'] = (int)$entities['variant_id'];
-                return ['tool' => $tool, 'args' => $args, 'id' => 'complementary_products'];
-
             case 'get_product_detail':
                 if (empty($entities['product_id'])) return null;
                 return ['tool' => $tool, 'args' => ['product_id' => (int)$entities['product_id']], 'id' => 'product_detail'];
 
             case 'search_products':
-                if ($primary === 'suggest_complementary_products') return null;
                 if (empty($entities['product_type']) && $primary !== 'mixed_product_policy') return null;
                 if ($primary === 'mixed_product_policy' && (!empty($entities['product_id']) || empty($entities['product_type']))) return null;
                 return ['tool' => $tool, 'args' => $this->searchArgs($entities), 'id' => 'product_search'];

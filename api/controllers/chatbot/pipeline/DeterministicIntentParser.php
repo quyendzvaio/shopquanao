@@ -327,9 +327,6 @@ class DeterministicIntentParser {
     }
 
     private function inferIntent(string $lower, array $fields): string {
-        if (isset($fields['product_id']) && $this->isComplementaryRequest($lower)) {
-            return 'suggest_complementary_products';
-        }
         if ($this->isOutfit($lower)) return 'unsupported_outfit';
         if ($this->isCheckout($lower)) return 'unsupported_checkout';
         if ($this->isOrder($lower)) return 'order_status';
@@ -474,29 +471,6 @@ class DeterministicIntentParser {
 
     private function isOutfit(string $text): bool {
         return (bool)preg_match('/phối đồ|phoi do|phối với|phoi voi|mặc với|mac voi|outfit|set đồ|set do|set\s+(?:đi chơi|di choi)|(?:gồm|gom)\s+(?:áo|ao)\s+(?:và|va)\s+(?:quần|quan)|(?:áo|ao)\s+(?:và|va)\s+(?:quần|quan)/ui', $text);
-    }
-
-    private function isComplementaryRequest(string $text): bool {
-        if (preg_match('/(?:gồm|gom)\s+(?:áo|ao)\s+(?:và|va)\s+(?:quần|quan)|(?:áo|ao)\s+(?:và|va)\s+(?:quần|quan)/ui', $text)) {
-            return false;
-        }
-        $hasProductAnchor = preg_match(
-            '/(?:sản phẩm|san pham|món|mon)(?:\s+(?:mã|ma|số|so))?\s*#?\s*\d+|(?:mã|ma)\s*#?\s*\d+/ui',
-            $text
-        );
-        $hasCompanionLanguage = preg_match(
-            '/phối|phoi|kết hợp|ket hop|mặc cùng|mac cung|mặc chung|mac chung|đi kèm|di kem|bổ trợ|bo tro|'
-            . 'hợp với|hop voi|complete the look|outfit|\bset\b|chọn thêm đồ|chon them do/ui',
-            $text
-        );
-        if ($hasProductAnchor && $hasCompanionLanguage) {
-            return true;
-        }
-        return (bool)preg_match(
-            '/phối\s+(?:với|voi)|mặc\s+với|mac\s+voi|gợi ý.{0,50}(?:hợp|phối)|goi y.{0,50}(?:hop|phoi)|'
-            . 'đi với gì|di voi gi|phối đồ với|phoi do voi|complete the look|outfit hợp/ui',
-            $text
-        );
     }
 
     private function isCheckout(string $text): bool {

@@ -20,7 +20,6 @@ final class LlmInputParser
         'order_status',
         'unsupported_outfit',
         'unsupported_checkout',
-        'suggest_complementary_products',
         'unknown',
     ];
 
@@ -88,7 +87,7 @@ final class LlmInputParser
                     'Chuẩn hóa lỗi khoảng trắng/viết liền cho mọi loại sản phẩm (ví dụ: "áo sơmi" thành "áo sơ mi", "quanjean" thành "quần jeans", "aothun" thành "áo thun", "aokhoac" thành "áo khoác", "quantay" thành "quần tây", "chanvay" thành "chân váy", "tuixach" thành "túi xách", "dongho" thành "đồng hồ", "giayluoi" thành "giày lười"); không thêm đặc tính không có trong câu.',
                     'Giá dùng VND nguyên: 500k = 500000. Dưới/tối đa là max_price, từ/trên là min_price.',
                     'product_id và order_id chỉ lấy từ mã được user nói rõ, trừ tham chiếu như "món này" có thể dùng đúng memory_hints.last_product_id.',
-                    'Các intent cần hỗ trợ: tìm/xem sản phẩm, tư vấn size, chính sách đổi trả/vận chuyển/thanh toán/bảo hành, đơn hàng, guardrail checkout/phối đồ, và phối đồ cho product_id cụ thể.',
+                    'Các intent cần hỗ trợ: tìm/xem sản phẩm, tư vấn size, chính sách đổi trả/vận chuyển/thanh toán/bảo hành, đơn hàng, guardrail checkout/phối đồ.',
                     'Câu phối đồ không có product_id là unsupported_outfit. Câu yêu cầu thêm giỏ/checkout/thanh toán hộ là unsupported_checkout.',
                     'Dùng null cho dữ kiện không xác định.',
                 ]),
@@ -221,7 +220,7 @@ final class LlmInputParser
         if (in_array($intent, ['product_search', 'mixed_product_policy'], true) && $result['product_query'] === null) {
             return null;
         }
-        if (in_array($intent, ['product_detail', 'suggest_complementary_products'], true) && $result['product_id'] === null) {
+        if ($intent === 'product_detail' && $result['product_id'] === null) {
             return null;
         }
         return $result;

@@ -49,19 +49,16 @@ final class ChatbotGuardrailTest extends TestCase
         );
     }
 
-    public function testExplicitAnchorStylingRequestKeepsProductId(): void
+    public function testAnchoredStylingRequestKeepsProductIdWithoutProviderIntent(): void
     {
         $partial = (new DeterministicIntentParser())
             ->parse('Sản phẩm mã 52 phối với gì?', [])
             ->toArray();
-        $this->assertSame(
+        $this->assertNotSame(
             'suggest_complementary_products',
             (string)($partial['resolved_fields']['intent']['value'] ?? '')
         );
-        $this->assertSame(
-            52,
-            (int)($partial['resolved_fields']['product_id']['value'] ?? 0)
-        );
+        $this->assertSame(52, (int)($partial['resolved_fields']['product_id']['value'] ?? 0));
     }
 
     public function testGuardrailPlanExecutesNoTools(): void

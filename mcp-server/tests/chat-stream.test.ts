@@ -58,7 +58,7 @@ test('forwards native upstream token deltas and safe private cards', async () =>
         session_token: 'a'.repeat(64),
         session_id: 42,
         response_type: 'final_answer',
-        primary_intent: 'suggest_complementary_products',
+        primary_intent: 'product_search',
         trace_id: 'trace-safe',
         product_count: 1,
       }) + '\n');

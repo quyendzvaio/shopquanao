@@ -36,14 +36,6 @@ final class ToolDefinitionCatalog
                 'properties' => ['product_id' => ['type' => 'integer']],
                 'required' => ['product_id'],
             ]),
-            self::definition('suggest_complementary_products', 'Gọi styling provider đã mapping rồi tìm các SKU thật của shop theo từng nhóm phối đồ.', [
-                'type' => 'object',
-                'properties' => [
-                    'product_id' => ['type' => 'integer'],
-                    'variant_id' => ['type' => 'integer'],
-                ],
-                'required' => ['product_id'],
-            ]),
             self::definition('suggest_size', 'Tư vấn size dựa trên chiều cao, cân nặng và danh mục.', [
                 'type' => 'object',
                 'properties' => [

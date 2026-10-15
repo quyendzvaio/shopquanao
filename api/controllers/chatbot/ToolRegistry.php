@@ -13,49 +13,6 @@ require_once __DIR__ . '/ToolDefinitionCatalog.php';
 require_once __DIR__ . '/llm/LLMFactory.php';
 require_once __DIR__ . '/../../services/Catalog/CatalogTaxonomy.php';
 require_once __DIR__ . '/../../services/Catalog/CatalogVariantHydrator.php';
-require_once __DIR__ . '/../../services/Fashion/AnchorProductRef.php';
-require_once __DIR__ . '/../../services/Fashion/ComplementaryItemRequirement.php';
-require_once __DIR__ . '/../../services/Fashion/ComplementaryPlan.php';
-require_once __DIR__ . '/../../services/Fashion/FashionProviderResult.php';
-require_once __DIR__ . '/../../services/Fashion/FashionProviderProductMapping.php';
-require_once __DIR__ . '/../../services/Fashion/FashionProvider.php';
-require_once __DIR__ . '/../../services/Fashion/FashionProviderMappingRepository.php';
-require_once __DIR__ . '/../../services/Fashion/RawFashionSuggestion.php';
-require_once __DIR__ . '/../../services/Fashion/RawFashionSuggestionProvider.php';
-require_once __DIR__ . '/../../services/Fashion/ExtractedFashionItem.php';
-require_once __DIR__ . '/../../services/Fashion/FashionAttributeExtractor.php';
-require_once __DIR__ . '/../../services/Fashion/FashionExtractionCache.php';
-require_once __DIR__ . '/../../services/Fashion/ApplicationFashionExtractionCache.php';
-require_once __DIR__ . '/../../services/Fashion/FashionPipelineMetrics.php';
-require_once __DIR__ . '/../../services/Fashion/StructuredLogFashionMetrics.php';
-require_once __DIR__ . '/../../services/Fashion/FashionExtractionException.php';
-require_once __DIR__ . '/../../services/Fashion/DeterministicFashionAttributeParser.php';
-require_once __DIR__ . '/../../services/Fashion/FashionExtractionSemanticValidator.php';
-require_once __DIR__ . '/../../services/Fashion/LlmFashionAttributeExtractor.php';
-require_once __DIR__ . '/../../services/Fashion/FashionRequirement.php';
-require_once __DIR__ . '/../../services/Fashion/FashionRequirementNormalizer.php';
-require_once __DIR__ . '/../../services/Fashion/ShopComplementaryRequirement.php';
-require_once __DIR__ . '/../../services/Fashion/ConcurrentProductSearchGateway.php';
-require_once __DIR__ . '/../../services/Fashion/ComplementaryProductFinder.php';
-require_once __DIR__ . '/../../services/Fashion/FashionTaxonomyNormalizer.php';
-require_once __DIR__ . '/../../services/Fashion/ParallelComplementaryProductSearcher.php';
-require_once __DIR__ . '/../../services/Fashion/InternalShopConcurrentProductSearchGateway.php';
-require_once __DIR__ . '/../../services/Fashion/StylingReferenceProvider.php';
-require_once __DIR__ . '/../../services/Fashion/StyleReference.php';
-require_once __DIR__ . '/../../services/Fashion/StyleReferenceSet.php';
-require_once __DIR__ . '/../../services/Fashion/StyleReferenceRawSuggestionAdapter.php';
-require_once __DIR__ . '/../../services/Fashion/MappedStyleReference.php';
-require_once __DIR__ . '/../../services/Fashion/PrivateCatalogStyleMapper.php';
-require_once __DIR__ . '/../../services/Fashion/StyleReferenceCatalogRecommendationService.php';
-require_once __DIR__ . '/../../services/Fashion/StyliticsConfig.php';
-require_once __DIR__ . '/../../services/Fashion/StyliticsApiException.php';
-require_once __DIR__ . '/../../services/Fashion/StyliticsHttpClientContract.php';
-require_once __DIR__ . '/../../services/Fashion/StyliticsHttpClient.php';
-require_once __DIR__ . '/../../services/Fashion/StyliticsStyleReferenceMapper.php';
-require_once __DIR__ . '/../../services/Fashion/StyliticsAnchorSkuResolverContract.php';
-require_once __DIR__ . '/../../services/Fashion/StyliticsCatalogSkuResolver.php';
-require_once __DIR__ . '/../../services/Fashion/StyliticsDemoStylingProvider.php';
-require_once __DIR__ . '/../../services/Fashion/StyliticsStylingProvider.php';
 
 class ToolRegistry implements ChatbotToolGateway {
     private PDO $pdo;
@@ -156,22 +113,6 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
                     'type' => 'object',
                     'properties' => [
                         'product_id' => ['type' => 'integer', 'description' => 'ID sản phẩm'],
-                    ],
-                    'required' => ['product_id'],
-                ],
-            ],
-        ];
-
-        $this->tools['suggest_complementary_products'] = [
-            'type' => 'function',
-            'function' => [
-                'name' => 'suggest_complementary_products',
-                'description' => 'Tìm các sản phẩm thật trong shop có thể phối cùng một sản phẩm neo sau khi phân tích styling.',
-                'parameters' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'product_id' => ['type' => 'integer', 'description' => 'ID sản phẩm neo trong shop'],
-                        'variant_id' => ['type' => 'integer', 'description' => 'ID biến thể nếu user chỉ rõ màu/size'],
                     ],
                     'required' => ['product_id'],
                 ],
@@ -316,46 +257,6 @@ Lấy đúng cụm từ user đã nói, không thêm bớt.',
         }
 
         return $result;
-    }
-
-    private function executeSuggestComplementaryProducts(array $args): array {
-        $productId = (int) ($args['product_id'] ?? 0);
-        $variantId = isset($args['variant_id']) ? (int) $args['variant_id'] : null;
-        if ($productId <= 0) {
-            throw new InvalidArgumentException('product_id is required');
-        }
-        $stylitics = StyliticsConfig::fromEnvironment();
-        if ($stylitics->enabled && $stylitics->mode !== 'disabled') {
-            if ($stylitics->mode === 'live' && $stylitics->liveVerified) {
-                return (new StyleReferenceCatalogRecommendationService(
-                    new StyliticsStylingProvider($stylitics, new StyliticsCatalogSkuResolver($this->pdo), new StyliticsHttpClient($stylitics)),
-                    new PrivateCatalogStyleMapper(new ParallelComplementaryProductSearcher(new InternalShopConcurrentProductSearchGateway()))
-                ))->find($productId, $variantId);
-            }
-            $llm = LLMFactory::fashionExtractionFromEnv();
-            if ($llm === null) {
-                return [
-                    'status' => 'extraction_failure',
-                    'provider_error' => 'fashion_extraction_llm_not_configured',
-                    'products' => [],
-                    'groups' => [],
-                ];
-            }
-            $referenceProvider = new StyliticsDemoStylingProvider();
-            $finder = new ComplementaryProductFinder(
-                new StyleReferenceRawSuggestionAdapter($referenceProvider),
-                new LlmFashionAttributeExtractor($llm),
-                new FashionRequirementNormalizer(),
-                new ParallelComplementaryProductSearcher(new InternalShopConcurrentProductSearchGateway())
-            );
-            return $finder->find($productId, $variantId);
-        }
-        return [
-            'status' => 'provider_unavailable',
-            'provider_error' => 'stylitics_disabled',
-            'products' => [],
-            'groups' => [],
-        ];
     }
 
     private function extractSearchProductId(array $args): ?int {

@@ -72,13 +72,6 @@ return [
             'needs_auth' => true,
             'mutation' => false,
         ],
-        'suggest_complementary_products' => [
-            'tools' => ['suggest_complementary_products'],
-            'required_slots' => ['product_id'],
-            'empty_response' => 'clarification',
-            'needs_auth' => false,
-            'mutation' => false,
-        ],
         'unknown' => [
             'tools' => [],
             'required_slots' => [],

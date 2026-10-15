@@ -61,7 +61,6 @@ class LightweightEvidenceScorer {
             'return_exchange', 'shipping', 'policy' => ['policy_source', 'policy_content'],
             'mixed_product_policy' => ['product_evidence', 'policy_source', 'policy_content'],
             'order_status' => ['order_status_or_login'],
-            'suggest_complementary_products' => ['complementary_products'],
             'unsupported_outfit', 'unsupported_checkout', 'unknown' => [],
             default => [],
         };
@@ -107,7 +106,6 @@ class LightweightEvidenceScorer {
             'policy_content' => $this->policyContentMatches($intent, $evidence),
             'product_evidence' => $cards !== [] || $this->hasAnySource($evidence, ['product_search', 'product_detail']),
             'order_status_or_login' => $this->hasEvidenceType($evidence, 'order_status') || $this->hasEvidenceType($evidence, 'requires_login'),
-            'complementary_products' => $cards !== [] || $this->hasEvidenceType($evidence, 'complementary_groups'),
             'price_constraint' => $this->priceConstraintsPass($cards, $entities),
             'stock_constraint' => $this->stockConstraintPass($cards, $entities),
             'requested_size_evidence' => $this->requestedSizeEvidence($cards, $evidence, (string)($entities['size'] ?? '')),
