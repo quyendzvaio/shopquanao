@@ -497,7 +497,7 @@ class DeterministicIntentParser {
     }
 
     private function isPolicy(string $text): bool {
-        return (bool)preg_match('/bảo hành|bao hanh|thanh toán|thanh toan|cod|momo|vnpay|bán sỉ|ban si|hotline|địa chỉ|dia chi|giờ mở cửa|gio mo cua|chính sách|chinh sach/ui', $text);
+        return (bool)preg_match('/bảo hành|bao hanh|thanh toán|thanh toan|\bcod\b|momo|vnpay|bán sỉ|ban si|hotline|địa chỉ|dia chi|giờ mở cửa|gio mo cua|chính sách|chinh sach/ui', $text);
     }
 
     private function isOrder(string $text): bool {
