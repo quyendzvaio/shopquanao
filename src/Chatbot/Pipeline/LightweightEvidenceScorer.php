@@ -119,8 +119,19 @@ class LightweightEvidenceScorer {
             'semantic_query_constraint' => $this->textConstraintPass($cards, $entities, 'semantic_query'),
             'avoid_constraint' => $this->avoidConstraintPass($cards, $entities),
             'outfit_result' => $this->hasEvidenceType($evidence, 'outfit_sets') || $this->hasEvidenceType($evidence, 'outfit_unavailable'),
+            'freeship_status' => $this->hasFreeshipStatus($evidence),
             default => false,
         };
+    }
+
+    private function hasFreeshipStatus(array $evidence): bool {
+        foreach ($evidence as $item) {
+            if (($item['fact_type'] ?? '') === 'freeship_status'
+                && in_array((string)($item['value'] ?? ''), ['requires_login', 'empty_cart', 'qualified', 'gap'], true)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function productIdMatches(array $cards, int $requested): bool {
