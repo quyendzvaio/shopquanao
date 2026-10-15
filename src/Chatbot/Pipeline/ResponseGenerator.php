@@ -23,6 +23,7 @@ class ResponseGenerator {
             'return_exchange', 'shipping', 'policy' => $this->policyAnswer($evidence, $primary),
             'size_advice' => $this->sizeAnswer($intent, $evidence),
             'order_status' => $this->orderAnswer($evidence),
+            'build_outfit' => $this->outfitAnswer($intent, $normalized),
             'unknown' => 'Với câu hỏi ' . $this->echoQuote($message) . 'mình chưa đủ thông tin để trả lời chắc chắn. Bạn nói rõ hơn giúp mình nhé.',
             default => 'Mình chưa đủ thông tin để trả lời chắc chắn. Bạn nói rõ hơn giúp mình nhé.',
         };
@@ -32,7 +33,11 @@ class ResponseGenerator {
             $answer = 'Mình chưa tìm thấy dữ liệu phù hợp để trả lời chính xác. Bạn vui lòng hỏi rõ hơn giúp mình.';
         }
 
-        return $this->response($answer, $type, $intent, $cards);
+        $response = $this->response($answer, $type, $intent, $cards);
+        if ($primary === 'build_outfit') {
+            $response['outfits'] = $normalized['outfits'] ?? [];
+        }
+        return $response;
     }
 
     private function productSearchAnswer(array $intent, array $cards, array $evidence): string {
@@ -233,14 +238,64 @@ class ResponseGenerator {
     }
 
     private function clarificationAnswer(array $intent): string {
+        if (($intent['primary_intent'] ?? '') === 'build_outfit') {
+            return 'Bạn muốn phối đồ cho dịp hoặc phong cách nào? Mình hỗ trợ: '
+                . implode(', ', array_map([StyleTag::class, 'label'], StyleTag::ALL))
+                . '. Bạn có thể kèm ngân sách và chiều cao, cân nặng để mình chọn đúng size.';
+        }
         $missing = $intent['missing_slots'] ?? [];
         if (in_array('height', $missing, true) || in_array('weight', $missing, true)) {
             return 'Bạn cho mình xin chiều cao và cân nặng để tư vấn size chính xác hơn nhé.';
         }
-        if (in_array('style_tags', $missing, true)) {
-            return 'Bạn định phối đồ cho dịp hay phong cách nào (ví dụ đi làm, đi chơi, đi biển, phỏng vấn, hẹn hò)? Cho mình thêm ngân sách và chiều cao, cân nặng nếu muốn nhé.';
-        }
         return 'Bạn bổ sung thêm thông tin còn thiếu để mình hỗ trợ chính xác hơn nhé.';
+    }
+
+    private function outfitAnswer(array $intent, array $normalized): string {
+        $outfits = is_array($normalized['outfits'] ?? null) ? $normalized['outfits'] : [];
+        $cards = [];
+        foreach (($normalized['cards'] ?? []) as $card) {
+            if (is_array($card)) $cards[(int)($card['id'] ?? 0)] = $card;
+        }
+        $fact = [];
+        foreach (($normalized['evidence'] ?? []) as $item) {
+            if (in_array($item['fact_type'] ?? '', ['outfit_sets', 'outfit_unavailable'], true)) $fact = $item;
+        }
+        $occasion = implode(', ', array_map([StyleTag::class, 'label'], (array)($fact['style_tags'] ?? [])));
+        $budget = (int)($intent['entities']['max_price'] ?? 0);
+
+        if ($outfits === []) {
+            $reason = ($fact['fact_type'] ?? '') === 'outfit_unavailable' ? (string)($fact['value'] ?? '') : '';
+            if ($reason === 'budget_too_low' && !empty($fact['cheapest_total'])) {
+                return sprintf(
+                    'Với ngân sách %s, mình chưa ghép được set %s còn hàng; set rẻ nhất hiện khoảng %s. Bạn có thể tăng ngân sách hoặc chọn dịp khác nhé.',
+                    $this->money($budget), $occasion, $this->money((float)$fact['cheapest_total'])
+                );
+            }
+            if ($reason === 'anchor_unavailable') {
+                return sprintf(
+                    'Sản phẩm mã %d hiện không còn hàng nên mình chưa phối được. Bạn chọn sản phẩm khác hoặc cho mình biết dịp bạn cần nhé.',
+                    (int)($intent['entities']['product_id'] ?? 0)
+                );
+            }
+            return 'Hiện shop chưa đủ sản phẩm còn hàng' . ($occasion !== '' ? " cho dịp $occasion" : '')
+                . ' để ghép thành set. Bạn thử dịp hoặc phong cách khác nhé.';
+        }
+
+        $lines = [];
+        foreach ($outfits as $i => $outfit) {
+            $parts = [];
+            foreach ((array)($outfit['product_ids'] ?? []) as $id) {
+                $card = $cards[(int)$id] ?? null;
+                if ($card === null) continue;
+                $parts[] = sprintf('%s (mã %d) %s', (string)$card['name'], (int)$id, $this->money((float)$card['price']));
+            }
+            $lines[] = sprintf('Set %d, tổng %s: %s', $i + 1, $this->money((float)($outfit['total_price'] ?? 0)), implode(' + ', $parts));
+        }
+        return 'Mình gợi ý ' . count($outfits) . ' set'
+            . ($occasion !== '' ? " cho dịp $occasion" : '')
+            . ($budget > 0 ? ' trong ngân sách ' . $this->money($budget) : '') . '. '
+            . implode('. ', $lines)
+            . '. Bạn bấm vào thẻ sản phẩm để xem chi tiết và tự thêm vào giỏ nhé.';
     }
 
     private function response(string $answer, string $type, array $intent, array $cards): array {

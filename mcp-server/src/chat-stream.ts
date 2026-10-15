@@ -66,6 +66,7 @@ class SlidingWindowRateLimiter {
 const safeProductFields = new Set([
   'id', 'name', 'price', 'stock', 'image', 'image_url', 'url', 'category_id',
   'subcategory_id', 'variant_id', 'available_sizes', 'available_colors',
+  'outfit_index',
 ]);
 
 function isRecord(value: unknown): value is JsonRecord {

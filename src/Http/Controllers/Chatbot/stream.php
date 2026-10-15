@@ -42,6 +42,7 @@ try {
         'response_type' => $result['response_type'] ?? 'final_answer',
         'primary_intent' => $result['primary_intent'] ?? 'unknown',
         'trace_id' => $result['trace_id'] ?? null,
+        'outfits' => $result['outfits'] ?? [],
         'product_count' => count($cards),
         'latency' => is_array($result['latency'] ?? null) ? $result['latency'] : [],
     ]);

@@ -118,3 +118,10 @@ test('rejects disallowed origins before any upstream request', async () => {
 test('cards never expose provider identifiers', () => {
   assert.deepEqual(sanitizeProductCards([{ id: 7, name: 'Giày', provider_sku: 'provider-7', provider_product_id: 'x' }]), [{ id: 7, name: 'Giày' }]);
 });
+
+test('cards keep outfit grouping but nothing else new', () => {
+  assert.deepEqual(
+    sanitizeProductCards([{ id: 61, name: 'Áo', outfit_index: 1, style_tags: ['phongvan'] }]),
+    [{ id: 61, name: 'Áo', outfit_index: 1 }],
+  );
+});

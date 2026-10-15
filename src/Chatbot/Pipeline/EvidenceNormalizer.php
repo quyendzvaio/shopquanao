@@ -7,6 +7,7 @@ class EvidenceNormalizer {
         $knowledgeSources = [];
         $evidence = [];
         $toolResults = [];
+        $outfits = [];
 
         foreach (($execution['results'] ?? []) as $id => $entry) {
             $tool = (string)($entry['tool'] ?? '');
@@ -27,6 +28,8 @@ class EvidenceNormalizer {
                 $this->normalizeSize($result, $evidence);
             } elseif ($tool === 'get_order_status') {
                 $this->normalizeOrder($result, $evidence);
+            } elseif ($tool === 'build_outfit') {
+                $this->normalizeOutfits($result, $cards, $evidence, $outfits);
             }
         }
 
@@ -35,6 +38,36 @@ class EvidenceNormalizer {
             'knowledge_sources' => $this->dedupeKnowledgeSources($knowledgeSources),
             'evidence' => $evidence,
             'tool_results' => $toolResults,
+            'outfits' => $outfits,
+        ];
+    }
+
+    /** @return list<array<string,mixed>> */
+    public function productCards(array $products): array {
+        $cards = [];
+        foreach ($products as $product) {
+            if (!is_array($product)) continue;
+            $card = $this->productCard($product);
+            if ((int)$card['id'] > 0) $cards[] = $card;
+        }
+        return $cards;
+    }
+
+    private function normalizeOutfits(array $result, array &$cards, array &$evidence, array &$outfits): void {
+        foreach ($this->productCards(is_array($result['products'] ?? null) ? $result['products'] : []) as $card) {
+            $cards[] = $card;
+            $this->addProductFacts($card, $evidence, 'outfit_builder');
+        }
+        $outfits = is_array($result['outfits'] ?? null) ? array_values($result['outfits']) : [];
+        $evidence[] = [
+            'source' => 'outfit_builder',
+            'fact_type' => $outfits === [] ? 'outfit_unavailable' : 'outfit_sets',
+            'value' => $outfits === [] ? (string)($result['reason'] ?? 'no_outfit') : $outfits,
+            'style_tags' => is_array($result['style_tags'] ?? null) ? $result['style_tags'] : [],
+            'budget' => isset($result['budget']) ? (int)$result['budget'] : null,
+            'cheapest_total' => isset($result['cheapest_total']) ? (int)$result['cheapest_total'] : null,
+            'freshness' => date('c'),
+            'confidence' => 1.0,
         ];
     }
 
@@ -193,6 +226,7 @@ class EvidenceNormalizer {
             'image' => $image,
             'image_url' => $this->productImageUrl($image, (string)($product['image_url'] ?? '')),
             'url' => $id > 0 ? '/product.php?id=' . $id : '',
+            'outfit_index' => isset($product['outfit_index']) ? (int)$product['outfit_index'] : null,
         ];
     }
 

@@ -10,6 +10,7 @@ class ProductConstraintVerifier {
      */
     public function verify(array $intent, array $normalized): array|bool {
         $primary = (string)($intent['primary_intent'] ?? '');
+        if ($primary === 'build_outfit') return $this->verifyOutfits($intent, $normalized);
         if (!in_array($primary, ['product_search', 'product_detail', 'mixed_product_policy'], true)) {
             if (isset($intent['id']) && (isset($intent['name']) || isset($intent['price']))) {
                 return $this->matchesProductType($intent, $normalized)
@@ -40,6 +41,33 @@ class ProductConstraintVerifier {
             array_map(fn($card) => (int)($card['id'] ?? 0), $passed)
         );
         $normalized = $this->withConstraintEvidence($normalized, $entities, $passed, count($passed));
+        return $normalized;
+    }
+
+    /** A card survives only inside a set that is fully in stock and within budget. */
+    private function verifyOutfits(array $intent, array $normalized): array {
+        $budget = (int)($intent['entities']['max_price'] ?? 0);
+        $cards = [];
+        foreach (($normalized['cards'] ?? []) as $card) {
+            if (is_array($card)) $cards[(int)($card['id'] ?? 0)] = $card;
+        }
+        $kept = [];
+        $keptIds = [];
+        foreach (($normalized['outfits'] ?? []) as $outfit) {
+            $ids = array_map('intval', (array)($outfit['product_ids'] ?? []));
+            $total = 0;
+            $valid = $ids !== [];
+            foreach ($ids as $id) {
+                $card = $cards[$id] ?? null;
+                if ($card === null || (int)($card['stock'] ?? 0) <= 0) { $valid = false; break; }
+                $total += (int)round((float)($card['price'] ?? 0));
+            }
+            if (!$valid || ($budget > 0 && $total > $budget)) continue;
+            $kept[] = $outfit;
+            $keptIds = array_merge($keptIds, $ids);
+        }
+        $normalized['outfits'] = $kept;
+        $normalized['cards'] = array_values(array_filter($cards, fn(array $card) => in_array((int)$card['id'], $keptIds, true)));
         return $normalized;
     }
 
