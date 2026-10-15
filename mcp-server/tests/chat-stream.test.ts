@@ -58,7 +58,7 @@ test('forwards native upstream token deltas and safe private cards', async () =>
         session_token: 'a'.repeat(64),
         session_id: 42,
         response_type: 'final_answer',
-        primary_intent: 'suggest_complementary_products',
+        primary_intent: 'product_search',
         trace_id: 'trace-safe',
         product_count: 1,
       }) + '\n');
@@ -116,5 +116,12 @@ test('rejects disallowed origins before any upstream request', async () => {
 });
 
 test('cards never expose provider identifiers', () => {
-  assert.deepEqual(sanitizeProductCards([{ id: 7, name: 'Giày', provider_sku: 'stylitics-7', provider_product_id: 'x' }]), [{ id: 7, name: 'Giày' }]);
+  assert.deepEqual(sanitizeProductCards([{ id: 7, name: 'Giày', provider_sku: 'provider-7', provider_product_id: 'x' }]), [{ id: 7, name: 'Giày' }]);
+});
+
+test('cards keep outfit grouping but nothing else new', () => {
+  assert.deepEqual(
+    sanitizeProductCards([{ id: 61, name: 'Áo', outfit_index: 1, style_tags: ['phongvan'] }]),
+    [{ id: 61, name: 'Áo', outfit_index: 1 }],
+  );
 });

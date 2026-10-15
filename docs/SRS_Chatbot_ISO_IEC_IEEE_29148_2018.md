@@ -1,5 +1,7 @@
 # Software Requirements Specification - Fashion Shop Chatbot
 
+> Tài liệu lịch sử, mô tả kiến trúc trước 2026-10-15. Stylitics/FindMine, UC1/UC2 và event worker đã bị gỡ; chatbot hiện có UC-A `build_outfit` và UC-C `freeship_gap` (xem README.md và CLAUDE.md).
+
 Document ID: `SRS-CHATBOT-001`  
 Version: `1.0.0`  
 Status: Draft for baseline approval  
@@ -67,7 +69,7 @@ The chatbot shall not:
 - `README.md`.
 - `docs/chatbot-spec.md`.
 - `docs/technical-spec.md`.
-- `sql/shop_db.sql`.
+- `database/schema.sql`.
 - `eval/chatbot_eval_cases.jsonl`.
 - `tests/eval/rag_eval_cases.json`.
 

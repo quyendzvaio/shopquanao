@@ -41,33 +41,15 @@ final class ChatbotGuardrailTest extends TestCase
         );
     }
 
-    public function testGenericOutfitRequestIsUnsupportedOutfit(): void
+    public function testGenericOutfitRequestBuildsAnOutfitInsteadOfRefusing(): void
     {
-        $this->assertSame(
-            'unsupported_outfit',
-            $this->intentOf('phối giúp tôi một set đồ đi chơi gồm áo và quần')
-        );
-    }
-
-    public function testExplicitAnchorStylingRequestKeepsProductId(): void
-    {
-        $partial = (new DeterministicIntentParser())
-            ->parse('Sản phẩm mã 52 phối với gì?', [])
-            ->toArray();
-        $this->assertSame(
-            'suggest_complementary_products',
-            (string)($partial['resolved_fields']['intent']['value'] ?? '')
-        );
-        $this->assertSame(
-            52,
-            (int)($partial['resolved_fields']['product_id']['value'] ?? 0)
-        );
+        $this->assertSame('build_outfit', $this->intentOf('phối giúp tôi một set đồ đi chơi gồm áo và quần'));
     }
 
     public function testGuardrailPlanExecutesNoTools(): void
     {
         $planner = new ToolPlanner([]);
-        foreach (['unsupported_outfit', 'unsupported_checkout'] as $intent) {
+        foreach (['unsupported_checkout'] as $intent) {
             $plan = $planner->plan(['primary_intent' => $intent, 'entities' => []]);
             $this->assertSame([], $plan['batches'], $intent);
         }

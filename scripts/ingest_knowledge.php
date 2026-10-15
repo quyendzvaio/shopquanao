@@ -8,9 +8,7 @@
  * Requires QDRANT_URL and RAG_ML_URL for semantic embeddings. The default
  * runtime model is bkai-foundation-models/vietnamese-bi-encoder.
  */
-require_once __DIR__ . '/../config/db.php';
-require_once __DIR__ . '/../api/cache/Cache.php';
-require_once __DIR__ . '/../api/controllers/chatbot/KnowledgeRetriever.php';
+require_once dirname(__DIR__) . '/src/bootstrap.php';
 
 $retriever = new KnowledgeRetriever($pdo, dirname(__DIR__));
 $documents = $retriever->getDocuments();

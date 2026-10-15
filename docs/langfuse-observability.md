@@ -90,8 +90,7 @@ removed explicitly and only after a verified backup.
 Use a normal restart when applying a configuration change:
 
 ```bash
-APP_IMAGE=shop_quan_ao-app:stylitics-goal1 \
-  docker compose --profile observability up -d
+docker compose --profile observability up -d
 docker compose --profile observability ps
 curl -fsS http://localhost:3000/api/public/health
 ```
@@ -178,21 +177,9 @@ python3 -m venv .venv-eval
 pip install -r eval/requirements-eval.txt
 ```
 
-The 50-case Stylitics report can be published after the project keys are set:
+Chat traces are sanitized: raw MCP responses, cookies and secret headers are never sent.
 
-```bash
-python3 eval/publish_stylitics_langfuse.py \
-  --report reports/eval/stylitics_agent_eval_50.json
-```
-
-The publisher sends only sanitized questions, final answers, private
-Product-Search contexts, bounded metadata, and timing. It does not send raw
-MCP responses, Stylitics OAuth material, cookies, or secret headers. Dataset item
-IDs are stable so rerunning the command does not create a new item per run.
-
-`eval/run_chatbot_eval.py` and `scripts/eval_rag_chatbot.py` also emit optional
-Langfuse observations when both project keys are present. Without keys, the
-evaluation remains fully functional and deterministic checks still run.
+The deterministic agent eval (`scripts/run_agent_eval.php`) does not need Langfuse.
 
 ## Production agent tracing: fail-open by design
 
@@ -216,7 +203,7 @@ answer and stream normally. A failed export is never returned to a shopper.
 
 Traces include the deterministic agent decision, selected tool names, loop
 count, stage latency, response type, and only private Product Search IDs. Raw
-Stylitics/MCP payloads and credentials are never exported. `LANGFUSE_TRACE_CONTENT`
+MCP payloads and credentials are never exported. `LANGFUSE_TRACE_CONTENT`
 defaults to `false`; enable it only after approving the privacy policy if
 sanitized user/assistant text is required for debugging.
 

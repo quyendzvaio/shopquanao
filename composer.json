@@ -19,17 +19,13 @@
         "test": "phpunit",
         "test:unit": "phpunit --testsuite=Unit",
         "test:integration": "phpunit --testsuite=Integration",
-        "lint": "phpcs --standard=PSR12 --extensions=php --ignore=test-evidence,reports,.codex,.agents,vendor .",
-        "lint:fix": "phpcbf --standard=PSR12 --extensions=php --ignore=test-evidence,reports,.codex,.agents,vendor .",
-        "stan": "phpstan analyse --level=1 api/ config/",
+        "lint": "phpcs --standard=PSR12 --extensions=php --ignore=test-evidence,reports,.codex,.agents,vendor,public/assets .",
+        "lint:fix": "phpcbf --standard=PSR12 --extensions=php --ignore=test-evidence,reports,.codex,.agents,vendor,public/assets .",
+        "stan": "phpstan analyse --level=1 config/ src/",
         "check": ["@lint", "@stan"]
     },
     "autoload": {
-        "classmap": [
-            "api/cache/",
-            "api/controllers/chatbot/",
-            "api/services/"
-        ]
+        "classmap": ["src/"]
     },
     "config": {
         "optimize-autoloader": true,

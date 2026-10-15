@@ -29,19 +29,6 @@ final class RefusalEchoTest extends TestCase
         ];
     }
 
-    public function testOutfitRefusalEchoesQuestion(): void
-    {
-        $result = $this->generator->generate(
-            'Áo thun trắng phối với quần gì cho đẹp?',
-            $this->intent('unsupported_outfit'),
-            ['cards' => [], 'evidence' => []],
-            ['batches' => [], 'response_type' => 'final_answer']
-        );
-        $answer = (string)($result['answer'] ?? '');
-        $this->assertStringContainsString('Áo thun trắng phối với quần gì cho đẹp?', $answer);
-        $this->assertStringContainsString('không hỗ trợ', $answer);
-    }
-
     public function testCheckoutRefusalEchoesQuestion(): void
     {
         $result = $this->generator->generate(

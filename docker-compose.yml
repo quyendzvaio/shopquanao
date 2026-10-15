@@ -77,6 +77,8 @@ services:
       DB_USER: shop_user
       DB_PASS: ${DB_PASS:-shop_pass}
       DB_CONNECT_RETRIES: 30
+      FREE_SHIPPING_THRESHOLD: ${FREE_SHIPPING_THRESHOLD:-500000}
+      FREESHIP_NUDGE_MAX_GAP: ${FREESHIP_NUDGE_MAX_GAP:-200000}
       LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
       LLM_API_KEY: ${LLM_API_KEY}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
@@ -113,15 +115,6 @@ services:
       # Product Search. Keep the child deadline below the PHP MCP deadline.
       MCP_REQUEST_TIMEOUT_MS: ${MCP_REQUEST_TIMEOUT_MS:-80000}
       MCP_REQUEST_TIMEOUT: ${MCP_REQUEST_TIMEOUT:-85}
-      STYLING_PROVIDER: ${STYLING_PROVIDER:-stylitics}
-      STYLITICS_ENABLED: ${STYLITICS_ENABLED:-true}
-      STYLITICS_PROVIDER_MODE: ${STYLITICS_PROVIDER_MODE:-demo}
-      STYLITICS_LIVE_VERIFIED: ${STYLITICS_LIVE_VERIFIED:-false}
-      STYLITICS_API_URL: ${STYLITICS_API_URL:-}
-      STYLITICS_API_KEY: ${STYLITICS_API_KEY:-}
-      STYLITICS_TIMEOUT_MS: ${STYLITICS_TIMEOUT_MS:-8000}
-      STYLITICS_RETRY_ATTEMPTS: ${STYLITICS_RETRY_ATTEMPTS:-2}
-      STYLITICS_CACHE_TTL: ${STYLITICS_CACHE_TTL:-600}
       LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
       LANGFUSE_INGESTION_URL: ${LANGFUSE_INGESTION_URL:-http://langfuse-web:3000}
       LANGFUSE_PROJECT: ${LANGFUSE_PROJECT:-fashion-shop-chatbot-eval}
@@ -169,55 +162,6 @@ services:
       timeout: 5s
       start_period: 5s
       retries: 8
-
-  fashion-outbox-publisher:
-    image: ${APP_IMAGE:-shop_quan_ao-app:latest}
-    container_name: shop_quan_ao_fashion_outbox_publisher
-    restart: unless-stopped
-    env_file: .env
-    command: ["php", "scripts/publish_fashion_outbox.php"]
-    environment:
-      DB_HOST: db
-      DB_NAME: shop_db
-      DB_USER: shop_user
-      DB_PASS: ${DB_PASS:-shop_pass}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_TIMEOUT: ${REDIS_TIMEOUT:-1}
-      FASHION_EVENT_STREAM: ${FASHION_EVENT_STREAM:-fashion:events}
-    depends_on:
-      db: { condition: service_healthy }
-      redis: { condition: service_healthy }
-    healthcheck:
-      test: ["CMD-SHELL", "kill -0 1"]
-      interval: 15s
-      timeout: 3s
-      retries: 3
-
-  fashion-event-consumer:
-    image: ${APP_IMAGE:-shop_quan_ao-app:latest}
-    container_name: shop_quan_ao_fashion_event_consumer
-    restart: unless-stopped
-    env_file: .env
-    command: ["php", "scripts/consume_fashion_events.php"]
-    environment:
-      DB_HOST: db
-      DB_NAME: shop_db
-      DB_USER: shop_user
-      DB_PASS: ${DB_PASS:-shop_pass}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_TIMEOUT: ${REDIS_TIMEOUT:-1}
-      FASHION_EVENT_STREAM: ${FASHION_EVENT_STREAM:-fashion:events}
-      FASHION_EVENT_GROUP: ${FASHION_EVENT_GROUP:-proactive-styling}
-    depends_on:
-      db: { condition: service_healthy }
-      redis: { condition: service_healthy }
-    healthcheck:
-      test: ["CMD-SHELL", "kill -0 1"]
-      interval: 15s
-      timeout: 3s
-      retries: 3
 
   reranker:
     build:
@@ -277,7 +221,7 @@ services:
       - "3308:3306"
     volumes:
       - db_data:/var/lib/mysql
-      - ./sql/shop_db.sql:/docker-entrypoint-initdb.d/01-shop_db.sql:ro
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-shop_db.sql:ro
       - ./docker/mariadb-ft.cnf:/etc/mysql/conf.d/mariadb-ft.cnf:ro
     healthcheck:
       test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -uroot -p\"$${MARIADB_ROOT_PASSWORD}\" --silent"]

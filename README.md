@@ -1,6 +1,6 @@
-# Fashion Shop — Deterministic Hybrid RAG + Styling Agent
+# Fashion Shop — Chatbot RAG Deterministic
 
-Ứng dụng bán quần áo chạy bằng PHP 8.2, MariaDB và Docker Compose. Chatbot dùng luật deterministic để chọn intent/tool, RAG cho chính sách, MCP stdio cho application tools, và Stylitics làm nguồn tham chiếu styling. Sản phẩm cuối cùng luôn lấy từ private shop catalog/Product Search.
+Ứng dụng bán quần áo chạy bằng PHP 8.2, MariaDB và Docker Compose. Chatbot dùng luật deterministic để chọn intent/tool, RAG cho chính sách, MCP stdio cho application tools. Hai use case chính: phối set theo tag phong cách (UC-A) và gợi ý đạt free ship (UC-C). Sản phẩm hiển thị luôn lấy từ private shop catalog.
 
 LLM không tự viết SQL và không tự chọn tool. Dữ liệu trả về cho người dùng phải đi qua Product Search, evidence normalization và validation của PHP.
 
@@ -12,9 +12,9 @@ LLM không tự viết SQL và không tự chọn tool. Dữ liệu trả về c
 | Size | Tư vấn theo chiều cao, cân nặng và size guide |
 | Policy RAG | Đổi trả, hoàn tiền, vận chuyển, bảo hành, thanh toán |
 | Order | Tra cứu đơn thuộc user đã xác thực; không lộ dữ liệu user khác |
-| Guardrail | Không tự checkout/thanh toán; câu phối đồ chung không có sản phẩm neo vẫn bị từ chối |
-| UC1 | Khi user yêu cầu phối một `product_id` cụ thể, lấy Stylitics styling references rồi chỉ hiển thị SKU thật từ Product Search |
-| UC2 | Sau sự kiện thêm giỏ và đủ hai user turns phù hợp, lấy Stylitics references và chủ động gợi ý SKU private một lần cho anchor mới nhất |
+| Guardrail | Không tự checkout/thêm giỏ/thanh toán |
+| UC-A Phối set | Hỏi "Có 800k, cần đồ đi phỏng vấn, cao 1m70 nặng 65kg" → 1-2 set còn hàng, đúng size, tổng ≤ ngân sách, theo tag dịp/phong cách (`products.style_tags`, 10 tag) |
+| UC-C Free ship | Hỏi "mua thêm gì để được free ship" hoặc nhận gợi ý chủ động khi giỏ còn thiếu ≤ 200k so với ngưỡng 500k (mỗi trạng thái giỏ chỉ nhắc một lần) |
 
 ## Kiến trúc runtime
 
@@ -24,57 +24,30 @@ Browser
   -> PHP ChatbotService
       -> deterministic IntentResolver
       -> ToolPlanner + PlanValidator
-      -> MCP stdio child process
+      -> MCP stdio child process (hoặc ToolRegistry in-process)
           -> PHP internal application services
-              -> Product / Size / Policy / Order tools
-              -> StylingReferenceProvider (Stylitics)
-                  -> reference normalization
-                  -> hard-filtered, bounded parallel Product Search
+              -> Product / Size / Policy / Order / Outfit / Free-shipping tools
       -> EvidenceNormalizer + ProductConstraintVerifier
       -> grounded ResponseGenerator -> native LLM token stream
-
-CartService transaction
-  -> proactive_styling_state (synchronous user-visible state)
-  -> fashion_event_outbox
-  -> fashion-outbox-publisher
-  -> Redis Stream
-  -> fashion-event-consumer
-  -> idempotent state/event consumers
-  -> second suitable ChatbotService turn -> shared styling pipeline
+      -> FreeShippingNudge (gợi ý chủ động UC-C)
 ```
 
 | Service | Vai trò |
 | --- | --- |
 | `nginx` | Public gateway và chatbot rate limit |
 | `app` | PHP/Apache, REST API, chatbot và MCP client |
-| `fashion-outbox-publisher` | Publish transactional outbox sang Redis Stream |
-| `fashion-event-consumer` | Consume idempotent và cập nhật proactive state |
+| `chat-stream` | WebSocket streamer `/ws/chatbot` (cùng origin) |
 | `db` | MariaDB 10.11 |
-| `redis` | Shared cache và event stream |
+| `redis` | Shared cache |
 | `qdrant` | Knowledge vector store |
 | `rag-ml` | Embedding và knowledge rerank |
 | `reranker` | Product rerank sidecar |
 
-MCP dùng private child process, không mở public MCP port. Stylitics chỉ cung cấp reference/outfit intent; Nginx trả `404` cho `/api/internal/mcp`; app container cũng không publish port trực tiếp.
+MCP dùng private child process, không mở public MCP port. Nginx trả `404` cho `/api/internal/mcp`; app container cũng không publish port trực tiếp.
 
 Chat widget nhận phản hồi qua WebSocket cùng origin tại `/ws/chatbot`.
 `chat-stream` chỉ stream text sau khi PHP validator hoàn tất và chỉ gửi private
-shop cards đã allow-list; không stream raw Stylitics/MCP payload hoặc provider ID.
-
-## Chế độ Stylitics
-
-Stylitics demo tạo styling references cục bộ để kiểm thử; live mode chỉ được bật khi endpoint, authentication và tool schema đã được vendor xác nhận:
-
-```env
-STYLING_PROVIDER=stylitics
-STYLITICS_ENABLED=true
-STYLITICS_PROVIDER_MODE=demo
-STYLITICS_LIVE_VERIFIED=false
-```
-
-Demo mode không phải bằng chứng Stylitics production. Live mode cần thông tin endpoint/auth/tool schema thật; hiện trạng vendor gate là `BLOCKED`, không có claim live.
-
-Production deploy mặc định để Stylitics live `disabled`; chỉ bật bằng environment secrets sau khi vendor cung cấp endpoint/auth/tool contract.
+shop cards đã allow-list; không stream raw MCP payload.
 
 ## Cài đặt local
 
@@ -102,7 +75,7 @@ curl -fsS 'http://localhost/api/products?limit=1'
 ```
 
 Migration được khóa bằng MariaDB advisory lock và theo dõi trong `_migrations`.
-Để chạy gate giống production trước khi bật app/workers:
+Để chạy gate giống production trước khi bật app:
 
 ```bash
 docker compose up -d --wait db redis
@@ -133,62 +106,41 @@ Content-Type: application/json
 }
 ```
 
-Response chỉ trả product cards của shop; provider identifiers bị giữ trong provenance nội bộ và không được leak ra UI.
+Response chỉ trả product cards của shop đã qua `ProductConstraintVerifier`.
+
+## Cấu trúc thư mục
+
+| Thư mục | Nội dung |
+| --- | --- |
+| `public/` | Web root duy nhất: trang storefront, `admin/`, `assets/`, REST front controller `public/api/index.php` |
+| `src/` | Toàn bộ code PHP (classmap): `Http/` (routes + controllers), `Shop/`, `Chatbot/`, `Infrastructure/` |
+| `templates/` | Partials (header/footer/chat widget) |
+| `database/` | `schema.sql` và `migrations/` (đặt tên theo ngày) |
+| `mcp-server/` | MCP stdio server (TypeScript) |
+| `eval/` | `cases.jsonl` (40 case) và runner |
+| `scripts/` | Migration gate, eval, ingest; `scripts/dev/` là wrapper chạy PHP/Composer trong Docker |
 
 ## Kiểm thử
 
+Máy host không cần PHP; `scripts/dev/php` và `scripts/dev/composer` chạy trong Docker.
+
 ```bash
-# PHP
-vendor/bin/phpstan analyse --level=1 api/ config/ --no-progress
-vendor/bin/phpunit --testsuite=Unit
-
-# MCP TypeScript
-npm --prefix mcp-server ci
-npm --prefix mcp-server test
-npm --prefix mcp-server run build
-
-# Corpus deterministic và Compose
-php scripts/run_findmine_offline_eval.php
+scripts/dev/php vendor/bin/phpunit --testsuite=Unit             # hermetic, fixture SQLite
+scripts/dev/test-db.sh && scripts/dev/test-integration.sh        # DB shop_test trong Compose
+scripts/dev/php vendor/bin/phpstan analyse --level=1 config/ src/ --no-progress
+npm --prefix mcp-server ci && npm --prefix mcp-server test && npm --prefix mcp-server run build
 docker compose config --quiet
+scripts/dev/smoke.sh                                             # smoke HTTP, gồm 404/403 cho source path
 ```
 
-Agent evaluation styling hiện chạy balanced 50 cases từ corpus nguồn 70 cases:
-15 UC1 explicit, 15 UC2 proactive, 10 suppression và 10 unrelated.
+Agent eval deterministic 40 case (15 outfit, 10 free ship, 8 guardrail, 7 unrelated), cần DB `shop_test`:
 
 ```bash
-set -a; . ./.env; set +a
-
-RAGAS_ENABLE=0 \
-LANGFUSE_PUBLIC_KEY="$LANGFUSE_PUBLIC_KEY" \
-LANGFUSE_SECRET_KEY="$LANGFUSE_SECRET_KEY" \
-LANGFUSE_BASE_URL="${LANGFUSE_BASE_URL:-http://localhost:3000}" \
-python3 eval/run_chatbot_eval.py \
-  --base-url http://localhost \
-  --output reports/eval/chatbot_http_50_latest.json \
-  --csv-output reports/eval/chatbot_http_50_latest.csv \
-  --markdown-output reports/eval/chatbot_http_50_latest.md
-
-php scripts/run_stylitics_agent_eval.php \
-  --cases=50 --anchor-product-id=57 \
-  --output=reports/eval/stylitics_agent_eval_50.json
+DEV_DOCKER_NETWORK=shop_quan_ao_default DB_HOST=db DB_NAME=shop_test DB_USER=root DB_PASS=... \
+  scripts/dev/php scripts/run_agent_eval.php
 ```
 
-RAGAS cho recommendation answers:
-
-```bash
-RAGAS_EMBEDDING_URL="http://$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' shop_quan_ao_rag_ml):8000" \
-OPENAI_EVAL_MODEL="$LLM_MODEL" LLM_TIMEOUT=120 \
-python3 eval/run_findmine_ragas.py --max-cases=10 \
-  --agent-report reports/eval/stylitics_agent_eval_50.json \
-  --output reports/eval/stylitics_ragas_10.json
-```
-
-RAGAS trên pipeline PHP deterministic-first (judge `openrouter/minimax/minimax-m3:free`,
-embedding `vietnamese-bi-encoder` via `rag-ml`, 50 cases): faithfulness `0.845`,
-answer relevancy `0.481`, precision `0.940`, recall `0.872`
-(validator deterministic 50/50 PASS). Relevancy thấp do template khô ở nhóm
-product/order — đã cải thiện qua grounded templates v2. Đây là baseline chất
-lượng, không phải SLA production.
+Báo cáo ghi ở `reports/eval/agent_eval.json` (gitignored).
 
 ### Langfuse tracing
 
@@ -218,104 +170,33 @@ public/secret project keys in the ignored `.env` as `LANGFUSE_PUBLIC_KEY` and
 `LANGFUSE_BASE_URL=http://localhost:3000` and
 `LANGFUSE_INGESTION_URL=http://langfuse-web:3000`,
 `LANGFUSE_PROJECT=fashion-shop-chatbot-eval`. Never commit these values or bake
-them into an image. The evaluator emits sanitized traces with use-case, provider
-mode, anchor ID, reference count, private candidate count, mapping/fallback
-flags and stage latency.
+them into an image.
 
-To publish the sanitized live Stylitics run (after installing
-`eval/requirements-eval.txt`), use:
-
-```bash
-python3 eval/publish_stylitics_langfuse.py \
-  --report reports/eval/stylitics_agent_eval_50.json
-```
-
-The command requires the three Langfuse runtime variables above and is
-idempotent for the fixed dataset item IDs. It never sends raw MCP responses,
-OAuth material, cookies or secret headers. For an isolated local sandbox, the
-Compose defaults are sufficient; replace every `local-only-change-me` value in
-`.env` before sharing the stack or exposing it beyond localhost. Generate a
-64-character encryption key with `openssl rand -hex 32`.
-
-The live styling report was published to dataset
-`shopquanao-stylitics-live` (30 examples) and experiment
-`shopquanao-stylitics-live-eval` (30 runs). The source is explicitly marked
-`post_run_evaluation_report`; no provider payloads or credentials are stored.
-
-## Kết quả cuối — 2026-08-26
-
-> Lưu ý (2026-09-08): các số liệu dưới đây đo trên đường LangGraph agent
-> orchestrator đã gỡ bỏ. Chatbot hiện chạy pipeline PHP deterministic-first
-> (`latency.pipeline=deterministic_hybrid_pipeline`); chất lượng hồi quy được
-> giữ bằng PHPUnit suite mới (`tests/Unit`, `tests/Integration`) và corpus
-> offline `php scripts/run_findmine_offline_eval.php`. Chạy lại các lệnh eval
-> trong mục Kiểm thử để tái tạo số liệu trên pipeline hiện tại.
-
-Environment: Docker Compose local qua Nginx port 80; LLM/evaluator `oc/mimo-v2.5-free`; embedding evaluator `bkai-foundation-models/vietnamese-bi-encoder` qua `rag-ml`.
-
-### Agent Evaluation 50 câu
-
-| Chỉ số | Kết quả |
-| --- | ---: |
-| Tổng | `50/50 PASS` |
-| UC1 explicit styling | `15/15 PASS` |
-| UC2 proactive after cart | `15/15 PASS` |
-| Suppression / unrelated | `20/20 PASS` |
-| Stage failures | `0` ở styling reference, extraction, normalization, Product Search, response, event state và grounding |
-| Hallucinated shop products | `0` |
-| Provider-ID leakage | `0` |
-| UC2 sequencing evidence | `15/15`: 2 turns trước call, 0 call trước turn 2, 1 call sau turn 2 |
-
-Corpus styling 70 câu vẫn được giữ để mở rộng; lệnh mặc định chọn balanced 50 câu nêu trên.
-
-### Latency cuối (lịch sử — pipeline cũ)
-
-> Các số dưới đo trên LangGraph agent orchestrator đã gỡ bỏ (2026-08-26).
-> Pipeline hiện tại là `deterministic_hybrid_pipeline` (L0 ~0.5s, toàn bộ
-> 50 cases avg ~1.4s, p95 ~2.5s sau grounded templates v2). Chạy lại
-> `php scripts/run_stylitics_agent_eval.php` trên pipeline hiện tại để tái tạo.
-
-| Boundary | Avg | p50 | p95 | Max |
-| --- | ---: | ---: | ---: | ---: |
-| 50 styling cases | `5816.26 ms` | `7101.04 ms` | `14318.11 ms` | `14920.06 ms` |
-| 15 UC1 explicit | `9747.18 ms` | `7964.45 ms` | `14920.06 ms` | `14920.06 ms` |
-| 15 UC2 proactive | `9640.29 ms` | `10176.62 ms` | `14318.11 ms` | `14318.11 ms` |
-| 10 suppression | `0.05 ms` | `0.04 ms` | `0.10 ms` | `0.10 ms` |
-| 10 unrelated | `0.06 ms` | `0.04 ms` | `0.11 ms` | `0.11 ms` |
-
-### RAGAS cuối (lịch sử)
-
-RAGAS lịch sử chấm 2/30 recommendation answers (bounded `--max-cases=2`) trên
-pipeline cũ:
-
-| Metric | Điểm |
-| --- | ---: |
-| Faithfulness | `0.75` |
-| Answer relevancy | `0.1501948092` |
-
-Pipeline hiện tại (50 cases, minimax-m3): faithfulness `0.845`, relevancy `0.481`, precision `0.940`, recall `0.872`.
+Chat traces are sanitized: never raw MCP responses, cookies or secret headers.
+For an isolated local sandbox the Compose defaults are sufficient; replace every
+`local-only-change-me` value in `.env` before sharing the stack or exposing it
+beyond localhost. Generate a 64-character encryption key with `openssl rand -hex 32`.
 
 ## CI/CD
 
 GitHub Actions chạy:
 
-- Composer validation, PHP lint, PSR-12 advisory, PHPStan và Python syntax.
+- Composer validation, PHP lint, PSR-12 advisory và PHPStan.
 - MCP `npm ci`, contract tests và TypeScript build.
-- PHPUnit unit/integration, cùng gate corpus offline nguồn 70 câu.
+- PHPUnit unit/integration, rồi agent eval 40 case sau integration test.
 - Secret scan, Trivy filesystem/image scan và Docker build cho app/reranker/rag-ml.
-- Deploy qua SSH cho `main`/`master`; DB/Redis được chờ healthy và migration phải PASS trước khi app/workers khởi động. Stylitics live là opt-in bằng environment secrets.
+- Deploy qua SSH cho `main`/`master`; DB/Redis được chờ healthy và migration phải PASS trước khi app khởi động.
 
-App và hai worker dùng cùng `${APP_IMAGE:-shop_quan_ao-app:latest}`, vì vậy đổi Compose project name không làm worker trỏ sang image khác.
+App dùng image `${APP_IMAGE:-shop_quan_ao-app:latest}`.
 
 ## Artifacts
 
 | File | Nội dung |
 | --- | --- |
-| `reports/eval/` (tạo lại bằng lệnh eval, gitignored) | Stylitics agent evaluation và RAGAS report mới nhất |
-| `docs/cart-styling-event-architecture.md` | Outbox/Redis/consumer architecture |
+| `reports/eval/` (tạo lại bằng lệnh eval, gitignored) | Báo cáo agent eval mới nhất |
 | `docs/chatbot-spec.md` | Chatbot deterministic pipeline spec |
 | `docs/technical-spec.md` | Tổng quan kiến trúc hệ thống |
 | `docs/langfuse-observability.md` | Langfuse self-hosted setup |
-| `docs/styling-providers.md` (quy tắc) | Stylitics UC1/UC2 provider contract |
+| `docs/superpowers/specs/2026-10-15-outfit-tags-freeship-design.md` | Thiết kế UC-A / UC-C |
 
 Reports, `.env`, model cache và local database artifacts phải giữ ngoài Git. `.gitignore`/`.dockerignore` đã loại các file này khỏi commit và production image.

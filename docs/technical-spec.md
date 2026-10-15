@@ -25,8 +25,8 @@ Browser
   -> Nginx :80
   -> PHP app (REST) / chat-stream (WebSocket)
   -> chat-stream -> PHP app for `/ws/chatbot`
-      -> api/index.php
-      -> api/controllers/*
+      -> public/api/index.php (routes: src/Http/routes.php)
+      -> src/Http/Controllers/*
       -> MariaDB / Redis / sidecars
   -> JSON hoặc PHP-rendered page
 ```
@@ -66,9 +66,9 @@ Policy queries được route tới `retrieve_knowledge`. Retriever ưu tiên Qd
 
 - PHP lint và PHPStan level 1.
 - PHPUnit Unit và Integration suites.
-- Python syntax check cho RAG/eval scripts.
+- Agent eval deterministic 40 case (`scripts/run_agent_eval.php`) sau integration test.
 - Secret scan và Trivy filesystem/image scan.
-- RAGAS/Langfuse chạy offline khi có evaluator credentials; không tham gia production request.
+- Langfuse trace được publish qua outbox, không chặn production request.
 
 Secrets chỉ được truyền qua environment và không được commit. Production path không dùng LLM-generated SQL.
 

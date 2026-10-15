@@ -44,7 +44,7 @@ final class ChatbotToolManifestTest extends TestCase
 
     public function testGuardrailAndUnknownIntentsSelectNoTools(): void
     {
-        foreach (['unknown', 'unsupported_outfit', 'unsupported_checkout'] as $intent) {
+        foreach (['unknown', 'unsupported_checkout'] as $intent) {
             $this->assertSame(
                 [],
                 ChatbotToolManifest::toolsFor($intent),
