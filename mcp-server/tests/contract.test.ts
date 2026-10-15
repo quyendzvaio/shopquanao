@@ -19,7 +19,7 @@ test('initialize and tools/list expose the complete contract', async (t) => {
   const response = await client.listTools();
   const names = response.tools.map(tool => tool.name).sort();
   assert.deepEqual(names, [
-    'add_to_cart', 'create_order', 'get_categories', 'get_order_detail', 'get_order_status',
+    'add_to_cart', 'build_outfit', 'create_order', 'get_categories', 'get_order_detail', 'get_order_status',
     'get_product_detail', 'list_cart', 'list_orders', 'remove_from_cart', 'retrieve_knowledge',
     'search_products', 'suggest_size', 'update_cart',
   ]);

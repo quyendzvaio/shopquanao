@@ -47,7 +47,7 @@ export async function internalCall(payload: Record<string, unknown>, attempts = 
 
 export async function callTool(tool: string, arguments_: Record<string, unknown>, principal: Principal): Promise<Record<string, unknown>> {
   const retryable = new Set([
-    'search_products', 'get_product_detail', 'suggest_size', 'retrieve_knowledge', 'get_categories',
+    'search_products', 'get_product_detail', 'suggest_size', 'retrieve_knowledge', 'get_categories', 'build_outfit',
     'get_order_status', 'list_cart', 'list_orders', 'get_order_detail',
   ]);
   const body = await internalCall({

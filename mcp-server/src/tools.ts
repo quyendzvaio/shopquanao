@@ -27,7 +27,7 @@ function requireConfirmation(confirmed: true): void {
 export function createMcpServer(principal: Principal): McpServer {
   const server = new McpServer(
     { name: 'fashion-shop', version: '1.0.0' },
-    { instructions: 'Use product and knowledge tools for shop questions. Account tools require an authenticated PHP chatbot session. Mutating cart/order tools require confirmed=true only after explicit user confirmation. Outfit advice and external payment are unsupported.' },
+    { instructions: 'Use product and knowledge tools for shop questions. Account tools require an authenticated PHP chatbot session. Mutating cart/order tools require confirmed=true only after explicit user confirmation. External payment is unsupported.' },
   );
 
   server.registerTool('search_products', {
@@ -55,6 +55,21 @@ export function createMcpServer(principal: Principal): McpServer {
     description: 'Use this when the user asks about a specific product ID, including price, stock, sizes, colors, description, or reviews.',
     inputSchema: { product_id: z.number().int().positive() }, outputSchema, annotations: readOnly,
   }, async (args) => result(await callTool('get_product_detail', args, principal)));
+
+  const styleTags = ['congso', 'phongvan', 'dichoi', 'dibien', 'hendo', 'dutiec', 'thethao', 'streetstyle', 'basic', 'mualanh'] as const;
+
+  server.registerTool('build_outfit', {
+    title: 'Build outfit',
+    description: 'Use this when the user wants a complete outfit for an occasion or style, optionally with a budget, size or anchor product. Returns in-stock shop products only.',
+    inputSchema: {
+      style_tags: z.array(z.enum(styleTags)).max(2).optional(),
+      product_id: z.number().int().positive().optional(),
+      budget: z.number().int().positive().optional(),
+      size: z.string().max(5).optional(),
+      height: z.number().int().min(80).max(230).optional(),
+      weight: z.number().int().min(20).max(220).optional(),
+    }, outputSchema, annotations: readOnly,
+  }, async (args) => result(await callTool('build_outfit', args, principal)));
 
   server.registerTool('suggest_size', {
     title: 'Suggest a size',

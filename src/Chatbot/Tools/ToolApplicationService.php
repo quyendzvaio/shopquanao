@@ -8,9 +8,11 @@ final class ToolApplicationService
     private SizeService $sizes;
     private CartService $cart;
     private OrderService $orders;
+    private PDO $pdo;
 
     public function __construct(PDO $pdo, private ?int $userId)
     {
+        $this->pdo = $pdo;
         $this->products = new ProductService($pdo, $userId);
         $this->knowledge = new KnowledgeService($pdo);
         $this->sizes = new SizeService($pdo);
@@ -23,6 +25,7 @@ final class ToolApplicationService
         return match ($tool) {
             'search_products' => $this->products->search($arguments),
             'get_product_detail' => $this->products->detail($arguments),
+            'build_outfit' => (new OutfitService($this->pdo))->build($arguments),
             'get_categories' => $this->products->categories(),
             'suggest_size' => $this->sizes->suggest($arguments),
             'retrieve_knowledge' => $this->knowledge->retrieve($arguments),

@@ -36,6 +36,17 @@ final class ToolDefinitionCatalog
                 'properties' => ['product_id' => ['type' => 'integer']],
                 'required' => ['product_id'],
             ]),
+            self::definition('build_outfit', 'Ghép 1-2 set đồ còn hàng từ catalog shop theo tag dịp/phong cách, ngân sách và size.', [
+                'type' => 'object',
+                'properties' => [
+                    'style_tags' => ['type' => 'array', 'items' => ['type' => 'string', 'enum' => StyleTag::ALL], 'maxItems' => 2],
+                    'product_id' => ['type' => 'integer'],
+                    'budget' => ['type' => 'integer'],
+                    'size' => ['type' => 'string'],
+                    'height' => ['type' => 'integer'],
+                    'weight' => ['type' => 'integer'],
+                ],
+            ]),
             self::definition('suggest_size', 'Tư vấn size dựa trên chiều cao, cân nặng và danh mục.', [
                 'type' => 'object',
                 'properties' => [
