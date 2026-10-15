@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class EvidenceNormalizerImageUrlTest extends TestCase
@@ -16,7 +17,7 @@ final class EvidenceNormalizerImageUrlTest extends TestCase
         ];
     }
 
-    /** @dataProvider imageProvider */
+    #[DataProvider('imageProvider')]
     public function testImageUrlIsNormalised(string $stored, string $expected): void
     {
         $execution = ['results' => [[
