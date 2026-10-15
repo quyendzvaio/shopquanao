@@ -94,9 +94,20 @@ class EvidenceNormalizer {
             'style_tags' => is_array($result['style_tags'] ?? null) ? $result['style_tags'] : [],
             'budget' => isset($result['budget']) ? (int)$result['budget'] : null,
             'cheapest_total' => isset($result['cheapest_total']) ? (int)$result['cheapest_total'] : null,
+            'size_by_category' => $this->sizeByCategory($result['size_by_category'] ?? null),
             'freshness' => date('c'),
             'confidence' => 1.0,
         ];
+    }
+
+    /** @return array<int,string> recommended size per sized category (1-3) */
+    private function sizeByCategory($raw): array {
+        $map = [];
+        foreach (is_array($raw) ? $raw : [] as $categoryId => $size) {
+            $size = strtoupper(trim((string)$size));
+            if ((int)$categoryId >= 1 && (int)$categoryId <= 3 && $size !== '') $map[(int)$categoryId] = $size;
+        }
+        return $map;
     }
 
     private function normalizeProductList(array $result, array &$cards, array &$evidence): void {

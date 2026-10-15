@@ -323,13 +323,16 @@ class ResponseGenerator {
                 . ' để ghép thành set. Bạn thử dịp hoặc phong cách khác nhé.';
         }
 
+        $sizes = is_array($fact['size_by_category'] ?? null) ? $fact['size_by_category'] : [];
         $lines = [];
         foreach ($outfits as $i => $outfit) {
             $parts = [];
             foreach ((array)($outfit['product_ids'] ?? []) as $id) {
                 $card = $cards[(int)$id] ?? null;
                 if ($card === null) continue;
-                $parts[] = sprintf('%s (mã %d) %s', (string)$card['name'], (int)$id, $this->money((float)$card['price']));
+                $size = $sizes[(int)($card['category_id'] ?? 0)] ?? '';
+                $parts[] = sprintf('%s (mã %d) %s', (string)$card['name'], (int)$id, $this->money((float)$card['price']))
+                    . ($size !== '' ? ', size ' . $size : '');
             }
             $lines[] = sprintf('Set %d, tổng %s: %s', (int)($outfit['outfit_index'] ?? $i + 1), $this->money((float)($outfit['total_price'] ?? 0)), implode(' + ', $parts));
         }

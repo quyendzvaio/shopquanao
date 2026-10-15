@@ -1,4 +1,4 @@
-{"id":"A01","group":"outfit","user":false,"turns":[{"message":"Có 800k, cần đồ đi phỏng vấn, cao 1m70 nặng 65kg","expect":{"intent":"build_outfit","tool":"build_outfit","max_total":800000,"first_set":[61,66]}}]}
+{"id":"A01","group":"outfit","user":false,"turns":[{"message":"Có 800k, cần đồ đi phỏng vấn, cao 1m70 nặng 65kg","expect":{"intent":"build_outfit","tool":"build_outfit","max_total":800000,"first_set":[61,66],"message_contains":"size M"}}]}
 {"id":"A02","group":"outfit","user":false,"turns":[{"message":"phối giúp tôi một set đồ đi chơi gồm áo và quần","expect":{"intent":"build_outfit","tool":"build_outfit","min_products":2}}]}
 {"id":"A03","group":"outfit","user":false,"turns":[{"message":"Sản phẩm mã 50 phối với gì?","expect":{"intent":"build_outfit","products":0,"message_contains":"không còn hàng"}}]}
 {"id":"A04","group":"outfit","user":false,"turns":[{"message":"Áo mã 61 phối với gì","expect":{"intent":"build_outfit","min_products":2,"all_sets_contain":61}}]}

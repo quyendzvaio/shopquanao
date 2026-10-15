@@ -37,6 +37,42 @@ final class OutfitResponseTest extends TestCase
         $this->assertSame([61, 66], $response['outfits'][0]['product_ids']);
     }
 
+    public function testEachSizedItemListsItsRecommendedSize(): void
+    {
+        $result = $this->toolResult(
+            [['outfit_index' => 1, 'product_ids' => [61, 66, 90], 'total_price' => 780000, 'matched_tags' => ['phongvan']]],
+            [
+                ['id' => 61, 'name' => 'Áo Dài Tay Cổ Tim', 'price' => 250000, 'stock' => 10, 'category_id' => 1, 'outfit_index' => 1],
+                ['id' => 66, 'name' => 'Quần Tây Ống Đứng Xám', 'price' => 400000, 'stock' => 11, 'category_id' => 2, 'outfit_index' => 1],
+                ['id' => 90, 'name' => 'Thắt Lưng Da', 'price' => 130000, 'stock' => 5, 'category_id' => 4, 'outfit_index' => 1],
+            ]
+        );
+        $result['results']['outfit']['result']['size_by_category'] = [1 => 'M', 2 => 'M', 3 => 'L'];
+        $normalized = (new EvidenceNormalizer())->normalize($this->intent(), $result);
+        $normalized = (new ProductConstraintVerifier())->verify($this->intent(), $normalized);
+        $response = (new ResponseGenerator())->generate('800k đi phỏng vấn', $this->intent(), $normalized, ['response_type' => 'final_answer']);
+
+        $this->assertStringContainsString('Áo Dài Tay Cổ Tim (mã 61) 250.000đ, size M', $response['message']);
+        $this->assertStringContainsString('Quần Tây Ống Đứng Xám (mã 66) 400.000đ, size M', $response['message']);
+        $this->assertStringContainsString('Thắt Lưng Da (mã 90) 130.000đ. ', $response['message']);
+        $this->assertStringNotContainsString('130.000đ, size', $response['message']);
+    }
+
+    public function testNoKnownSizeRendersItemsWithoutSize(): void
+    {
+        $normalized = (new EvidenceNormalizer())->normalize($this->intent(), $this->toolResult(
+            [['outfit_index' => 1, 'product_ids' => [61, 66], 'total_price' => 790000, 'matched_tags' => ['phongvan']]],
+            [
+                ['id' => 61, 'name' => 'Áo Dài Tay Cổ Tim', 'price' => 250000, 'stock' => 10, 'category_id' => 1, 'outfit_index' => 1],
+                ['id' => 66, 'name' => 'Quần Tây Ống Đứng Xám', 'price' => 540000, 'stock' => 11, 'category_id' => 2, 'outfit_index' => 1],
+            ]
+        ));
+        $normalized = (new ProductConstraintVerifier())->verify($this->intent(), $normalized);
+        $response = (new ResponseGenerator())->generate('800k', $this->intent(), $normalized, ['response_type' => 'final_answer']);
+
+        $this->assertStringNotContainsString('size', $response['message']);
+    }
+
     public function testVerifierDropsSetsOverBudgetOrOutOfStock(): void
     {
         $normalized = (new EvidenceNormalizer())->normalize($this->intent(), $this->toolResult(
