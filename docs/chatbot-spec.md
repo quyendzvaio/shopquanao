@@ -57,8 +57,8 @@ Nếu LLM không được cấu hình, timeout hoặc trả JSON lỗi, pipeline
 | `return_exchange`, `shipping`, `policy` | `retrieve_knowledge` |
 | `mixed_product_policy` | Tool sản phẩm và `retrieve_knowledge` |
 | `order_status` | `get_order_status` |
-| `build_outfit` (UC-A) | `build_outfit`: `OutfitBuilder` ghép top+bottom hoặc dress (+ phụ kiện) theo `products.style_tags`, ngân sách, size |
-| `freeship_gap` (UC-C) | `suggest_free_shipping_items` (`FreeShippingGapAdvisor`): hàng còn tồn có phần vượt ngưỡng `FREE_SHIPPING_THRESHOLD` (500000) nhỏ nhất; `FreeShippingNudge` chủ động nhắc khi thiếu ≤ `FREESHIP_NUDGE_MAX_GAP` (200000), một lần cho mỗi trạng thái giỏ |
+| `build_outfit` (UC-A) | `build_outfit`: `OutfitBuilder` ghép top+bottom hoặc dress (+ phụ kiện) theo `products.style_tags`, ngân sách, size. Xếp hạng: khi điểm bằng nhau, CÓ ngân sách thì set tổng cao hơn thắng (tận dụng ngân sách), KHÔNG có ngân sách thì tổng thấp hơn thắng; phụ kiện hòa điểm theo cùng quy tắc, sau đó id nhỏ hơn. Cố ý khác chữ "tổng thấp hơn" trong spec §5.4 gốc. "có <số tiền><đơn vị>" chỉ là ngân sách trong ngữ cảnh phối đồ; "ngân sách/budget <số tiền>" là ngân sách ở mọi ngữ cảnh |
+| `freeship_gap` (UC-C) | `suggest_freeship_items` (`FreeShippingGapAdvisor`): hàng còn tồn có phần vượt ngưỡng `FREE_SHIPPING_THRESHOLD` (500000) nhỏ nhất; `FreeShippingNudge` chủ động nhắc khi thiếu ≤ `FREESHIP_NUDGE_MAX_GAP` (200000), một lần cho mỗi trạng thái giỏ |
 | `unsupported_checkout` | Không gọi tool, trả guardrail cố định |
 
 `PlanValidator` kiểm tool và arguments có đúng capability contract trước khi thực thi. `ToolRegistry` dùng PDO/allowlist; không có LLM-generated SQL.
