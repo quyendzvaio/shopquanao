@@ -158,6 +158,16 @@ jobs:
           DB_PASS: root_pass
         run: vendor/bin/phpunit --testsuite=Integration --colors=always --display-warnings
 
+      - name: Agent eval (UC-A outfits, UC-C free shipping, guardrails)
+        env:
+          APP_ENV: test
+          CHATBOT_TOOL_TRANSPORT: internal
+          DB_HOST: 127.0.0.1
+          DB_NAME: shop_test
+          DB_USER: root
+          DB_PASS: root_pass
+        run: php scripts/run_agent_eval.php
+
   # ============================================================
   # Job 4: Security Scan
   # ============================================================
