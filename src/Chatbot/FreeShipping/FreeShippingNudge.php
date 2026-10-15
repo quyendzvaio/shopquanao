@@ -16,10 +16,15 @@ final class FreeShippingNudge
     {
     }
 
-    public static function eligible(array $result, array $advice, ?string $lastFingerprint, FreeShippingPolicy $policy): bool
+    public static function turnQualifies(array $result): bool
     {
         if (!in_array((string)($result['primary_intent'] ?? ''), self::SHOPPING_INTENTS, true)) return false;
-        if (in_array((string)($result['response_type'] ?? ''), ['fallback', 'clarification'], true)) return false;
+        return !in_array((string)($result['response_type'] ?? ''), ['fallback', 'clarification'], true);
+    }
+
+    public static function eligible(array $result, array $advice, ?string $lastFingerprint, FreeShippingPolicy $policy): bool
+    {
+        if (!self::turnQualifies($result)) return false;
         if (($advice['status'] ?? '') !== FreeShippingGapAdvisor::GAP || empty($advice['products'])) return false;
         $gap = (int)($advice['gap'] ?? 0);
         if ($gap <= 0 || $gap > $policy->nudgeMaxGap) return false;

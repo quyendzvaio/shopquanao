@@ -522,7 +522,7 @@ class DeterministicIntentParser {
 
     private function isFreeShippingGap(string $text): bool {
         $freeShip = preg_match('/free\s*ship|freeship|miễn\s*phí\s*(?:ship|vận\s*chuyển|giao\s*hàng)|mien\s*phi\s*(?:ship|van\s*chuyen)/ui', $text);
-        $gapLanguage = preg_match('/mua\s+thêm|mua\s+them|thêm\s+gì|them\s+gi|còn\s+thiếu|con\s+thieu|thiếu\s+bao\s+nhiêu|thieu\s+bao\s+nhieu|để\s+(?:được|đủ)|de\s+(?:duoc|du)/ui', $text);
+        $gapLanguage = preg_match('/mua\s+thêm|mua\s+them|thêm\s+gì|them\s+gi|còn\s+thiếu|con\s+thieu|thiếu\s+bao\s+nhiêu|thieu\s+bao\s+nhieu/ui', $text);
         return $freeShip === 1 && $gapLanguage === 1;
     }
 

@@ -35,6 +35,15 @@ final class FreeShippingNudgeTest extends TestCase
         $this->assertFalse(FreeShippingNudge::eligible($this->turn(), ['status' => 'qualified'] + $this->advice(), null, $this->policy));
     }
 
+    public function testTurnQualifiesOnlyForShoppingTurns(): void
+    {
+        $this->assertTrue(FreeShippingNudge::turnQualifies($this->turn()));
+        $this->assertFalse(FreeShippingNudge::turnQualifies($this->turn('return_exchange')));
+        $this->assertFalse(FreeShippingNudge::turnQualifies($this->turn('freeship_gap')));
+        $this->assertFalse(FreeShippingNudge::turnQualifies($this->turn('product_search', 'fallback')));
+        $this->assertFalse(FreeShippingNudge::turnQualifies($this->turn('product_search', 'clarification')));
+    }
+
     public function testLedgerRemembersTheLastNudgedCartInSessionSlots(): void
     {
         $pdo = SqliteShop::pdo();

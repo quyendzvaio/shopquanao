@@ -178,15 +178,16 @@ class ChatbotService {
      */
     private function freeShippingNudge(array $result): ?array
     {
-        if ($this->userId === null) return null;
+        if ($this->userId === null || !FreeShippingNudge::turnQualifies($result)) return null;
         try {
             $policy = FreeShippingPolicy::fromEnvironment();
             $ledger = new FreeShippingNudge($this->pdo, $this->sessionId);
             $advice = (new FreeShippingService($this->pdo, $policy))->suggest($this->userId, ['limit' => 1]);
             if (!FreeShippingNudge::eligible($result, $advice, $ledger->lastFingerprint(), $policy)) return null;
-            $ledger->remember((string)$advice['cart_fingerprint']);
             $cards = (new EvidenceNormalizer())->productCards($advice['products']);
-            return $cards === [] ? null : ['text' => FreeShippingNudge::message($advice), 'card' => $cards[0]];
+            if ($cards === []) return null;
+            $ledger->remember((string)$advice['cart_fingerprint']);
+            return ['text' => FreeShippingNudge::message($advice), 'card' => $cards[0]];
         } catch (Throwable) {
             error_log(json_encode(['operation' => 'freeship_nudge', 'success' => false, 'error_category' => 'suppressed_runtime_failure']));
             return null;

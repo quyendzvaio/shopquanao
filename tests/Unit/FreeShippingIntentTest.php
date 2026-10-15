@@ -25,6 +25,8 @@ final class FreeShippingIntentTest extends TestCase
     public function testPolicyQuestionAndCheckoutAreNotGapQuestions(): void
     {
         $this->assertSame('shipping', $this->intentOf('đơn bao nhiêu thì được freeship'));
+        $this->assertSame('shipping', $this->intentOf('Đơn tối thiểu bao nhiêu để được miễn phí ship?'));
+        $this->assertSame('shipping', $this->intentOf('cần mua bao nhiêu để được freeship'));
         $this->assertSame('unsupported_checkout', $this->intentOf('thêm món rẻ nhất vào giỏ để được freeship'));
     }
 
