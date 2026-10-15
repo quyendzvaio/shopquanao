@@ -33,14 +33,32 @@ final class OutfitPlanningTest extends TestCase
         $this->assertSame('clarification', $empty['response_type']);
     }
 
-    public function testValidatorRejectsProductSearchForOutfits(): void
+    private function realCapabilities(): array
+    {
+        return CapabilityRegistry::fromToolDefinitions(ToolDefinitionCatalog::chatbotDefinitions());
+    }
+
+    public function testValidatorAcceptsPlannedOutfitCall(): void
+    {
+        $caps = $this->realCapabilities();
+        $intent = ['primary_intent' => 'build_outfit', 'entities' => ['style_tags' => ['phongvan'], 'max_price' => 800000, 'size' => 'M'], 'requested_fields' => [], 'original_query' => 'đồ đi phỏng vấn'];
+        $plan = (new ToolPlanner($caps))->plan($intent);
+
+        $result = (new PlanValidator($caps))->validate($plan, $intent);
+
+        $this->assertSame([], $result['errors']);
+        $this->assertTrue($result['passed']);
+    }
+
+    public function testValidatorRejectsProductSearchPlanForOutfits(): void
     {
         $intent = ['primary_intent' => 'build_outfit', 'entities' => ['style_tags' => ['dichoi']], 'requested_fields' => [], 'original_query' => 'set đồ đi chơi'];
         $plan = ['batches' => [[['tool' => 'search_products', 'args' => ['search' => 'áo'], 'id' => 'x']]]];
 
-        $errors = (new PlanValidator([]))->validate($plan, $intent);
+        $errors = (new PlanValidator($this->realCapabilities()))->validate($plan, $intent)['errors'];
 
-        $this->assertContains('build_outfit_requires_build_outfit', $errors['errors'] ?? $errors);
+        $this->assertContains('build_outfit_requires_build_outfit', $errors);
+        $this->assertContains('build_outfit_must_use_outfit_tool', $errors);
     }
 
     public function testOutfitWithoutOccasionAsksUserInsteadOfFallingBack(): void

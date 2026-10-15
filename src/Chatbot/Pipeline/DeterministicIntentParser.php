@@ -232,9 +232,15 @@ class DeterministicIntentParser {
             }
         }
 
-        // Outfit budgets: "có 800k", "ngân sách 1 triệu". A money unit is
-        // required so "có 2 cái" never becomes a price.
-        $budgetPattern = '/(?<![\p{L}])(?:ngân sách|ngan sach|budget|có|co)\s*(\d+(?:[.,]\d+)?)\s*(k|nghìn|ngan|ngàn|triệu|trieu|tr)(?![\p{L}])/ui';
+        // Outfit budgets: "ngân sách 1 triệu" is a budget anywhere; the bare
+        // "có 800k" only inside outfit context so "áo thun có 300k không" is
+        // never a hard price filter. A money unit is required so "có 2 cái"
+        // never becomes a price. Appended last: an explicit "dưới 500k" wins.
+        $budgetWords = 'ngân sách|ngan sach|budget';
+        if ($this->isOutfit($lower) || (StyleTag::fromText($lower) !== [] && $this->asksWhatToWear($lower))) {
+            $budgetWords .= '|có|co';
+        }
+        $budgetPattern = '/(?<![\p{L}])(?:' . $budgetWords . ')\s*(\d+(?:[.,]\d+)?)\s*(k|nghìn|ngan|ngàn|triệu|trieu|tr)(?![\p{L}])/ui';
         if (preg_match_all($budgetPattern, $lower, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
             foreach ($matches as $m) {
                 $unit = in_array(mb_strtolower($m[2][0]), ['tr'], true) ? 'triệu' : $m[2][0];

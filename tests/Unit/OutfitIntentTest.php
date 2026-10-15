@@ -66,4 +66,19 @@ final class OutfitIntentTest extends TestCase
         $partial = (new DeterministicIntentParser())->parse('phối đồ giúp mình', [])->toArray();
         $this->assertContains('style_tags', $partial['missing_fields']);
     }
+
+    public function testBareCoAmountIsNotABudgetOutsideOutfitRequests(): void
+    {
+        $this->assertArrayNotHasKey('max_price', $this->fields('áo thun có 300k không'));
+        $this->assertArrayNotHasKey('max_price', $this->fields('shop có 200k áo polo'));
+        $this->assertSame(1000000, $this->fields('ngân sách 1 triệu cho áo thun')['max_price']);
+    }
+
+    public function testExplicitCeilingWinsOverOutfitBudget(): void
+    {
+        // Candidates are ordered range, max keywords, min, then outfit budget;
+        // the first max_price wins, so an explicit "dưới" ceiling is kept.
+        $f = $this->fields('cần đồ đi làm dưới 500k, có 800k');
+        $this->assertSame(500000, $f['max_price']);
+    }
 }
