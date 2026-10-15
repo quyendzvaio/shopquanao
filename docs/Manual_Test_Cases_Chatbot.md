@@ -1,5 +1,7 @@
 # Bộ test case thủ công - Fashion Shop Chatbot
 
+> Tài liệu lịch sử, mô tả kiến trúc trước 2026-10-15. Stylitics/FindMine, UC1/UC2 và event worker đã bị gỡ; chatbot hiện có UC-A `build_outfit` và UC-C `freeship_gap` (xem README.md và CLAUDE.md).
+
 **Mã tài liệu:** MTC-FS-CB-001  
 **Phiên bản:** 1.0  
 **Ngày lập:** 29/07/2026  
@@ -913,22 +915,21 @@ Một số sản phẩm seed được dùng để đối chiếu:
 
 ---
 
-## UC-10 - Từ chối hành động không được hỗ trợ
+## UC-10 - Phối set và từ chối hành động không được hỗ trợ
 
-**Phạm vi bao phủ:** phối đồ, tạo set, thêm giỏ hàng, checkout/thanh toán hộ, chốt đơn.
+**Phạm vi bao phủ:** phối set (UC-A), thêm giỏ hàng, checkout/thanh toán hộ, chốt đơn.
 
-### TC-UC10-01 - Yêu cầu phối một sản phẩm với sản phẩm khác
+### TC-UC10-01 - Yêu cầu phối set theo ngân sách (UC-A)
 
 **Tiền điều kiện:** Không yêu cầu đăng nhập.
 
-**Dữ liệu/Bước thực hiện:** Gửi `áo thun trắng phối với quần gì cho đẹp?`.
+**Dữ liệu/Bước thực hiện:** Gửi `Có 800k, cần đồ đi phỏng vấn, cao 1m70 nặng 65kg`.
 
 **Kết quả mong đợi:**
 
-- `primary_intent = unsupported_outfit`.
-- Bot nói hiện không hỗ trợ tư vấn phối đồ.
-- Bot có thể nêu phạm vi hỗ trợ: tìm sản phẩm, chi tiết, size và chính sách.
-- Không gọi outfit API/tool và không đưa ra set phối đồ.
+- `primary_intent = build_outfit`, tool `build_outfit` được dùng.
+- Trả 1-2 set gồm sản phẩm còn hàng, đúng size gợi ý, tổng giá mỗi set không vượt 800.000đ.
+- Mọi product card nằm trong catalog private; không tạo cart.
 
 **Kết quả thực tế:** ........................................................  
 **Trạng thái:** Pass / Fail
@@ -941,10 +942,8 @@ Một số sản phẩm seed được dùng để đối chiếu:
 
 **Kết quả mong đợi:**
 
-- Route `unsupported_outfit`.
-- Không dùng dữ liệu `outfit_suggestions`.
-- Không trả danh sách set hoặc khẳng định đã phối đồ.
-- Không tạo cart.
+- `primary_intent = build_outfit`; mỗi set gồm một áo và một quần còn hàng.
+- Không tạo cart và không khẳng định đã đặt hàng.
 
 **Kết quả thực tế:** ........................................................  
 **Trạng thái:** Pass / Fail
