@@ -47,6 +47,7 @@ CartService transaction
 | --- | --- |
 | `nginx` | Public gateway và chatbot rate limit |
 | `app` | PHP/Apache, REST API, chatbot và MCP client |
+| `chat-stream` | WebSocket streamer `/ws/chatbot` (cùng origin) |
 | `fashion-outbox-publisher` | Publish transactional outbox sang Redis Stream |
 | `fashion-event-consumer` | Consume idempotent và cập nhật proactive state |
 | `db` | MariaDB 10.11 |
