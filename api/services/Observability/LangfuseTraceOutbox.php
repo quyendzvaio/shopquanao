@@ -78,7 +78,6 @@ final class LangfuseTraceOutbox
             'primary_intent' => $this->boundedString($result['primary_intent'] ?? 'unknown', 120),
             'private_product_ids' => array_values(array_unique(array_slice($products, 0, 20))),
             'private_product_count' => count($products),
-            'proactive_styling' => (bool) ($result['proactive_styling'] ?? false),
         ];
         if ($includeContent) {
             $input['message'] = $this->boundedString($message, 2000);

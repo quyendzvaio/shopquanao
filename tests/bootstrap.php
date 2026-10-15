@@ -17,5 +17,4 @@ require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/TurnTierGate.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/CapabilityRegistry.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/ToolPlanner.php';
 require_once ROOT_DIR . '/api/controllers/chatbot/pipeline/PlanValidator.php';
-require_once ROOT_DIR . '/api/services/Fashion/ProactiveStylingStateMachine.php';
 require_once ROOT_DIR . '/config/chatbot_tools.php';
