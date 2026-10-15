@@ -55,18 +55,17 @@ jobs:
           ERRORS=0
           while IFS= read -r f; do
             php -l "$f" 2>/dev/null | grep -q "No syntax errors" || { echo "❌ $f"; ERRORS=$((ERRORS+1)); }
-          done < <(find . -name '*.php' -not -path './vendor/*' -not -path './test-evidence/*' \
-            -not -path './reports/*' -not -path './.codex/*' -not -path './.git/*')
+          done < <(find public src config scripts templates tests -name '*.php')
           [ "$ERRORS" -eq 0 ] && echo "✅ All PHP syntax OK" || exit 1
 
       - name: PHPCS (PSR-12)
         run: |
           vendor/bin/phpcs --standard=PSR12 --extensions=php \
-            --ignore=test-evidence,reports,.codex,.agents,vendor,tests \
+            --ignore=test-evidence,reports,.codex,.agents,vendor,tests,public/assets \
             --error-severity=1 --warning-severity=0 . || echo "⚠️ Style issues (non-blocking)"
 
       - name: PHPStan
-        run: vendor/bin/phpstan analyse --level=1 api/ config/ --no-progress
+        run: vendor/bin/phpstan analyse --level=1 config/ src/ --no-progress
 
       - name: Python lint (reranker)
         run: |

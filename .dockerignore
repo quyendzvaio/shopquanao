@@ -23,6 +23,9 @@ docs/
 DOCKER.md
 CLAUDE.md
 
+# ── Dev tooling ────────────────────────────────────────────
+scripts/dev
+
 # ── Test and evaluation suites ─────────────────────────────
 tests/
 eval/
