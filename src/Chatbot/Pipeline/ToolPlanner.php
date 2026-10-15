@@ -83,6 +83,21 @@ class ToolPlanner {
                 if (!empty($entities['order_id'])) $args['order_id'] = (int)$entities['order_id'];
                 return ['tool' => $tool, 'args' => $args, 'id' => 'order'];
 
+            case 'build_outfit':
+                if ($primary !== 'build_outfit') return null;
+                $tags = array_values(array_filter((array)($entities['style_tags'] ?? []), [StyleTag::class, 'isValid']));
+                if ($tags === [] && empty($entities['product_id'])) return null;
+                $args = [];
+                if ($tags !== []) $args['style_tags'] = array_slice($tags, 0, StyleTag::MAX_PER_REQUEST);
+                if (!empty($entities['product_id'])) $args['product_id'] = (int)$entities['product_id'];
+                if (!empty($entities['max_price'])) $args['budget'] = (int)$entities['max_price'];
+                if (!empty($entities['size'])) $args['size'] = (string)$entities['size'];
+                if (!empty($entities['height']) && !empty($entities['weight'])) {
+                    $args['height'] = (int)$entities['height'];
+                    $args['weight'] = (int)$entities['weight'];
+                }
+                return ['tool' => $tool, 'args' => $args, 'id' => 'outfit'];
+
             default:
                 return null;
         }

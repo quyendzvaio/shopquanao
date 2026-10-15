@@ -237,6 +237,9 @@ class ResponseGenerator {
         if (in_array('height', $missing, true) || in_array('weight', $missing, true)) {
             return 'Bạn cho mình xin chiều cao và cân nặng để tư vấn size chính xác hơn nhé.';
         }
+        if (in_array('style_tags', $missing, true)) {
+            return 'Bạn định phối đồ cho dịp hay phong cách nào (ví dụ đi làm, đi chơi, đi biển, phỏng vấn, hẹn hò)? Cho mình thêm ngân sách và chiều cao, cân nặng nếu muốn nhé.';
+        }
         return 'Bạn bổ sung thêm thông tin còn thiếu để mình hỗ trợ chính xác hơn nhé.';
     }
 

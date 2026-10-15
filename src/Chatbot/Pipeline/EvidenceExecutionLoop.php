@@ -264,6 +264,8 @@ class EvidenceExecutionLoop {
             $missing[] = 'policy_evidence';
         } elseif ($primary === 'order_status') {
             $missing[] = 'order_status';
+        } elseif ($primary === 'build_outfit') {
+            $missing[] = 'outfit_result';
         }
         return $missing;
     }

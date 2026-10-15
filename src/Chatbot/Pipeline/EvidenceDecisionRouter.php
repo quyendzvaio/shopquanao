@@ -50,9 +50,11 @@ class EvidenceDecisionRouter {
 
     private function missingRequiredSlots(array $intent): array {
         $missing = is_array($intent['missing_slots'] ?? null) ? $intent['missing_slots'] : [];
-        return ($intent['primary_intent'] ?? '') === 'size_advice'
-            ? array_values(array_intersect($missing, ['height', 'weight']))
-            : [];
+        return match ($intent['primary_intent'] ?? '') {
+            'size_advice' => array_values(array_intersect($missing, ['height', 'weight'])),
+            'build_outfit' => array_values(array_intersect($missing, ['style_tags'])),
+            default => [],
+        };
     }
 
     private function hasFact(array $normalized, string $factType): bool {

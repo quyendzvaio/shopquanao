@@ -60,9 +60,11 @@ class LightweightEvidenceScorer {
             'return_exchange', 'shipping', 'policy' => ['policy_source', 'policy_content'],
             'mixed_product_policy' => ['product_evidence', 'policy_source', 'policy_content'],
             'order_status' => ['order_status_or_login'],
+            'build_outfit' => ['outfit_result'],
             'unsupported_checkout', 'unknown' => [],
             default => [],
         };
+        if ($primary === 'build_outfit') return $facts;
 
         if (in_array('price', $requested, true) && !in_array('price_constraint', $facts, true)) {
             $facts[] = 'price_constraint';
@@ -115,6 +117,7 @@ class LightweightEvidenceScorer {
             'occasion_constraint' => $this->textConstraintPass($cards, $entities, 'occasion'),
             'semantic_query_constraint' => $this->textConstraintPass($cards, $entities, 'semantic_query'),
             'avoid_constraint' => $this->avoidConstraintPass($cards, $entities),
+            'outfit_result' => $this->hasEvidenceType($evidence, 'outfit_sets') || $this->hasEvidenceType($evidence, 'outfit_unavailable'),
             default => false,
         };
     }

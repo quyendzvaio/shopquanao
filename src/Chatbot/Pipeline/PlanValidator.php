@@ -146,6 +146,17 @@ class PlanValidator {
         $errors = [];
         $has = fn(string $tool): bool => in_array($tool, $tools, true);
 
+        if ($primary === 'build_outfit') {
+            $canBuild = !empty($entities['style_tags']) || !empty($entities['product_id']);
+            if ($canBuild && !$has('build_outfit')) $errors[] = 'build_outfit_requires_build_outfit';
+            if (!$canBuild && $has('build_outfit')) $errors[] = 'build_outfit_without_context_must_ask';
+            if ($has('search_products') || $has('get_product_detail')) $errors[] = 'build_outfit_must_use_outfit_tool';
+            $args = $this->firstToolCall($plan, 'build_outfit')['args'] ?? [];
+            if (!empty($entities['max_price']) && (int)($args['budget'] ?? 0) !== (int)$entities['max_price']) {
+                $errors[] = 'build_outfit_missing_budget';
+            }
+        }
+
         if ($primary === 'product_search') {
             if (!$has('search_products')) $errors[] = 'product_search_requires_search_products';
             if ($has('get_product_detail') && empty($entities['product_id'])) $errors[] = 'product_search_must_not_call_detail_without_product_id';

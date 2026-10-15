@@ -38,6 +38,7 @@ class CapabilityRegistry {
             'order_status' => ['get_order_status'],
             'return_exchange', 'shipping', 'policy' => ['retrieve_knowledge'],
             'mixed_product_policy' => ['get_product_detail', 'search_products', 'retrieve_knowledge'],
+            'build_outfit' => ['build_outfit'],
             default => array_keys($capabilities),
         };
 
@@ -50,6 +51,14 @@ class CapabilityRegistry {
     private static function knownMetadata(string $name, array $inputSchema): array {
         return match ($name) {
             'search_products' => self::productSearch($inputSchema),
+            'build_outfit' => [
+                'use_when' => ['Người dùng hỏi nên mặc gì / phối set cho một dịp hoặc phong cách, hoặc phối với một product_id cụ thể.'],
+                'do_not_use_when' => ['Người dùng chỉ tìm một loại sản phẩm đơn lẻ.', 'Người dùng muốn thêm giỏ hoặc thanh toán.'],
+                'output_schema' => [
+                    'type' => 'object',
+                    'properties' => ['outfits' => ['type' => 'array'], 'products' => ['type' => 'array'], 'reason' => ['type' => ['string', 'null']]],
+                ],
+            ],
             'get_product_detail' => [
                 'use_when' => [
                     'Người dùng hỏi chi tiết một product_id cụ thể.',
