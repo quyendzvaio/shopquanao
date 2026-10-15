@@ -25,12 +25,7 @@
         "check": ["@lint", "@stan"]
     },
     "autoload": {
-        "classmap": [
-            "src/",
-            "api/cache/",
-            "api/controllers/chatbot/",
-            "api/services/"
-        ]
+        "classmap": ["src/"]
     },
     "config": {
         "optimize-autoloader": true,

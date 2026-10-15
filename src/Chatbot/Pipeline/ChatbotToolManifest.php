@@ -10,7 +10,7 @@ class ChatbotToolManifest {
 
     public static function load(): array {
         if (self::$manifest === null) {
-            $manifest = require __DIR__ . '/../../../../config/chatbot_tools.php';
+            $manifest = require dirname(__DIR__, 3) . '/config/chatbot_tools.php';
             if (!is_array($manifest) || !isset($manifest['intents']) || !is_array($manifest['intents'])) {
                 throw new RuntimeException('Invalid chatbot tool manifest');
             }
@@ -30,7 +30,7 @@ class ChatbotToolManifest {
 
     /** @return string[] */
     public static function knownEntityFields(): array {
-        $manifest = require __DIR__ . '/../../../../config/chatbot_tools.php';
+        $manifest = require dirname(__DIR__, 3) . '/config/chatbot_tools.php';
         return is_array($manifest['entity_fields'] ?? null) ? $manifest['entity_fields'] : [];
     }
 

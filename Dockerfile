@@ -24,7 +24,6 @@ FROM ${COMPOSER_IMAGE} AS php-deps
 WORKDIR /build
 COPY composer.json composer.lock ./
 COPY src/ src/
-COPY api/ api/
 RUN composer install --no-dev --no-interaction --no-progress --no-scripts \
       --ignore-platform-reqs --classmap-authoritative
 
