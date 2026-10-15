@@ -17,9 +17,10 @@ if (!$name || $price <= 0) {
 
 global $pdo;
 $stmt = $pdo->prepare("INSERT INTO products
-    (name, price, stock, description, category_id, subcategory_id, image)
-    VALUES (?, ?, ?, ?, ?, ?, ?)");
-$stmt->execute([$name, $price, $stock, $description, $categoryId, $subcategoryId, $image]);
+    (name, price, stock, description, category_id, subcategory_id, image, style_tags)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+$stmt->execute([$name, $price, $stock, $description, $categoryId, $subcategoryId, $image,
+    StyleTag::toColumn((array)($data['style_tags'] ?? []))]);
 
 jsonResponse([
     'message' => 'Product created',

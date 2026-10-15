@@ -41,13 +41,14 @@ if (isset($_POST['add_product'])) {
             
             if (move_uploaded_file($tmp_name, $img_upload_path)) {
                 $stmt = $pdo->prepare("INSERT INTO products
-                    (name, price, stock, description, category_id, subcategory_id, image)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)");
+                    (name, price, stock, description, category_id, subcategory_id, image, style_tags)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
                 $stmt->execute([
                     $name, $price, $stock, $description,
                     $categoryId > 0 ? $categoryId : null,
                     $subcategoryId > 0 ? $subcategoryId : null,
                     $new_img_name,
+                    StyleTag::toColumn((array)($_POST['style_tags'] ?? [])),
                 ]);
                 header("Location: manage_products.php?msg=added");
                 exit();
@@ -145,6 +146,17 @@ $products = $pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll();
             <br><br>
             <textarea name="description" placeholder="Mô tả sản phẩm" style="width: 100%; height: 60px; padding: 8px;"></textarea>
             <br><br>
+            <?php $currentTags = []; ?>
+            <fieldset style="margin: 10px 0;">
+                <legend>Tag dịp / phong cách (tối đa <?= StyleTag::MAX_PER_PRODUCT ?>)</legend>
+                <?php foreach (StyleTag::ALL as $tag): ?>
+                    <label style="margin-right: 12px;">
+                        <input type="checkbox" name="style_tags[]" value="<?= $tag ?>"
+                            <?= in_array($tag, $currentTags, true) ? 'checked' : '' ?>>
+                        <?= htmlspecialchars(StyleTag::label($tag)) ?>
+                    </label>
+                <?php endforeach; ?>
+            </fieldset>
             <button type="submit" name="add_product" class="btn btn-add">LƯU SẢN PHẨM</button>
         </form>
     </div>

@@ -50,12 +50,14 @@ if (isset($_POST['update_product'])) {
     }
 
     $stmt = $pdo->prepare("UPDATE products
-        SET name=?, price=?, stock=?, description=?, category_id=?, subcategory_id=?, image=? WHERE id=?");
+        SET name=?, price=?, stock=?, description=?, category_id=?, subcategory_id=?, image=?, style_tags=? WHERE id=?");
     if ($stmt->execute([
         $name, $price, $stock, $description,
         $categoryId > 0 ? $categoryId : null,
         $subcategoryId > 0 ? $subcategoryId : null,
-        $image_to_save, $id,
+        $image_to_save,
+        StyleTag::toColumn((array)($_POST['style_tags'] ?? [])),
+        $id,
     ])) {
         header("Location: manage_products.php?msg=updated");
         exit();
@@ -118,6 +120,17 @@ if (isset($_POST['update_product'])) {
         <label>Thay ảnh mới (để trống nếu giữ nguyên):</label>
         <input type="file" name="image">
 
+        <?php $currentTags = StyleTag::parseList($product['style_tags'] ?? ''); ?>
+        <fieldset style="margin: 10px 0;">
+            <legend>Tag dịp / phong cách (tối đa <?= StyleTag::MAX_PER_PRODUCT ?>)</legend>
+            <?php foreach (StyleTag::ALL as $tag): ?>
+                <label style="margin-right: 12px;">
+                    <input type="checkbox" name="style_tags[]" value="<?= $tag ?>"
+                        <?= in_array($tag, $currentTags, true) ? 'checked' : '' ?>>
+                    <?= htmlspecialchars(StyleTag::label($tag)) ?>
+                </label>
+            <?php endforeach; ?>
+        </fieldset>
         <button type="submit" name="update_product" class="btn-save">CẬP NHẬT THAY ĐỔI</button>
         <a href="manage_products.php" class="back-link">← Quay lại danh sách</a>
     </form>

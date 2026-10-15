@@ -18,6 +18,11 @@ foreach (['name', 'price', 'stock', 'description', 'category_id', 'subcategory_i
     }
 }
 
+if (array_key_exists('style_tags', $data)) {
+    $fields[] = "style_tags = ?";
+    $params[] = StyleTag::toColumn((array)$data['style_tags']);
+}
+
 if (!$fields) errorResponse('No fields to update', 400);
 
 $params[] = $id;
