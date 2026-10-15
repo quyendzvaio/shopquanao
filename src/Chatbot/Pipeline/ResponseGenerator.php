@@ -52,7 +52,9 @@ class ResponseGenerator {
         foreach ($evidence as $item) {
             if (($item['fact_type'] ?? '') === 'freeship_status') $fact = $item;
         }
-        $threshold = $this->money((float)($fact['threshold'] ?? 0));
+        $threshold = $this->money((float)(!empty($fact['threshold'])
+            ? $fact['threshold']
+            : FreeShippingPolicy::fromEnvironment()->threshold));
         return match ((string)($fact['value'] ?? '')) {
             'requires_login' => "Shop miễn phí ship cho đơn từ $threshold. Bạn đăng nhập để mình kiểm tra giỏ hàng và gợi ý món phù hợp nhé.",
             'empty_cart' => "Giỏ hàng của bạn đang trống. Shop miễn phí ship cho đơn từ $threshold.",
@@ -300,6 +302,9 @@ class ResponseGenerator {
         $occasion = implode(', ', array_map([StyleTag::class, 'label'], (array)($fact['style_tags'] ?? [])));
         $budget = (int)($intent['entities']['max_price'] ?? 0);
 
+        if ($outfits === [] && $fact === []) {
+            return 'Dịch vụ phối đồ đang tạm thời gián đoạn nên mình chưa ghép được set lúc này. Bạn thử lại sau ít phút nhé.';
+        }
         if ($outfits === []) {
             $reason = ($fact['fact_type'] ?? '') === 'outfit_unavailable' ? (string)($fact['value'] ?? '') : '';
             if ($reason === 'budget_too_low' && !empty($fact['cheapest_total'])) {

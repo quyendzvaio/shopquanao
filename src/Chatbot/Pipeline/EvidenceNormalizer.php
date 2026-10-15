@@ -28,9 +28,9 @@ class EvidenceNormalizer {
                 $this->normalizeSize($result, $evidence);
             } elseif ($tool === 'get_order_status') {
                 $this->normalizeOrder($result, $evidence);
-            } elseif ($tool === 'build_outfit') {
+            } elseif ($tool === 'build_outfit' && !$this->failed($entry, $result)) {
                 $this->normalizeOutfits($result, $cards, $evidence, $outfits);
-            } elseif ($tool === 'suggest_freeship_items') {
+            } elseif ($tool === 'suggest_freeship_items' && !$this->failed($entry, $result)) {
                 $this->normalizeFreeShipping($result, $cards, $evidence);
             }
         }
@@ -42,6 +42,15 @@ class EvidenceNormalizer {
             'tool_results' => $toolResults,
             'outfits' => $outfits,
         ];
+    }
+
+    /**
+     * A failed tool call yields no outcome fact: the scorer then sees missing
+     * evidence and the router retries/falls back instead of answering from a
+     * fabricated status.
+     */
+    private function failed(array $entry, array $result): bool {
+        return isset($result['error']) || (array_key_exists('success', $entry) && $entry['success'] === false);
     }
 
     /** @return list<array<string,mixed>> */
