@@ -366,6 +366,8 @@ class ChatbotMemory implements ChatbotMemoryStore {
     private function generateSummary(string $oldSummary, array $slots): string {
         $slotBullets = [];
         foreach ($this->compactArray($slots) as $key => $value) {
+            // Internal bookkeeping (FreeShippingNudge ledger), not a user fact.
+            if ($key === 'freeship_nudged_fingerprint') continue;
             $slotBullets[$key] = "- $key: " . (is_array($value) ? json_encode($value, JSON_UNESCAPED_UNICODE) : $value);
         }
 

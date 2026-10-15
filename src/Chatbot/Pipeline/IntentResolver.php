@@ -115,7 +115,7 @@ class IntentResolver {
     {
         $fields = is_array($llmPartial['resolved_fields'] ?? null) ? $llmPartial['resolved_fields'] : [];
         $ruleFields = is_array($deterministic['resolved_fields'] ?? null) ? $deterministic['resolved_fields'] : [];
-        foreach (['product_id', 'order_id', 'min_price', 'max_price', 'height_cm', 'weight_kg', 'size', 'color', 'in_stock'] as $field) {
+        foreach (['product_id', 'order_id', 'min_price', 'max_price', 'height_cm', 'weight_kg', 'size', 'color', 'in_stock', 'style_tags'] as $field) {
             if (isset($ruleFields[$field])) {
                 $fields[$field] = $ruleFields[$field];
             }

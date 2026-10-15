@@ -130,8 +130,6 @@ class PlanValidator {
      * allow-list for the primary intent. Terminal intents must plan nothing.
      */
     private function validateAgainstManifest(string $primary, array $tools): array {
-        if (!class_exists('ChatbotToolManifest')) {
-        }
         $allowed = ChatbotToolManifest::toolsFor($primary);
         $errors = [];
         foreach ($tools as $tool) {

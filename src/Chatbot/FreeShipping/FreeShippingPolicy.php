@@ -24,6 +24,6 @@ final readonly class FreeShippingPolicy
         if ($value === false || $value === '') {
             $value = $_ENV[$key] ?? $_SERVER[$key] ?? '';
         }
-        return $value === '' ? $default : (int)$value;
+        return is_numeric($value) ? (int)$value : $default;
     }
 }
