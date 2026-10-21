@@ -136,7 +136,7 @@ flowchart TD
     L --> M[Generate response and cards]
     M --> N[Native LLM token stream]
     N --> O[Persist messages, trace and tool telemetry]
-    O --> P[Return NDJSON/WebSocket events to UI]
+    O --> P[Return SSE events to UI]
 ```
 
 ### 2.4 Assumptions and Dependencies

@@ -23,6 +23,8 @@ $sessionToken = trim($data['session_token'] ?? '');
 if (!$message) {
     errorResponse('Message is required', 400);
 }
+$rejection = ChatStreamProtocol::rejectBrowserRequest($message, $_SERVER);
+if ($rejection !== null) errorResponse($rejection['message'], $rejection['status']);
 
 $context = ChatbotSessionContext::resolve($pdo, $sessionToken, getBearerToken());
 
