@@ -2,7 +2,7 @@
 
 /**
  * Resolves the durable chat session used by both JSON and streamed chatbot
- * requests. Keeping this at one seam prevents WebSocket delivery from creating
+ * requests. Keeping this at one seam prevents SSE delivery from creating
  * a different session/identity model than the existing HTTP endpoint.
  */
 final class ChatbotSessionContext

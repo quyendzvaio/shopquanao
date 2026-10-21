@@ -35,4 +35,9 @@ check 200 GET '/api/size-guide?height=170&weight=65'
 check 200 GET /api/outfit
 check 404 POST /api/internal/mcp '{}'
 check 200 POST /api/chatbot '{"message":"áo thun dưới 300k"}'
+check 200 POST /api/chatbot/stream '{"message":"áo thun dưới 300k"}'
+# The WebSocket gateway was removed: an upgrade request must not be accepted.
+got=$(curl -s -o /dev/null -w '%{http_code}' -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' "$BASE/ws/chatbot")
+if [ "$got" != "101" ]; then echo "ok   $got WS /ws/chatbot (no upgrade)"; else echo "FAIL WS /ws/chatbot: upgrade accepted"; fail=1; fi
 exit $fail

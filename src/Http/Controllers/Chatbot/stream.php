@@ -1,7 +1,10 @@
 <?php
 /**
  * POST /api/chatbot/stream
- * Chunked NDJSON transport consumed by the WebSocket gateway.
+ * Server-Sent Events consumed directly by the storefront widget (fetch +
+ * ReadableStream; EventSource cannot POST). Text deltas are emitted only after
+ * the PHP pipeline has validated the answer; cards and metadata follow as
+ * whole events.
  */
 
 
@@ -13,13 +16,15 @@ $data = getJsonInput();
 $message = trim((string)($data['message'] ?? ''));
 $sessionToken = trim((string)($data['session_token'] ?? ''));
 if ($message === '') errorResponse('Message is required', 400);
+$rejection = ChatStreamProtocol::rejectBrowserRequest($message, $_SERVER);
+if ($rejection !== null) errorResponse($rejection['message'], $rejection['status']);
 
-header('Content-Type: application/x-ndjson; charset=utf-8');
+header('Content-Type: text/event-stream; charset=utf-8');
 header('Cache-Control: no-store');
 header('X-Accel-Buffering: no');
 
 $emit = static function (array $event): void {
-    echo json_encode($event, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
+    echo ChatStreamProtocol::event($event);
     if (ob_get_level() > 0) @ob_flush();
     flush();
 };
@@ -32,7 +37,7 @@ try {
         $emit(['type' => 'chat.delta', 'delta' => $delta]);
     });
 
-    $cards = is_array($result['products'] ?? null) ? $result['products'] : [];
+    $cards = ChatStreamProtocol::cards(is_array($result['products'] ?? null) ? $result['products'] : []);
     if ($cards !== []) $emit(['type' => 'chat.cards', 'products' => $cards]);
     $context->touch($pdo);
     $emit([
@@ -46,7 +51,10 @@ try {
         'freeship_status' => $result['freeship_status'] ?? null,
         'freeship_nudge' => (bool)($result['freeship_nudge'] ?? false),
         'product_count' => count($cards),
-        'latency' => is_array($result['latency'] ?? null) ? $result['latency'] : [],
+        'latency' => array_filter(
+            is_array($result['latency'] ?? null) ? $result['latency'] : [],
+            static fn ($value): bool => is_int($value) || is_float($value) || is_bool($value)
+        ),
     ]);
 } catch (Throwable $error) {
     error_log(json_encode([

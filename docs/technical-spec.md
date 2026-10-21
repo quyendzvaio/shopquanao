@@ -9,9 +9,8 @@ Fashion Shop là website bán quần áo bằng PHP 8.2 và MariaDB. Docker Comp
 
 | Service | Vai trò |
 |---|---|
-| `nginx` | Public entrypoint, reverse proxy, rate limit và WebSocket upgrade |
+| `nginx` | Public entrypoint, reverse proxy, rate limit, unbuffered SSE cho chatbot stream |
 | `app` | PHP website, REST controllers và chatbot service |
-| `chat-stream` | WebSocket delivery gateway; forwards one chat turn to PHP and streams only validated output |
 | `db` | Product, user, cart, order, chat, memory và execution logs |
 | `redis` | Cache; app có file fallback |
 | `qdrant` | Vector store cho knowledge base |
@@ -23,8 +22,7 @@ Fashion Shop là website bán quần áo bằng PHP 8.2 và MariaDB. Docker Comp
 ```text
 Browser
   -> Nginx :80
-  -> PHP app (REST) / chat-stream (WebSocket)
-  -> chat-stream -> PHP app for `/ws/chatbot`
+  -> PHP app (REST, và SSE cho `POST /api/chatbot/stream`)
       -> public/api/index.php (routes: src/Http/routes.php)
       -> src/Http/Controllers/*
       -> MariaDB / Redis / sidecars
@@ -41,7 +39,7 @@ Chatbot dùng deterministic-first hybrid pipeline (`deterministic_hybrid_pipelin
 L0 ở 0 LLM call và template streaming (`CHATBOT_TEMPLATE_RESPONSE=1`); L1 chỉ trám
 unresolved spans. LLM không nhận tool definitions và không được ghi đè field đã khóa.
 
-Chi tiết call graph, WebSocket event contract, intent-tool mapping, constraint
+Chi tiết call graph, SSE event contract, intent-tool mapping, constraint
 validation, memory và test nằm tại [chatbot-spec.md](chatbot-spec.md).
 
 ## Product Search

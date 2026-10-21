@@ -53,8 +53,6 @@ services:
     depends_on:
       app:
         condition: service_healthy
-      chat-stream:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/nginx-health >/dev/null 2>&1 || exit 1"]
       interval: 15s
@@ -135,33 +133,6 @@ services:
         condition: service_started
       qdrant:
         condition: service_started
-
-  # Public WebSocket delivery for validated chatbot replies. It is separate
-  # from PHP-FPM because PHP-FPM cannot safely own long-lived WebSocket peers.
-  chat-stream:
-    image: ${APP_IMAGE:-shop_quan_ao-app:latest}
-    container_name: shop_quan_ao_chat_stream
-    restart: unless-stopped
-    command: ["/usr/bin/node", "/opt/mcp-server/dist/chat-stream.js"]
-    expose:
-      - "8090"
-    environment:
-      CHAT_STREAM_UPSTREAM_URL: http://app:8080/api/chatbot/stream
-      CHAT_STREAM_HOST: 0.0.0.0
-      CHAT_STREAM_PORT: 8090
-      CHAT_STREAM_ALLOWED_ORIGINS: ${CHAT_STREAM_ALLOWED_ORIGINS:-}
-      CHAT_STREAM_REQUEST_TIMEOUT_MS: ${CHAT_STREAM_REQUEST_TIMEOUT_MS:-90000}
-      CHAT_STREAM_MAX_MESSAGE_CHARS: ${CHAT_STREAM_MAX_MESSAGE_CHARS:-2000}
-      CHAT_STREAM_RATE_LIMIT_PER_MINUTE: ${CHAT_STREAM_RATE_LIMIT_PER_MINUTE:-30}
-    depends_on:
-      app:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8090/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
-      interval: 15s
-      timeout: 5s
-      start_period: 5s
-      retries: 8
 
   reranker:
     build:
@@ -438,7 +409,7 @@ services:
 
   # This publisher has no dependency on langfuse-web/worker. It queues and
   # retries local OTLP exports when Langfuse is unavailable, never holding a
-  # chatbot PHP worker or WebSocket response open.
+  # chatbot PHP worker or SSE response open.
   langfuse-trace-publisher:
     image: ${APP_IMAGE:-shop_quan_ao-app:latest}
     container_name: shop_quan_ao_langfuse_trace_publisher

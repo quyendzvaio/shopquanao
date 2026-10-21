@@ -185,7 +185,7 @@ The deterministic agent eval (`scripts/run_agent_eval.php`) does not need Langfu
 
 When `LANGFUSE_ENABLED=true` and valid project keys are configured, completed
 chatbot requests are recorded to the local `langfuse_trace_outbox` table. The
-request and WebSocket streaming paths make **no Langfuse HTTP request**. A
+request and SSE streaming paths make **no Langfuse HTTP request**. A
 separate `langfuse-trace-publisher` container exports completed OTLP/HTTP spans
 to `LANGFUSE_INGESTION_URL/api/public/otel/v1/traces` with a 1.5-second default
 timeout and bounded retry/backoff.

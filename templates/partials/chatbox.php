@@ -215,13 +215,10 @@ $username  = $_SESSION['username'] ?? '';
 
 <script>
 const API_CHAT = window.location.origin + '/api/chatbot';
-const CHAT_STREAM_URL = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws/chatbot';
 var chatSessionToken = '<?= addslashes($chatToken) ?>';
 const CHAT_USER_TOKEN = '<?= addslashes($userToken) ?>';
 const CHAT_IS_LOGGED_IN = <?= $isLoggedIn ? 'true' : 'false' ?>;
 let isLoading = false;
-let chatSocket = null;
-let chatSocketOpening = null;
 let activeChatStream = null;
 
 function sanitizeAssistantText(text) {
@@ -347,33 +344,108 @@ async function sendMessage() {
     showTyping();
     document.getElementById('chat-suggestions').style.display = 'none';
 
-    const requestId = createChatRequestId();
-    activeChatStream = { requestId, text: '', element: null, cardsRendered: false, sent: false };
-
+    const active = { text: '', element: null, cardsRendered: false, sawDelta: false };
+    activeChatStream = active;
+    let outcome;
     try {
-        const socket = await connectChatSocket();
-        socket.send(JSON.stringify({
-            type: 'chat.send',
-            request_id: requestId,
-            message: text,
-            session_token: chatSessionToken,
-            // Browser WebSocket cannot set Authorization headers. This value
-            // travels only in the same-origin TLS WebSocket frame and is never
-            // rendered or logged by the gateway.
-            authorization: CHAT_USER_TOKEN ? 'Bearer ' + CHAT_USER_TOKEN : null,
-        }));
-        if (activeChatStream && activeChatStream.requestId === requestId) activeChatStream.sent = true;
+        outcome = await streamChatTurn(text, active);
     } catch (e) {
-        finishStreamingRequest();
-        addMessage('system', 'Không thể mở kết nối chat trực tiếp. Vui lòng thử lại sau.');
+        outcome = { status: 'broken' };
+    }
+
+    // Nothing was shown yet, so the turn can be answered once more over plain
+    // HTTP without duplicating visible text.
+    if (outcome.status === 'broken' && !active.sawDelta) {
+        try {
+            await sendViaHttp(text);
+            outcome = { status: 'complete' };
+        } catch (e) {
+            outcome = { status: 'error', message: 'Không thể kết nối tới trợ lý. Vui lòng thử lại sau.' };
+        }
+    }
+
+    if (outcome.status === 'broken') {
+        outcome = { status: 'error', message: 'Kết nối chat bị gián đoạn. Tin nhắn chưa được tự gửi lại để tránh trả lời trùng; vui lòng gửi lại.' };
+    }
+    finishStreamingRequest();
+    if (outcome.status === 'error') addMessage('system', outcome.message);
+}
+
+function chatRequestHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    if (CHAT_USER_TOKEN) headers['Authorization'] = 'Bearer ' + CHAT_USER_TOKEN;
+    return headers;
+}
+
+function rememberChatSession(token) {
+    if (typeof token !== 'string' || !token) return;
+    chatSessionToken = token;
+    sessionStorage.setItem('chat_session_token', chatSessionToken);
+}
+
+async function requestErrorMessage(res) {
+    if (res.status === 429) return 'Bạn gửi tin nhắn hơi nhanh, vui lòng thử lại sau ít phút.';
+    try {
+        const body = await res.json();
+        if (body && typeof body.message === 'string' && body.message) return body.message;
+    } catch (e) { /* non-JSON error body */ }
+    return 'Không thể xử lý tin nhắn. Vui lòng thử lại.';
+}
+
+/**
+ * One chat turn over Server-Sent Events. EventSource cannot POST, so the
+ * response body is read with fetch and split into `data:` frames.
+ * Resolves to {status: 'complete' | 'error' | 'broken', message?}.
+ */
+async function streamChatTurn(text, active) {
+    const res = await fetch(API_CHAT + '/stream', {
+        method: 'POST',
+        headers: chatRequestHeaders(),
+        body: JSON.stringify({ message: text, session_token: chatSessionToken }),
+    });
+    if (!res.ok || !res.body) {
+        if (res.status >= 500 || !res.body) return { status: 'broken' };
+        return { status: 'error', message: await requestErrorMessage(res) };
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        let boundary;
+        while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+            const frame = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            const data = frame.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
+            if (!data) continue;
+            let event;
+            try { event = JSON.parse(data); } catch (e) { continue; }
+            const outcome = handleChatStreamEvent(event, active);
+            if (outcome) {
+                reader.cancel().catch(() => {});
+                return outcome;
+            }
+        }
+        if (done) return { status: 'broken' };
     }
 }
 
-function createChatRequestId() {
-    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-        return window.crypto.randomUUID();
-    }
-    return 'chat-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+/** Non-streaming fallback: the same validated pipeline, delivered in one response. */
+async function sendViaHttp(text) {
+    const res = await fetch(API_CHAT, {
+        method: 'POST',
+        headers: chatRequestHeaders(),
+        body: JSON.stringify({ message: text, session_token: chatSessionToken }),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    rememberChatSession(data.session_token);
+    hideTyping();
+    addMessage('bot', String(data.message || ''));
+    if (Array.isArray(data.products) && data.products.length > 0) renderProductCards(data.products);
+    setChatConnectionStatus('🟢 Trực tuyến');
 }
 
 function setChatConnectionStatus(text) {
@@ -381,98 +453,49 @@ function setChatConnectionStatus(text) {
     if (status) status.textContent = text;
 }
 
-function connectChatSocket() {
-    if (chatSocket && chatSocket.readyState === WebSocket.OPEN) return Promise.resolve(chatSocket);
-    if (chatSocketOpening) return chatSocketOpening;
-
-    chatSocketOpening = new Promise((resolve, reject) => {
-        const socket = new WebSocket(CHAT_STREAM_URL);
-        const timeout = window.setTimeout(() => {
-            if (socket.readyState === WebSocket.CONNECTING) socket.close();
-            reject(new Error('WebSocket connection timed out'));
-        }, 10000);
-
-        socket.onopen = () => {
-            window.clearTimeout(timeout);
-            chatSocket = socket;
-            chatSocketOpening = null;
-            setChatConnectionStatus('🟢 Trực tuyến');
-            resolve(socket);
-        };
-        socket.onmessage = (event) => handleChatStreamEvent(event);
-        socket.onerror = () => {
-            // close is responsible for final cleanup; browser errors do not
-            // expose a safe diagnostic payload.
-        };
-        socket.onclose = () => {
-            window.clearTimeout(timeout);
-            if (chatSocket === socket) chatSocket = null;
-            chatSocketOpening = null;
-            setChatConnectionStatus('🟡 Đang kết nối lại');
-            if (activeChatStream && activeChatStream.sent) {
-                finishStreamingRequest();
-                addMessage('system', 'Kết nối chat bị gián đoạn. Tin nhắn chưa được tự gửi lại để tránh trả lời trùng; vui lòng gửi lại.');
-            }
-        };
-    });
-    return chatSocketOpening;
-}
-
-function streamBotElement() {
-    if (!activeChatStream) return null;
-    if (!activeChatStream.element) {
+function streamBotElement(active) {
+    if (!active.element) {
         hideTyping();
-        activeChatStream.element = addMessage('bot', '');
+        active.element = addMessage('bot', '');
     }
-    return activeChatStream.element;
+    return active.element;
 }
 
-function handleChatStreamEvent(event) {
-    let data;
-    try { data = JSON.parse(event.data); } catch (e) { return; }
-    if (!data || typeof data !== 'object') return;
-    const active = activeChatStream;
-    const requestId = String(data.request_id || '');
-    if (!active || (requestId && requestId !== active.requestId && requestId !== 'unknown')) return;
+/** Applies one stream event; returns the turn outcome once the turn has ended. */
+function handleChatStreamEvent(data, active) {
+    if (!data || typeof data !== 'object') return null;
 
-    if (data.type === 'chat.started') {
-        streamBotElement();
-        return;
-    }
     if (data.type === 'chat.progress') {
         setChatConnectionStatus('🟢 Đang trả lời');
-        return;
+        return null;
     }
     if (data.type === 'chat.delta') {
-        const element = streamBotElement();
-        if (!element) return;
+        const element = streamBotElement(active);
+        active.sawDelta = true;
         active.text += String(data.delta || '');
         element.textContent = sanitizeAssistantText(active.text) || active.text;
         const container = document.getElementById('chat-messages');
         container.scrollTop = container.scrollHeight;
-        return;
+        return null;
     }
     if (data.type === 'chat.cards') {
         if (Array.isArray(data.products) && data.products.length > 0 && !active.cardsRendered) {
             active.cardsRendered = true;
             renderProductCards(data.products);
         }
-        return;
+        return null;
     }
     if (data.type === 'chat.complete') {
-        if (typeof data.session_token === 'string' && data.session_token) {
-            chatSessionToken = data.session_token;
-            sessionStorage.setItem('chat_session_token', chatSessionToken);
-        }
+        rememberChatSession(data.session_token);
         setChatConnectionStatus('🟢 Trực tuyến');
-        finishStreamingRequest();
-        return;
+        return { status: 'complete' };
     }
     if (data.type === 'chat.error') {
-        const message = typeof data.message === 'string' ? data.message : 'Không thể xử lý tin nhắn. Vui lòng thử lại.';
-        finishStreamingRequest();
-        addMessage('system', message);
+        // A server-side failure before any text is retried over plain HTTP.
+        if (!active.sawDelta) return { status: 'broken' };
+        return { status: 'error', message: typeof data.message === 'string' ? data.message : 'Không thể xử lý tin nhắn. Vui lòng thử lại.' };
     }
+    return null;
 }
 
 function finishStreamingRequest() {

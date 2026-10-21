@@ -28,7 +28,7 @@ Browser
           -> PHP internal application services
               -> Product / Size / Policy / Order / Outfit / Free-shipping tools
       -> EvidenceNormalizer + ProductConstraintVerifier
-      -> grounded ResponseGenerator -> native LLM token stream
+      -> grounded ResponseGenerator -> native LLM token stream (SSE tới browser)
       -> FreeShippingNudge (gợi ý chủ động UC-C)
 ```
 
@@ -36,7 +36,6 @@ Browser
 | --- | --- |
 | `nginx` | Public gateway và chatbot rate limit |
 | `app` | PHP/Apache, REST API, chatbot và MCP client |
-| `chat-stream` | WebSocket streamer `/ws/chatbot` (cùng origin) |
 | `db` | MariaDB 10.11 |
 | `redis` | Shared cache |
 | `qdrant` | Knowledge vector store |
@@ -45,9 +44,11 @@ Browser
 
 MCP dùng private child process, không mở public MCP port. Nginx trả `404` cho `/api/internal/mcp`; app container cũng không publish port trực tiếp.
 
-Chat widget nhận phản hồi qua WebSocket cùng origin tại `/ws/chatbot`.
-`chat-stream` chỉ stream text sau khi PHP validator hoàn tất và chỉ gửi private
-shop cards đã allow-list; không stream raw MCP payload.
+Chat widget gọi `POST /api/chatbot/stream` và đọc phản hồi dạng Server-Sent
+Events (cùng origin, không có service stream riêng). PHP chỉ stream text sau khi
+validator hoàn tất và chỉ gửi private shop cards đã allow-list; không stream raw
+MCP payload. Nếu LLM lỗi, PHP gửi bản nháp grounded thay vì báo lỗi; nếu stream
+hỏng trước khi có chữ, widget gửi lại một lần qua `POST /api/chatbot`.
 
 ## Cài đặt local
 

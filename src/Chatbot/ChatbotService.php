@@ -142,11 +142,15 @@ class ChatbotService {
             throw new RuntimeException('Configured LLM provider does not support native token streaming');
         } else {
             $streamStart = microtime(true);
-            $streamed = (new StreamingResponseGenerator())->stream($this->streamingLlm, $message, $result, $onDelta);
+            $generated = (new StreamingResponseGenerator())->stream($this->streamingLlm, $message, $result, $onDelta);
+            $streamed = $generated['text'];
             $result['message'] = $streamed;
             $result['answer'] = $streamed;
             $result['latency']['llm_stream_ms'] = (int)((microtime(true) - $streamStart) * 1000);
-            $result['latency']['streaming'] = true;
+            $result['latency']['streaming'] = $generated['fallback'] === null ? true : 'template_fallback';
+            if ($generated['fallback'] !== null) {
+                error_log(json_encode(['operation' => 'chatbot_stream_llm', 'success' => false, 'error_category' => $generated['fallback']]));
+            }
         }
 
         // The nudge is its own delta after the answer so an LLM rewrite cannot drop it.
