@@ -232,10 +232,17 @@ class DeterministicIntentParser {
             }
         }
 
-        // Outfit budgets: "ngân sách 1 triệu" is a budget anywhere; the bare
-        // "có 800k" only inside outfit context so "áo thun có 300k không" is
-        // never a hard price filter. A money unit is required so "có 2 cái"
-        // never becomes a price. Appended last: an explicit "dưới 500k" wins.
+        return array_merge($candidates, $this->budgetPriceCandidates($lower));
+    }
+
+    /**
+     * Outfit budgets: "ngân sách 1 triệu" is a budget anywhere; the bare
+     * "có 800k" only inside outfit context so "áo thun có 300k không" is
+     * never a hard price filter. A money unit is required so "có 2 cái"
+     * never becomes a price. Appended last: an explicit "dưới 500k" wins.
+     */
+    private function budgetPriceCandidates(string $lower): array {
+        $candidates = [];
         $budgetWords = 'ngân sách|ngan sach|budget';
         if ($this->isOutfit($lower) || (StyleTag::fromText($lower) !== [] && $this->asksWhatToWear($lower))) {
             $budgetWords .= '|có|co';
@@ -253,7 +260,6 @@ class DeterministicIntentParser {
                 ];
             }
         }
-
         return $candidates;
     }
 

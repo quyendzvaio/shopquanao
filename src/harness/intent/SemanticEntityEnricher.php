@@ -37,45 +37,14 @@ class SemanticEntityEnricher {
 
         $this->lastPrompt = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}';
         try {
-            $response = $this->llm->chat([
-                [
-                    'role' => 'system',
-                    'content' => implode("\n", [
-                        'Bạn là module bổ sung thuộc tính ngữ nghĩa cho chatbot bán hàng.',
-                        'Chỉ đọc unresolved_spans và locked_fields.',
-                        'Không parse lại toàn bộ query.',
-                        'Không sửa, không lặp lại, không overwrite locked_fields.',
-                        'Không chọn intent, tool, SQL và không trả prose.',
-                        'Nếu trả color, dùng canonical tiếng Việt như "đen", "trắng", "xám"; không dùng "black", "white", "gray".',
-                        'Chỉ trả JSON strict theo schema:',
-                        '{"inferred_fields":{"occasion":{"value":"interview","confidence":0.9}},"unresolved_remaining":[]}',
-                        'Chỉ được dùng field nằm trong expected_fields.',
-                    ]),
-                ],
-                [
-                    'role' => 'user',
-                    'content' => $this->lastPrompt,
-                ],
-            ], [], 'none', ['harness' => ['purpose' => 'entity_enrich']]);
+            $response = $this->llm->chat($this->enrichmentMessages(), [], 'none', ['harness' => ['purpose' => 'entity_enrich']]);
 
             $decoded = $this->decodeJson($response->content);
             if ($decoded === null) {
                 return $this->emptyResult(true, 'json_parse_failed');
             }
 
-            return [
-                'used' => true,
-                'inferred_fields' => $this->sanitizeInferredFields(
-                    is_array($decoded['inferred_fields'] ?? null) ? $decoded['inferred_fields'] : [],
-                    $expectedFields
-                ),
-                'unresolved_remaining' => is_array($decoded['unresolved_remaining'] ?? null)
-                    ? array_values($decoded['unresolved_remaining'])
-                    : [],
-                'raw_response' => mb_substr($response->content, 0, 2000),
-                'prompt' => $this->lastPrompt,
-                'error' => null,
-            ];
+            return $this->enrichedResult($decoded, $response->content, $expectedFields);
         } catch (Throwable $e) {
             return [
                 'used' => true,
@@ -90,6 +59,46 @@ class SemanticEntityEnricher {
 
     public function getLastPrompt(): string {
         return $this->lastPrompt;
+    }
+
+    /** The system rules plus the JSON payload; the model may only fill expected_fields. */
+    private function enrichmentMessages(): array {
+        return [
+            [
+                'role' => 'system',
+                'content' => implode("\n", [
+                    'Bạn là module bổ sung thuộc tính ngữ nghĩa cho chatbot bán hàng.',
+                    'Chỉ đọc unresolved_spans và locked_fields.',
+                    'Không parse lại toàn bộ query.',
+                    'Không sửa, không lặp lại, không overwrite locked_fields.',
+                    'Không chọn intent, tool, SQL và không trả prose.',
+                    'Nếu trả color, dùng canonical tiếng Việt như "đen", "trắng", "xám"; không dùng "black", "white", "gray".',
+                    'Chỉ trả JSON strict theo schema:',
+                    '{"inferred_fields":{"occasion":{"value":"interview","confidence":0.9}},"unresolved_remaining":[]}',
+                    'Chỉ được dùng field nằm trong expected_fields.',
+                ]),
+            ],
+            [
+                'role' => 'user',
+                'content' => $this->lastPrompt,
+            ],
+        ];
+    }
+
+    private function enrichedResult(array $decoded, string $content, array $expectedFields): array {
+        return [
+            'used' => true,
+            'inferred_fields' => $this->sanitizeInferredFields(
+                is_array($decoded['inferred_fields'] ?? null) ? $decoded['inferred_fields'] : [],
+                $expectedFields
+            ),
+            'unresolved_remaining' => is_array($decoded['unresolved_remaining'] ?? null)
+                ? array_values($decoded['unresolved_remaining'])
+                : [],
+            'raw_response' => mb_substr($content, 0, 2000),
+            'prompt' => $this->lastPrompt,
+            'error' => null,
+        ];
     }
 
     private function emptyResult(bool $used, string $reason): array {

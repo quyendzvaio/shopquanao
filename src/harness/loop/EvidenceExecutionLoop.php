@@ -33,120 +33,145 @@ class EvidenceExecutionLoop {
     }
 
     public function run(string $message, array $intent, array $memoryContext): array {
-        $trace = [];
-        $spans = [];
-        $executions = [];
-        $finalPlan = ['batches' => [], 'response_type' => 'final_answer'];
-        $finalNormalized = ['cards' => [], 'knowledge_sources' => [], 'evidence' => [], 'tool_results' => []];
-        $finalScore = [];
-        $finalDecision = ['action' => 'fallback', 'reason' => 'not_started'];
-        $previousScore = [];
-        $toolCalls = 0;
-        $rewrites = 0;
-        $retries = 0;
+        $loop = [
+            'trace' => [],
+            'spans' => [],
+            'executions' => [],
+            'plan' => ['batches' => [], 'response_type' => 'final_answer'],
+            'normalized' => ['cards' => [], 'knowledge_sources' => [], 'evidence' => [], 'tool_results' => []],
+            'score' => [],
+            'decision' => ['action' => 'fallback', 'reason' => 'not_started'],
+            'previous_score' => [],
+            'tool_calls' => 0,
+            'rewrites' => 0,
+            'retries' => 0,
+        ];
 
         for ($step = 1; $step <= self::MAX_EXECUTION_LOOPS; $step++) {
-            $state = $this->executionState($intent, $memoryContext, $step, $previousScore);
-            $plan = $this->planner->plan($intent);
-            $plan = $this->applyDecisionToPlan($plan, $intent, $finalDecision, $message, $rewrites);
-
-            $validation = $this->planValidator->validate($plan, $intent);
-            $plan = $validation['sanitized_plan'];
-            $finalPlan = $plan;
-            if (!$validation['passed']) {
-                $finalDecision = ['action' => 'fallback', 'reason' => 'plan_validation_failed'];
-                $trace[] = $this->traceStep($step, $state, $plan, [], [], [], $finalDecision, false, $validation['errors']);
+            if (!$this->runStep($loop, $step, $message, $intent, $memoryContext)) {
                 break;
             }
-
-            $plannedToolCount = $this->countTools($plan);
-            if ($toolCalls + $plannedToolCount > self::MAX_TOOL_CALLS_TOTAL) {
-                $finalDecision = ['action' => 'fallback', 'reason' => 'tool_budget_exhausted'];
-                $trace[] = $this->traceStep($step, $state, $plan, [], [], [], $finalDecision, false, []);
-                break;
-            }
-
-            if ($plannedToolCount === 0) {
-                $observation = [
-                    'tool_statuses' => [],
-                    'temporary_errors' => [],
-                    'hard_failures' => [],
-                    'has_tool_error' => false,
-                    'has_hard_failure' => false,
-                ];
-                $finalScore = $this->scorer->score($intent, $finalNormalized, $observation);
-                $finalDecision = $this->router->decide(
-                    $intent,
-                    $plan,
-                    $finalNormalized,
-                    $observation,
-                    $finalScore,
-                    $this->budget($step, $toolCalls, $rewrites, $retries),
-                    false
-                );
-                $trace[] = $this->traceStep($step, $state, $plan, $observation, $finalScore, [], $finalDecision, false, []);
-                break;
-            }
-
-            $execution = $this->executor->execute($plan);
-            $executions[] = $execution;
-            $toolCalls += $plannedToolCount;
-            foreach (($execution['spans'] ?? []) as $key => $value) {
-                $spans[$key] = is_numeric($value) ? (($spans[$key] ?? 0) + (int)$value) : $value;
-            }
-
-            $finalNormalized = $this->constraintVerifier->verify(
-                $intent,
-                $this->normalizer->normalize($intent, $execution)
-            );
-            $observation = $this->observationEvaluator->evaluate($intent, $plan, $execution, $finalNormalized);
-            $progress = $this->noProgress->observe($execution);
-            $finalScore = $this->scorer->score($intent, $finalNormalized, $observation);
-            $finalDecision = $this->router->decide(
-                $intent,
-                $plan,
-                $finalNormalized,
-                $observation,
-                $finalScore,
-                $this->budget($step, $toolCalls, $rewrites, $retries),
-                (bool)$progress['no_progress']
-            );
-
-            $trace[] = $this->traceStep(
-                $step,
-                $state,
-                $plan,
-                $observation,
-                $finalScore,
-                $progress['fingerprints'],
-                $finalDecision,
-                (bool)$progress['no_progress'],
-                []
-            );
-
-            if ($finalDecision['action'] === 'return' || in_array($finalDecision['action'], ['ask_user', 'deny', 'fallback'], true)) {
-                break;
-            }
-            if ($finalDecision['action'] === 'rewrite_query') {
-                $rewrites++;
-            } elseif ($finalDecision['action'] === 'retry_tool') {
-                $retries++;
-            } elseif ($finalDecision['action'] !== 'call_next_tool') {
-                break;
-            }
-            $previousScore = $finalScore;
         }
 
         return [
-            'normalized' => $finalNormalized,
-            'plan' => $finalPlan,
-            'executions' => $executions,
-            'trace' => $trace,
-            'evidence_score' => $finalScore,
-            'decision' => $finalDecision,
-            'loop_count' => count($trace),
-            'spans' => $spans,
+            'normalized' => $loop['normalized'],
+            'plan' => $loop['plan'],
+            'executions' => $loop['executions'],
+            'trace' => $loop['trace'],
+            'evidence_score' => $loop['score'],
+            'decision' => $loop['decision'],
+            'loop_count' => count($loop['trace']),
+            'spans' => $loop['spans'],
         ];
+    }
+
+    /** Plans, validates, executes and decides one step; false when the loop must stop. */
+    private function runStep(array &$loop, int $step, string $message, array $intent, array $memoryContext): bool {
+        $state = $this->executionState($intent, $memoryContext, $step, $loop['previous_score']);
+        $plan = $this->planner->plan($intent);
+        $plan = $this->applyDecisionToPlan($plan, $intent, $loop['decision'], $message, $loop['rewrites']);
+
+        $validation = $this->planValidator->validate($plan, $intent);
+        $plan = $validation['sanitized_plan'];
+        $loop['plan'] = $plan;
+        if (!$validation['passed']) {
+            $loop['decision'] = ['action' => 'fallback', 'reason' => 'plan_validation_failed'];
+            $loop['trace'][] = $this->traceStep($step, $state, $plan, [], [], [], $loop['decision'], false, $validation['errors']);
+            return false;
+        }
+
+        $plannedToolCount = $this->countTools($plan);
+        if ($loop['tool_calls'] + $plannedToolCount > self::MAX_TOOL_CALLS_TOTAL) {
+            $loop['decision'] = ['action' => 'fallback', 'reason' => 'tool_budget_exhausted'];
+            $loop['trace'][] = $this->traceStep($step, $state, $plan, [], [], [], $loop['decision'], false, []);
+            return false;
+        }
+
+        if ($plannedToolCount === 0) {
+            $this->decideWithoutTools($loop, $step, $state, $plan, $intent);
+            return false;
+        }
+
+        $this->executeAndDecide($loop, $step, $state, $plan, $intent, $plannedToolCount);
+        return $this->continuesAfterDecision($loop);
+    }
+
+    /** A plan with no tools is scored and routed on the evidence gathered so far. */
+    private function decideWithoutTools(array &$loop, int $step, array $state, array $plan, array $intent): void {
+        $observation = [
+            'tool_statuses' => [],
+            'temporary_errors' => [],
+            'hard_failures' => [],
+            'has_tool_error' => false,
+            'has_hard_failure' => false,
+        ];
+        $loop['score'] = $this->scorer->score($intent, $loop['normalized'], $observation);
+        $loop['decision'] = $this->router->decide(
+            $intent,
+            $plan,
+            $loop['normalized'],
+            $observation,
+            $loop['score'],
+            $this->budget($step, $loop['tool_calls'], $loop['rewrites'], $loop['retries']),
+            false
+        );
+        $loop['trace'][] = $this->traceStep($step, $state, $plan, $observation, $loop['score'], [], $loop['decision'], false, []);
+    }
+
+    /** Executes the plan, verifies and scores the evidence, and records the routed decision. */
+    private function executeAndDecide(array &$loop, int $step, array $state, array $plan, array $intent, int $plannedToolCount): void {
+        $execution = $this->executor->execute($plan);
+        $loop['executions'][] = $execution;
+        $loop['tool_calls'] += $plannedToolCount;
+        foreach (($execution['spans'] ?? []) as $key => $value) {
+            $loop['spans'][$key] = is_numeric($value) ? (($loop['spans'][$key] ?? 0) + (int)$value) : $value;
+        }
+
+        $loop['normalized'] = $this->constraintVerifier->verify(
+            $intent,
+            $this->normalizer->normalize($intent, $execution)
+        );
+        $observation = $this->observationEvaluator->evaluate($intent, $plan, $execution, $loop['normalized']);
+        $progress = $this->noProgress->observe($execution);
+        $loop['score'] = $this->scorer->score($intent, $loop['normalized'], $observation);
+        $loop['decision'] = $this->router->decide(
+            $intent,
+            $plan,
+            $loop['normalized'],
+            $observation,
+            $loop['score'],
+            $this->budget($step, $loop['tool_calls'], $loop['rewrites'], $loop['retries']),
+            (bool)$progress['no_progress']
+        );
+
+        $loop['trace'][] = $this->traceStep(
+            $step,
+            $state,
+            $plan,
+            $observation,
+            $loop['score'],
+            $progress['fingerprints'],
+            $loop['decision'],
+            (bool)$progress['no_progress'],
+            []
+        );
+    }
+
+    /** Counts a rewrite or retry and keeps looping, or false when the decision ends the loop. */
+    private function continuesAfterDecision(array &$loop): bool {
+        $decision = $loop['decision'];
+        if ($decision['action'] === 'return' || in_array($decision['action'], ['ask_user', 'deny', 'fallback'], true)) {
+            return false;
+        }
+        if ($decision['action'] === 'rewrite_query') {
+            $loop['rewrites']++;
+        } elseif ($decision['action'] === 'retry_tool') {
+            $loop['retries']++;
+        } elseif ($decision['action'] !== 'call_next_tool') {
+            return false;
+        }
+        $loop['previous_score'] = $loop['score'];
+        return true;
     }
 
     private function budget(int $step, int $toolCalls, int $rewrites, int $retries): array {

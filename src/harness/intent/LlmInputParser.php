@@ -163,37 +163,7 @@ final class LlmInputParser
         }
 
         $result = ['intent' => $intent];
-        $productQuery = $this->nullableText($arguments['product_query'], 160);
-        if ($productQuery !== null) {
-            $productQuery = preg_replace('/(?<![\p{L}])áo\s*sơ\s*mi|ao\s*so\s*mi|áo\s*somi|ao\s*somi|aoso\s*mi|aosomi(?![\p{L}])/ui', 'áo sơ mi', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])áo\s*khoác\s*bomber|ao\s*khoac\s*bomber|aobomber(?![\p{L}])/ui', 'áo khoác bomber', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])áo\s*khoác|ao\s*khoac|aokhoac(?![\p{L}])/ui', 'áo khoác', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])áo\s*thun|ao\s*thun|aothun(?![\p{L}])/ui', 'áo thun', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])áo\s*phông|ao\s*phong|aophong(?![\p{L}])/ui', 'áo phông', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])áo\s*hoodie|ao\s*hoodie|aohoodie(?![\p{L}])/ui', 'áo hoodie', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])áo\s*polo|ao\s*polo|aopolo(?![\p{L}])/ui', 'áo polo', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])áo\s*len|ao\s*len|aolen(?![\p{L}])/ui', 'áo len', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])áo\s*gile|ao\s*gile|aogile(?![\p{L}])/ui', 'áo gile', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])áo\s*vest|ao\s*vest|aovest|aoblazer(?![\p{L}])/ui', 'áo vest', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])quần\s*jeans?|quan\s*jeans?|quanjeans?(?![\p{L}])/ui', 'quần jeans', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])quần\s*tây|quan\s*tay|quantay(?![\p{L}])/ui', 'quần tây', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])quần\s*kaki|quan\s*kaki|quankaki(?![\p{L}])/ui', 'quần kaki', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])quần\s*shorts?|quan\s*shorts?|quanshorts?(?![\p{L}])/ui', 'quần short', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])quần\s*jogger|quan\s*jogger|quanjogger(?![\p{L}])/ui', 'quần jogger', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])váy\s*maxi|vay\s*maxi|vaymaxi(?![\p{L}])/ui', 'váy maxi', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])chân\s*váy|chan\s*vay|chanvay(?![\p{L}])/ui', 'chân váy', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])váy\s*đầm|vay\s*dam|vaydam(?![\p{L}])/ui', 'váy đầm', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])túi\s*xách|tui\s*xach|tuixach(?![\p{L}])/ui', 'túi xách', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])đồng\s*hồ|dong\s*ho|dongho(?![\p{L}])/ui', 'đồng hồ', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])thắt\s*lưng|that\s*lung|thatlung(?![\p{L}])/ui', 'thắt lưng', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])kính\s*mát|kinh\s*mat|kinhmat(?![\p{L}])/ui', 'kính mát', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])giày\s*tây|giay\s*tay|giaytay(?![\p{L}])/ui', 'giày tây', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])giày\s*thể\s*thao|giay\s*the\s*thao|giaythethao(?![\p{L}])/ui', 'giày thể thao', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])giày\s*lười|giay\s*luoi|giayluoi(?![\p{L}])/ui', 'giày lười', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])dép\s*sandal|dep\s*sandal|depsandal(?![\p{L}])/ui', 'dép sandal', $productQuery) ?? $productQuery;
-            $productQuery = preg_replace('/(?<![\p{L}])phụ\s*kiện|phu\s*kien|phukien(?![\p{L}])/ui', 'phụ kiện', $productQuery) ?? $productQuery;
-        }
-        $result['product_query'] = $productQuery;
+        $result['product_query'] = $this->canonicalProductQuery($arguments['product_query']);
         foreach (['category_id', 'product_id', 'order_id', 'height_cm', 'weight_kg'] as $field) {
             $result[$field] = $this->nullablePositiveInteger($arguments[$field]);
         }
@@ -228,6 +198,42 @@ final class LlmInputParser
             return null;
         }
         return $result;
+    }
+
+    /** The product query capped at 160 chars, with spelling variants of product types made canonical. */
+    private function canonicalProductQuery(mixed $value): ?string
+    {
+        $productQuery = $this->nullableText($value, 160);
+        if ($productQuery !== null) {
+            $productQuery = preg_replace('/(?<![\p{L}])áo\s*sơ\s*mi|ao\s*so\s*mi|áo\s*somi|ao\s*somi|aoso\s*mi|aosomi(?![\p{L}])/ui', 'áo sơ mi', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])áo\s*khoác\s*bomber|ao\s*khoac\s*bomber|aobomber(?![\p{L}])/ui', 'áo khoác bomber', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])áo\s*khoác|ao\s*khoac|aokhoac(?![\p{L}])/ui', 'áo khoác', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])áo\s*thun|ao\s*thun|aothun(?![\p{L}])/ui', 'áo thun', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])áo\s*phông|ao\s*phong|aophong(?![\p{L}])/ui', 'áo phông', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])áo\s*hoodie|ao\s*hoodie|aohoodie(?![\p{L}])/ui', 'áo hoodie', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])áo\s*polo|ao\s*polo|aopolo(?![\p{L}])/ui', 'áo polo', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])áo\s*len|ao\s*len|aolen(?![\p{L}])/ui', 'áo len', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])áo\s*gile|ao\s*gile|aogile(?![\p{L}])/ui', 'áo gile', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])áo\s*vest|ao\s*vest|aovest|aoblazer(?![\p{L}])/ui', 'áo vest', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])quần\s*jeans?|quan\s*jeans?|quanjeans?(?![\p{L}])/ui', 'quần jeans', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])quần\s*tây|quan\s*tay|quantay(?![\p{L}])/ui', 'quần tây', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])quần\s*kaki|quan\s*kaki|quankaki(?![\p{L}])/ui', 'quần kaki', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])quần\s*shorts?|quan\s*shorts?|quanshorts?(?![\p{L}])/ui', 'quần short', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])quần\s*jogger|quan\s*jogger|quanjogger(?![\p{L}])/ui', 'quần jogger', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])váy\s*maxi|vay\s*maxi|vaymaxi(?![\p{L}])/ui', 'váy maxi', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])chân\s*váy|chan\s*vay|chanvay(?![\p{L}])/ui', 'chân váy', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])váy\s*đầm|vay\s*dam|vaydam(?![\p{L}])/ui', 'váy đầm', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])túi\s*xách|tui\s*xach|tuixach(?![\p{L}])/ui', 'túi xách', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])đồng\s*hồ|dong\s*ho|dongho(?![\p{L}])/ui', 'đồng hồ', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])thắt\s*lưng|that\s*lung|thatlung(?![\p{L}])/ui', 'thắt lưng', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])kính\s*mát|kinh\s*mat|kinhmat(?![\p{L}])/ui', 'kính mát', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])giày\s*tây|giay\s*tay|giaytay(?![\p{L}])/ui', 'giày tây', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])giày\s*thể\s*thao|giay\s*the\s*thao|giaythethao(?![\p{L}])/ui', 'giày thể thao', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])giày\s*lười|giay\s*luoi|giayluoi(?![\p{L}])/ui', 'giày lười', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])dép\s*sandal|dep\s*sandal|depsandal(?![\p{L}])/ui', 'dép sandal', $productQuery) ?? $productQuery;
+            $productQuery = preg_replace('/(?<![\p{L}])phụ\s*kiện|phu\s*kien|phukien(?![\p{L}])/ui', 'phụ kiện', $productQuery) ?? $productQuery;
+        }
+        return $productQuery;
     }
 
     private function toPartial(string $message, array $arguments): array

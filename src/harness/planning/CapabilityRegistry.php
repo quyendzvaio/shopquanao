@@ -68,75 +68,10 @@ class CapabilityRegistry {
                     'properties' => ['outfits' => ['type' => 'array'], 'products' => ['type' => 'array'], 'reason' => ['type' => ['string', 'null']]],
                 ],
             ],
-            'get_product_detail' => [
-                'use_when' => [
-                    'Người dùng hỏi chi tiết một product_id cụ thể.',
-                    'Query có mã sản phẩm rõ ràng hoặc slot memory xác nhận sản phẩm đang được nhắc tới.',
-                ],
-                'do_not_use_when' => [
-                    'Người dùng muốn tìm nhiều sản phẩm.',
-                    'Người dùng hỏi chính sách hoặc trạng thái đơn hàng.',
-                ],
-                'output_schema' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'product' => ['type' => 'object'],
-                        'cache' => ['type' => 'object'],
-                    ],
-                ],
-            ],
-            'suggest_size' => [
-                'use_when' => [
-                    'Người dùng hỏi mặc size gì hoặc chọn kích cỡ.',
-                    'Có đủ chiều cao và cân nặng, hoặc cần hỏi thêm nếu thiếu.',
-                ],
-                'do_not_use_when' => [
-                    'Người dùng hỏi tồn kho size của một sản phẩm cụ thể.',
-                    'Người dùng chỉ hỏi chính sách đổi trả size.',
-                ],
-                'output_schema' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'recommended' => ['type' => 'object'],
-                        'sizes' => ['type' => 'array'],
-                    ],
-                ],
-            ],
-            'retrieve_knowledge' => [
-                'use_when' => [
-                    'Người dùng hỏi đổi trả, hoàn tiền, phí ship, giao hàng, bảo hành, thanh toán, bán sỉ hoặc thông tin shop.',
-                    'Câu hỏi mixed intent vừa có sản phẩm vừa có chính sách.',
-                ],
-                'do_not_use_when' => [
-                    'Người dùng chỉ muốn tìm sản phẩm theo giá/danh mục.',
-                    'Người dùng hỏi chi tiết product_id nhưng không hỏi chính sách.',
-                ],
-                'output_schema' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'results' => ['type' => 'array'],
-                        'retrieval_mode' => ['type' => 'string'],
-                        'latency' => ['type' => 'object'],
-                    ],
-                ],
-            ],
-            'get_order_status' => [
-                'use_when' => [
-                    'Người dùng hỏi trạng thái đơn hàng cá nhân.',
-                    'Người dùng cung cấp order_id hoặc hỏi các đơn gần nhất.',
-                ],
-                'do_not_use_when' => [
-                    'Người dùng hỏi chính sách giao hàng chung.',
-                    'Người dùng chưa có ngữ cảnh đơn hàng và chỉ hỏi sản phẩm.',
-                ],
-                'output_schema' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'orders' => ['type' => 'array'],
-                        'requires_login' => ['type' => 'boolean'],
-                    ],
-                ],
-            ],
+            'get_product_detail' => self::productDetail(),
+            'suggest_size' => self::sizeSuggestion(),
+            'retrieve_knowledge' => self::knowledgeRetrieval(),
+            'get_order_status' => self::orderStatus(),
             'get_categories' => [
                 'use_when' => ['Cần danh sách danh mục sản phẩm để hỗ trợ lọc nội bộ.'],
                 'do_not_use_when' => ['Không dùng như câu trả lời chính cho khách nếu đã biết danh mục từ query.'],
@@ -147,6 +82,87 @@ class CapabilityRegistry {
             ],
             default => [],
         };
+    }
+
+    private static function productDetail(): array {
+        return [
+        'use_when' => [
+            'Người dùng hỏi chi tiết một product_id cụ thể.',
+            'Query có mã sản phẩm rõ ràng hoặc slot memory xác nhận sản phẩm đang được nhắc tới.',
+        ],
+        'do_not_use_when' => [
+            'Người dùng muốn tìm nhiều sản phẩm.',
+            'Người dùng hỏi chính sách hoặc trạng thái đơn hàng.',
+        ],
+        'output_schema' => [
+            'type' => 'object',
+            'properties' => [
+                'product' => ['type' => 'object'],
+                'cache' => ['type' => 'object'],
+            ],
+        ],
+        ];
+    }
+
+    private static function sizeSuggestion(): array {
+        return [
+        'use_when' => [
+            'Người dùng hỏi mặc size gì hoặc chọn kích cỡ.',
+            'Có đủ chiều cao và cân nặng, hoặc cần hỏi thêm nếu thiếu.',
+        ],
+        'do_not_use_when' => [
+            'Người dùng hỏi tồn kho size của một sản phẩm cụ thể.',
+            'Người dùng chỉ hỏi chính sách đổi trả size.',
+        ],
+        'output_schema' => [
+            'type' => 'object',
+            'properties' => [
+                'recommended' => ['type' => 'object'],
+                'sizes' => ['type' => 'array'],
+            ],
+        ],
+        ];
+    }
+
+    private static function knowledgeRetrieval(): array {
+        return [
+        'use_when' => [
+            'Người dùng hỏi đổi trả, hoàn tiền, phí ship, giao hàng, bảo hành, thanh toán, bán sỉ hoặc thông tin shop.',
+            'Câu hỏi mixed intent vừa có sản phẩm vừa có chính sách.',
+        ],
+        'do_not_use_when' => [
+            'Người dùng chỉ muốn tìm sản phẩm theo giá/danh mục.',
+            'Người dùng hỏi chi tiết product_id nhưng không hỏi chính sách.',
+        ],
+        'output_schema' => [
+            'type' => 'object',
+            'properties' => [
+                'results' => ['type' => 'array'],
+                'retrieval_mode' => ['type' => 'string'],
+                'latency' => ['type' => 'object'],
+            ],
+        ],
+        ];
+    }
+
+    private static function orderStatus(): array {
+        return [
+        'use_when' => [
+            'Người dùng hỏi trạng thái đơn hàng cá nhân.',
+            'Người dùng cung cấp order_id hoặc hỏi các đơn gần nhất.',
+        ],
+        'do_not_use_when' => [
+            'Người dùng hỏi chính sách giao hàng chung.',
+            'Người dùng chưa có ngữ cảnh đơn hàng và chỉ hỏi sản phẩm.',
+        ],
+        'output_schema' => [
+            'type' => 'object',
+            'properties' => [
+                'orders' => ['type' => 'array'],
+                'requires_login' => ['type' => 'boolean'],
+            ],
+        ],
+        ];
     }
 
     private static function productSearch(array $inputSchema): array {

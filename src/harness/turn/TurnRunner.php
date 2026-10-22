@@ -84,7 +84,6 @@ final class TurnRunner
     private function resolveAndExecute(TurnContext $turn, int $memoryLoadMs): array
     {
         $message = $turn->message;
-        $memoryContext = $turn->memoryContext;
         $totalStart = microtime(true);
         // OTLP trace IDs are exactly 16 bytes (32 lowercase hex chars).
         $traceId = bin2hex(random_bytes(16));
@@ -98,16 +97,33 @@ final class TurnRunner
         $capabilities = CapabilityRegistry::fromToolDefinitions($this->tools->getDefinitions());
         $spans['capability_definition_ms'] = (int)((microtime(true) - $start) * 1000);
 
-        $resolution = (new IntentResolver($this->llm))->resolve($message, $memoryContext, $capabilities);
+        $resolution = (new IntentResolver($this->llm))->resolve($message, $turn->memoryContext, $capabilities);
         foreach (($resolution['timings'] ?? []) as $key => $value) {
             $spans[$key] = (int)$value;
         }
+        $spans['turn_tier'] = TurnTierGate::tier($resolution['partial']);
+        $spans['llm_enrichment_used'] = (bool)($resolution['enrichment']['used'] ?? false);
+
+        $clarification = $this->clarificationIfUnresolved($message, $traceId, $resolution, $spans, $totalStart);
+        if ($clarification !== null) {
+            return $clarification;
+        }
+
+        [$executionResult, $spans] = $this->executeEvidence($turn, $resolution['intent'], $capabilities, $spans);
+        return $this->groundedResponse($message, $resolution, $executionResult, $traceId, $spans, $totalStart);
+    }
+
+    /** A clarification (unresolved conflict) or fallback (unknown or low-confidence intent) response, or null to go on. */
+    private function clarificationIfUnresolved(
+        string $message,
+        string $traceId,
+        array $resolution,
+        array $spans,
+        float $totalStart
+    ): ?array {
         $partial = $resolution['partial'];
         $conflictResolution = $resolution['conflict_resolution'];
-        $enrichment = $resolution['enrichment'];
         $intent = $resolution['intent'];
-        $spans['turn_tier'] = TurnTierGate::tier($partial);
-        $spans['llm_enrichment_used'] = (bool)($enrichment['used'] ?? false);
 
         if (!empty($conflictResolution['unresolved_conflicts'])) {
             return $this->clarificationResponse(
@@ -134,9 +150,15 @@ final class TurnRunner
             );
         }
 
+        return null;
+    }
+
+    /** @return array{0: array, 1: array} the evidence loop result and the spans with its timings added */
+    private function executeEvidence(TurnContext $turn, array $intent, array $capabilities, array $spans): array
+    {
         $start = microtime(true);
         $executionLoop = new EvidenceExecutionLoop($this->tools, $capabilities);
-        $executionResult = $executionLoop->run($message, $intent, $memoryContext);
+        $executionResult = $executionLoop->run($turn->message, $intent, $turn->memoryContext);
         $spans['evidence_execution_ms'] = (int)((microtime(true) - $start) * 1000);
         foreach (($executionResult['spans'] ?? []) as $key => $value) {
             $spans[$key] = is_numeric($value) ? (($spans[$key] ?? 0) + (int)$value) : $value;
@@ -144,7 +166,19 @@ final class TurnRunner
         foreach (($executionResult['executions'] ?? []) as $execution) {
             if (is_array($execution)) $this->recordToolExecutions($execution);
         }
+        return [$executionResult, $spans];
+    }
 
+    /** The grounded answer generated from the normalized evidence, with latency and routing attached. */
+    private function groundedResponse(
+        string $message,
+        array $resolution,
+        array $executionResult,
+        string $traceId,
+        array $spans,
+        float $totalStart
+    ): array {
+        $intent = $resolution['intent'];
         $plan = is_array($executionResult['plan'] ?? null)
             ? $executionResult['plan']
             : ['batches' => [], 'response_type' => 'final_answer'];
@@ -171,19 +205,32 @@ final class TurnRunner
         $response['products'] = $response['products'] ?? ($response['cards'] ?? []);
         $response['cards'] = $response['cards'] ?? $response['products'];
 
-        $routing = $this->routingLog($partial, $enrichment, $intent, $plan, []);
+        $routing = $this->routingLog($resolution['partial'], $resolution['enrichment'], $intent, $plan, []);
         $routing['execution_trace'] = $executionResult['trace'] ?? [];
         $routing['evidence_score'] = $executionResult['evidence_score'] ?? [];
         $routing['decision'] = $decision;
         $routing['loop_count'] = (int)($executionResult['loop_count'] ?? 0);
         $response['latency']['routing'] = $routing;
 
+        $this->recordGroundedTurn($traceId, $intent, $spans, $routing, $executionResult['evidence_score'] ?? [], $decision);
+        return $response;
+    }
+
+    /** Evaluation and response metadata for the saved message, plus the outbox and routing log rows. */
+    private function recordGroundedTurn(
+        string $traceId,
+        array $intent,
+        array $spans,
+        array $routing,
+        mixed $evidenceScore,
+        array $decision
+    ): void {
         $this->evaluationMetadata[] = [
             'trace_id' => $traceId,
             'mode' => 'grounded_pipeline',
             'passed' => true,
             'issues' => [],
-            'evidence_score' => $executionResult['evidence_score'] ?? [],
+            'evidence_score' => $evidenceScore,
             'decision' => $decision,
             'async_evaluation' => 'queued_for_offline_ragas_langfuse',
         ];
@@ -198,12 +245,10 @@ final class TurnRunner
             'primary_intent' => $intent['primary_intent'],
             'grounding_passed' => true,
             'grounding_issues' => [],
-            'evidence_score' => $executionResult['evidence_score'] ?? [],
+            'evidence_score' => $evidenceScore,
             'decision' => $decision,
         ], 0, true);
         $this->conversations->logToolExecution('routing_pipeline', [], $routing, 0, true);
-
-        return $response;
     }
 
     private function clarificationResponse(
