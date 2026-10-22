@@ -6,7 +6,7 @@ The host has no PHP; `scripts/dev/php` and `scripts/dev/composer` run it in Dock
 
 ```bash
 scripts/dev/php vendor/bin/phpunit --testsuite=Unit              # hermetic (SQLite fixtures)
-scripts/dev/php vendor/bin/phpunit tests/Unit/OutfitBuilderTest.php   # single file
+scripts/dev/php vendor/bin/phpunit tests/unit/service/outfit/OutfitBuilderTest.php   # single file
 scripts/dev/php vendor/bin/phpunit --filter=testName
 scripts/dev/test-db.sh && scripts/dev/test-integration.sh         # shop_test in Compose MariaDB
 scripts/dev/php vendor/bin/phpstan analyse --level=1 config/ src/ --no-progress
@@ -26,5 +26,5 @@ A change is green only when all gates pass; integration tests and the agent eval
 
 ## Conventions
 
-- Unit tests live in `tests/Unit`, integration in `tests/Integration`; the SQLite catalog fixture is `tests/Support/SqliteShop.php`.
+- Unit tests live in `tests/unit` (mirrors `src/`), integration in `tests/integration`; the SQLite catalog fixture is `tests/support/SqliteShop.php`. `tests/unit/ArchitectureTest.php` enforces the `src/harness` component table and layer rules; a violation means fix the code, not the test.
 - Pipeline behavior changes (intent, evidence loop, constraint verifier, outfit/free-shipping logic) require a matching unit test — the eval alone is not enough.
