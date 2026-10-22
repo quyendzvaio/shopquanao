@@ -56,7 +56,7 @@ class SemanticEntityEnricher {
                     'role' => 'user',
                     'content' => $this->lastPrompt,
                 ],
-            ], [], 'none');
+            ], [], 'none', ['harness' => ['purpose' => 'entity_enrich']]);
 
             $decoded = $this->decodeJson($response->content);
             if ($decoded === null) {

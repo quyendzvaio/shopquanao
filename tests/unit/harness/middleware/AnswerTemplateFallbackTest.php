@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
-final class StreamingResponseGeneratorTest extends TestCase
+final class AnswerTemplateFallbackTest extends TestCase
 {
     private const DRAFT = 'Set 1: Áo sơ mi SP53 + Quần âu SP61, tổng 665.000đ.';
 
@@ -26,9 +26,22 @@ final class StreamingResponseGeneratorTest extends TestCase
     /** @return array{0: array{text: string, fallback: ?string}, 1: list<string>} */
     private function generate(StreamingLLMProvider $llm, string $draft = self::DRAFT): array
     {
+        $fake = new class ($llm) implements LLMProvider, StreamingLLMProvider {
+            public function __construct(private StreamingLLMProvider $stream) {}
+
+            public function chat(array $messages, array $tools = [], string $toolChoice = 'auto', array $options = []): LLMResponse
+            {
+                throw new LogicException('chat() is not used by the answer stream');
+            }
+
+            public function chatStream(array $messages, callable $onDelta, array $options = []): LLMResponse
+            {
+                return $this->stream->chatStream($messages, $onDelta, $options);
+            }
+        };
         $deltas = [];
         $result = (new StreamingResponseGenerator())->stream(
-            $llm,
+            new MiddlewareModel($fake, new MiddlewareStack([new AnswerTemplateFallback()])),
             'cần đồ đi phỏng vấn',
             ['message' => $draft, 'primary_intent' => 'build_outfit', 'products' => []],
             static function (string $delta) use (&$deltas): void { $deltas[] = $delta; }
@@ -84,5 +97,18 @@ final class StreamingResponseGeneratorTest extends TestCase
     {
         $this->expectException(LLMTransportException::class);
         $this->generate($this->llm([], new LLMTransportException('timeout', 'LLM request failed')), '');
+    }
+
+    public function testRequiredFallbackCannotBeRemovedFromConfig(): void
+    {
+        $config = tempnam(sys_get_temp_dir(), 'harness');
+        file_put_contents($config, "<?php\nreturn ['middleware' => []];\n");
+        try {
+            $this->expectException(LogicException::class);
+            $this->expectExceptionMessage('Required middleware missing: AnswerTemplateFallback');
+            (new AgentFactory(new HarnessConfig(), $config))->middlewareStack(SqliteShop::pdo(), 1);
+        } finally {
+            unlink($config);
+        }
     }
 }

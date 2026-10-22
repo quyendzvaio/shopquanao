@@ -50,7 +50,7 @@ final class LlmInputParser
                 $this->messages($message, $memoryContext),
                 [$this->tool()],
                 'required',
-                ['temperature' => 0, 'max_tokens' => 400, 'reasoning' => false, 'stream' => false]
+                ['temperature' => 0, 'max_tokens' => 400, 'reasoning' => false, 'stream' => false, 'harness' => ['purpose' => 'input_parse']]
             );
             $call = $response->getFirstToolCall();
             if ($call === null || $call->name !== 'parse_chatbot_input') {

@@ -4,8 +4,9 @@
 /**
  * Generates the user-visible answer through the provider's native token
  * stream. Product cards remain a separate, private-catalog-grounded channel.
- * When the provider fails or returns no text, the validated grounded draft is
- * emitted instead, so an LLM outage never breaks a chat turn.
+ * The grounded draft travels as the 'answer' call's harness option; the
+ * AnswerTemplateFallback middleware emits it when the provider fails or
+ * returns no text.
  */
 final class StreamingResponseGenerator
 {
@@ -35,43 +36,14 @@ final class StreamingResponseGenerator
             'private_catalog_products' => $cards,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 
-        $emitted = '';
-        $forward = static function (string $delta) use (&$emitted, $onDelta): void {
-            $emitted .= $delta;
-            $onDelta($delta);
-        };
-
-        try {
-            $response = $this->rewrite($llm, $payload, $forward);
-        } catch (Throwable $error) {
-            if ($draft === '') throw $error;
-            return $this->fallback($error instanceof LLMTransportException ? $error->category : 'runtime_failure', $emitted, $draft, $onDelta);
-        }
-
+        $response = $this->rewrite($llm, $payload, $draft, $onDelta);
         $content = trim($response->content);
-        if ($content === '') {
-            if ($draft === '') throw new RuntimeException('Streaming LLM returned an empty answer');
-            return $this->fallback('empty_answer', $emitted, $draft, $onDelta);
-        }
-        return ['text' => $content, 'fallback' => null];
-    }
-
-    /**
-     * Deltas already sent cannot be withdrawn, so a partial rewrite is kept and
-     * the full grounded draft follows it.
-     *
-     * @param callable(string):void $onDelta
-     * @return array{text: string, fallback: string}
-     */
-    private function fallback(string $reason, string $emitted, string $draft, callable $onDelta): array
-    {
-        $tail = trim($emitted) === '' ? $draft : "\n\n" . $draft;
-        $onDelta($tail);
-        return ['text' => trim($emitted . $tail), 'fallback' => $reason];
+        if ($content === '') throw new RuntimeException('Streaming LLM returned an empty answer');
+        return ['text' => $content, 'fallback' => $response->fallbackReason];
     }
 
     /** @param callable(string):void $onDelta */
-    private function rewrite(StreamingLLMProvider $llm, string $payload, callable $onDelta): LLMResponse
+    private function rewrite(StreamingLLMProvider $llm, string $payload, string $draft, callable $onDelta): LLMResponse
     {
         return $llm->chatStream([
             [
@@ -89,6 +61,7 @@ final class StreamingResponseGenerator
         ], $onDelta, [
             'temperature' => 0.1,
             'max_tokens' => 500,
+            'harness' => ['purpose' => 'answer', 'grounded_draft' => $draft],
         ]);
     }
 }

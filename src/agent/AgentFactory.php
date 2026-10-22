@@ -3,8 +3,13 @@
 /** Builds the harness collaborators from one HarnessConfig; the only place that picks concrete classes. */
 final class AgentFactory
 {
-    public function __construct(private HarnessConfig $config)
-    {
+    /** Middleware every config/harness.php must list; each declares REQUIRED = true. */
+    public const REQUIRED_MIDDLEWARE = [AnswerTemplateFallback::class];
+
+    public function __construct(
+        private HarnessConfig $config,
+        private string $middlewareConfigPath = __DIR__ . '/../../config/harness.php',
+    ) {
     }
 
     public function config(): HarnessConfig
@@ -32,13 +37,19 @@ final class AgentFactory
         return $middleware !== null ? new MiddlewareModel($provider, $middleware) : $provider;
     }
 
-    /** The middleware listed in config/harness.php, in order. */
+    /** The middleware listed in config/harness.php, in order; every REQUIRED_MIDDLEWARE class must be listed. */
     public function middlewareStack(PDO $pdo, int $sessionId): MiddlewareStack
     {
-        $harness = require dirname(__DIR__, 2) . '/config/harness.php';
+        $harness = require $this->middlewareConfigPath;
+        $classes = array_map('strval', $harness['middleware'] ?? []);
+        foreach (self::REQUIRED_MIDDLEWARE as $required) {
+            if (!in_array($required, $classes, true)) {
+                throw new LogicException('Required middleware missing: ' . $required);
+            }
+        }
         $middleware = [];
-        foreach ($harness['middleware'] ?? [] as $class) {
-            $middleware[] = $this->makeMiddleware((string) $class, $pdo, $sessionId);
+        foreach ($classes as $class) {
+            $middleware[] = $this->makeMiddleware($class, $pdo, $sessionId);
         }
         return new MiddlewareStack($middleware);
     }
@@ -46,6 +57,7 @@ final class AgentFactory
     public function makeMiddleware(string $class, PDO $pdo, int $sessionId): Middleware
     {
         return match ($class) {
+            AnswerTemplateFallback::class => new AnswerTemplateFallback(),
             default => throw new InvalidArgumentException('Unknown harness middleware: ' . $class),
         };
     }

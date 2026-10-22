@@ -6,5 +6,7 @@
  * Each class is built by AgentFactory::makeMiddleware().
  */
 return [
-    'middleware' => [],
+    'middleware' => [
+        AnswerTemplateFallback::class,
+    ],
 ];

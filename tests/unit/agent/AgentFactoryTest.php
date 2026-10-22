@@ -108,6 +108,15 @@ final class AgentFactoryTest extends TestCase
         (new AgentFactory(new HarnessConfig()))->makeMiddleware('NoSuchMiddleware', SqliteShop::pdo(), 1);
     }
 
+    public function testEveryRequiredMiddlewareDeclaresRequired(): void
+    {
+        $this->assertNotEmpty(AgentFactory::REQUIRED_MIDDLEWARE);
+        foreach (AgentFactory::REQUIRED_MIDDLEWARE as $class) {
+            $this->assertTrue(is_subclass_of($class, BaseMiddleware::class), $class);
+            $this->assertTrue($class::REQUIRED, $class);
+        }
+    }
+
     public function testResponseGeneratorUsesConfiguredFreeShippingThreshold(): void
     {
         $factory = new AgentFactory(new HarnessConfig(freeShipping: new FreeShippingPolicy(750000)));
