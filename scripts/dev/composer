@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Run Composer in a throwaway container; the project has no host PHP toolchain.
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+exec docker run --rm -i -u "$(id -u):$(id -g)" -v "$PWD":/app -w /app \
+  -e COMPOSER_HOME=/tmp/composer "${DEV_COMPOSER_IMAGE:-composer:2.8}" "$@" --ignore-platform-reqs

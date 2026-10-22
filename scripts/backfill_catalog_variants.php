@@ -5,9 +5,7 @@ if (PHP_SAPI !== 'cli') {
     exit(2);
 }
 
-require_once __DIR__ . '/../config/db.php';
-require_once __DIR__ . '/../api/controllers/chatbot/ProductAttributeNormalizer.php';
-require_once __DIR__ . '/../api/services/Catalog/CatalogVariantBackfill.php';
+require_once dirname(__DIR__) . '/src/bootstrap.php';
 
 $report = (new CatalogVariantBackfill($pdo))->run();
 fwrite(
