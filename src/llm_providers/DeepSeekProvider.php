@@ -48,9 +48,7 @@ class DeepSeekProvider implements LLMProvider, StreamingLLMProvider {
             return $this->responseFromArray($cached);
         }
 
-        $url = str_ends_with($this->baseUrl, '/v1')
-            ? $this->baseUrl . '/chat/completions'
-            : $this->baseUrl . '/v1/chat/completions';
+        $url = $this->endpoint();
 
         $ch = curl_init($url);
         $responseHeaders = [];
@@ -78,21 +76,17 @@ class DeepSeekProvider implements LLMProvider, StreamingLLMProvider {
         $error = curl_error($ch);
         curl_close($ch);
 
-        if ($raw === false || $raw === '') {
-            $category = $curlErrno === CURLE_OPERATION_TIMEDOUT ? 'timeout' : 'provider_unavailable';
-            throw new LLMTransportException($category, "LLM request failed: $error");
+        $failure = $this->classifyFailure(
+            $raw === false || $raw === '' ? false : $httpCode,
+            $curlErrno,
+            $error,
+            $responseHeaders
+        );
+        if ($failure !== null) {
+            throw $failure;
         }
 
         $data = json_decode($raw, true);
-        if ($httpCode === 429) {
-            $retryAfter = isset($responseHeaders['retry-after']) && ctype_digit($responseHeaders['retry-after'])
-                ? (int) $responseHeaders['retry-after']
-                : null;
-            throw new LLMTransportException('rate_limit', 'LLM rate limit exceeded (HTTP 429)', $retryAfter);
-        }
-        if ($httpCode >= 500) {
-            throw new LLMTransportException('provider_unavailable', "LLM provider unavailable (HTTP {$httpCode})");
-        }
         if (!$data || !isset($data['choices'][0])) {
             $errMsg = $data['error']['message'] ?? 'Unknown LLM error';
             throw new LLMTransportException('invalid_response', "LLM error (HTTP $httpCode): $errMsg");
@@ -143,9 +137,7 @@ class DeepSeekProvider implements LLMProvider, StreamingLLMProvider {
             $body['max_tokens'] = max(1, min(2000, (int) $options['max_tokens']));
         }
 
-        $url = str_ends_with($this->baseUrl, '/v1')
-            ? $this->baseUrl . '/chat/completions'
-            : $this->baseUrl . '/v1/chat/completions';
+        $url = $this->endpoint();
 
         $buffer = '';
         $content = '';
@@ -217,18 +209,15 @@ class DeepSeekProvider implements LLMProvider, StreamingLLMProvider {
 
         if ($buffer !== '' && $callbackError === null) $processLine($buffer);
         if ($callbackError instanceof Throwable) throw $callbackError;
+        $failure = $this->classifyFailure($curlResult === false ? false : $httpCode, $curlErrno, $error, [], 'stream');
         if ($curlResult === false) {
-            $category = $curlErrno === CURLE_OPERATION_TIMEDOUT ? 'timeout' : 'provider_unavailable';
-            throw new LLMTransportException($category, "LLM stream failed: $error");
+            throw $failure;
         }
         if ($httpCode === 401 || $httpCode === 403) {
             throw new LLMTransportException('authentication_error', "LLM authentication failed (HTTP {$httpCode})");
         }
-        if ($httpCode === 429) {
-            throw new LLMTransportException('rate_limit', 'LLM rate limit exceeded (HTTP 429)');
-        }
-        if ($httpCode >= 500) {
-            throw new LLMTransportException('provider_unavailable', "LLM provider unavailable (HTTP {$httpCode})");
+        if ($failure !== null) {
+            throw $failure;
         }
         if ($httpCode < 200 || $httpCode >= 300) {
             throw new LLMTransportException('invalid_response', "LLM stream failed (HTTP {$httpCode})");
@@ -238,6 +227,36 @@ class DeepSeekProvider implements LLMProvider, StreamingLLMProvider {
         }
 
         return new LLMResponse(content: $content, finishReason: $finishReason, usage: $usage);
+    }
+
+    private function endpoint(): string {
+        return str_ends_with($this->baseUrl, '/v1')
+            ? $this->baseUrl . '/chat/completions'
+            : $this->baseUrl . '/v1/chat/completions';
+    }
+
+    /**
+     * Maps a finished HTTP exchange to a transport failure shared by chat() and
+     * chatStream(): curl failure ($httpCode === false), rate limit, 5xx.
+     * Returns null when the status is not a shared failure.
+     *
+     * @param array<string, string> $headers lower-cased response headers
+     */
+    private function classifyFailure(int|false $httpCode, int $curlErrno, string $curlError, array $headers, string $kind = 'request'): ?LLMTransportException {
+        if ($httpCode === false) {
+            $category = $curlErrno === CURLE_OPERATION_TIMEDOUT ? 'timeout' : 'provider_unavailable';
+            return new LLMTransportException($category, "LLM $kind failed: $curlError");
+        }
+        if ($httpCode === 429) {
+            $retryAfter = isset($headers['retry-after']) && ctype_digit($headers['retry-after'])
+                ? (int) $headers['retry-after']
+                : null;
+            return new LLMTransportException('rate_limit', 'LLM rate limit exceeded (HTTP 429)', $retryAfter);
+        }
+        if ($httpCode >= 500) {
+            return new LLMTransportException('provider_unavailable', "LLM provider unavailable (HTTP {$httpCode})");
+        }
+        return null;
     }
 
     private function responseToArray(LLMResponse $response): array {
