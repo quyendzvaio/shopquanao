@@ -17,7 +17,7 @@ class ResponseGenerator {
         }
 
         if ($primary === 'unsupported_checkout') {
-            return $this->response('Với yêu cầu ' . $this->echoQuote($message) . 'mình không thể tự thêm giỏ hàng hoặc thanh toán giúp bạn. Bạn vui lòng bấm vào thẻ sản phẩm hoặc vào trang chi tiết sản phẩm để tự thêm giỏ hàng và thanh toán.', 'final_answer', $intent, $cards);
+            return $this->response($this->checkoutRefusal($message), 'final_answer', $intent, $cards);
         }
 
         $answer = match ($primary) {
@@ -119,6 +119,11 @@ class ResponseGenerator {
             $answer .= ' Nổi bật: ' . implode('; ', $highlights) . '.';
         }
         return $answer . ' Bạn có thể bấm vào thẻ sản phẩm bên dưới để xem chi tiết.';
+    }
+
+    /** The refusal for a cart/checkout/payment request, echoing the request. */
+    public function checkoutRefusal(string $message): string {
+        return 'Với yêu cầu ' . $this->echoQuote($message) . 'mình không thể tự thêm giỏ hàng hoặc thanh toán giúp bạn. Bạn vui lòng bấm vào thẻ sản phẩm hoặc vào trang chi tiết sản phẩm để tự thêm giỏ hàng và thanh toán.';
     }
 
     /**

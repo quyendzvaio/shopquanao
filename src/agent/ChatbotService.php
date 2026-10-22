@@ -61,8 +61,7 @@ class ChatbotService {
         $memoryLoadMs = (int)((microtime(true) - $memoryStart) * 1000);
 
         $turn = new TurnContext($message, $this->sessionId, $this->userId, $memoryContext, null);
-        $result = $this->middleware->beforeTurn($turn)?->toArray()
-            ?? $this->runPipeline($message, $memoryContext, $memoryLoadMs);
+        $result = $this->turnResult($turn, $memoryLoadMs);
         $nudge = $this->freeShippingNudge($result);
         $result = $this->withNudgeCard($result, $nudge);
         if ($nudge !== null) {
@@ -103,8 +102,7 @@ class ChatbotService {
         $memoryLoadMs = (int)((microtime(true) - $memoryStart) * 1000);
 
         $turn = new TurnContext($message, $this->sessionId, $this->userId, $memoryContext, Closure::fromCallable($onDelta));
-        $result = $this->middleware->beforeTurn($turn)?->toArray()
-            ?? $this->runPipeline($message, $memoryContext, $memoryLoadMs);
+        $result = $this->turnResult($turn, $memoryLoadMs);
         $nudge = $this->freeShippingNudge($result);
         $result = $this->withNudgeCard($result, $nudge);
 
@@ -188,6 +186,29 @@ class ChatbotService {
         $byId[(int)$nudge['card']['id']] ??= $nudge['card'];
         $result['products'] = array_values($byId);
         $result['cards'] = $result['products'];
+        return $result;
+    }
+
+    /**
+     * The first beforeTurn blocker's result, or the full pipeline when nothing
+     * blocks. A blocked turn skips intent, tools and evidence but still leaves
+     * its routing record.
+     */
+    private function turnResult(TurnContext $turn, int $memoryLoadMs): array
+    {
+        $blocked = $this->middleware->beforeTurn($turn);
+        if ($blocked === null) {
+            return $this->runPipeline($turn->message, $turn->memoryContext, $memoryLoadMs);
+        }
+        $result = $blocked->toArray();
+        $routing = ['blocked_by' => (string)($result['latency']['blocked_by'] ?? ''), 'selected_tools' => []];
+        $this->responseMetadata = [
+            'latency' => $result['latency'] ?? [],
+            'primary_intent' => $result['primary_intent'] ?? 'unknown',
+            'requested_fields' => $result['requested_fields'] ?? [],
+            'routing' => $routing,
+        ];
+        $this->conversationStore->logToolExecution('routing_pipeline', [], $routing, 0, true);
         return $result;
     }
 

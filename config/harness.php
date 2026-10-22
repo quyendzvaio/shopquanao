@@ -7,6 +7,7 @@
  */
 return [
     'middleware' => [
+        CheckoutGuardrail::class,
         AnswerTemplateFallback::class,
     ],
 ];

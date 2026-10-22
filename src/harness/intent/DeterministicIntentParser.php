@@ -527,6 +527,6 @@ class DeterministicIntentParser {
     }
 
     private function isCheckout(string $text): bool {
-        return (bool)preg_match('/thêm vào giỏ|them vao gio|(?:thêm|them)\s+.{1,80}?\s+(?:vào|vao)\s+(?:giỏ|gio)\b|checkout|thanh toán giúp|thanh toan giup|mua .*giúp|mua .*giup|đặt hàng giúp|dat hang giup|chốt đơn|chot don/ui', $text);
+        return CheckoutDetector::matches($text);
     }
 }

@@ -4,7 +4,7 @@
 final class AgentFactory
 {
     /** Middleware every config/harness.php must list; each declares REQUIRED = true. */
-    public const REQUIRED_MIDDLEWARE = [AnswerTemplateFallback::class];
+    public const REQUIRED_MIDDLEWARE = [AnswerTemplateFallback::class, CheckoutGuardrail::class];
 
     public function __construct(
         private HarnessConfig $config,
@@ -57,6 +57,7 @@ final class AgentFactory
     public function makeMiddleware(string $class, PDO $pdo, int $sessionId): Middleware
     {
         return match ($class) {
+            CheckoutGuardrail::class => new CheckoutGuardrail($this->responseGenerator()),
             AnswerTemplateFallback::class => new AnswerTemplateFallback(),
             default => throw new InvalidArgumentException('Unknown harness middleware: ' . $class),
         };
