@@ -13,7 +13,8 @@ final class ArchitectureTest extends TestCase
 {
     private const MAX_FUNCTION_LINES = 80;
 
-    private const DOMAIN = ['service', 'model', 'core', 'repository'];
+    /** Spec §3.1: harness may use service, model and core (never repository directly). */
+    private const DOMAIN = ['service', 'model', 'core'];
 
     /** Spec §4.1 "Được dùng" column, per harness component (domain layers are added for all). */
     private const ALLOWED = [
@@ -44,6 +45,26 @@ final class ArchitectureTest extends TestCase
 
     /** @var array<string,string>|null class => component */
     private static ?array $components = null;
+
+    /** Guards the other tests against passing vacuously (empty classmap, wrong component mapping, broken scan). */
+    public function testComponentMapResolvesHarnessAndOutsideClasses(): void
+    {
+        $components = $this->components();
+
+        $this->assertSame('turn', $components['TurnRunner'] ?? null);
+        $this->assertSame('llm', $components['MiddlewareModel'] ?? null);
+        $this->assertSame('agent', $components['AgentFactory'] ?? null);
+        $this->assertContains($components['AgentFactory'], self::OUTSIDE);
+        $this->assertSame('middleware', $this->referencedClasses(ROOT_DIR . '/src/harness/turn/TurnRunner.php')['MiddlewareStack'] ?? null);
+    }
+
+    public function testClassReferenceExtractionSeesGlobalNamesOnly(): void
+    {
+        $sample = 'new \\AgentFactory(); \\TurnRunner::class; Foo\\TurnRunner; $x->TurnRunner; X::TurnRunner; new TurnRunner();';
+
+        // Seen: `\AgentFactory`, `\TurnRunner`, `Foo`, `X`, `TurnRunner`; not seen: after `Foo\`, `->` or `::`.
+        $this->assertSame(['AgentFactory', 'TurnRunner', 'Foo', 'X', 'TurnRunner'], self::classNamesIn($sample));
+    }
 
     public function testHarnessNeverReferencesOutside(): void
     {
@@ -129,11 +150,8 @@ final class ArchitectureTest extends TestCase
     {
         $components = $this->components();
         $self = basename($file, '.php');
-        // A leading `\` (global name, e.g. `\AgentFactory`) still counts; a segment after `Foo\` does not.
-        preg_match_all('/(?<![\w$]|\w\\\\|->|::)[A-Z]\w*\b/', $this->strippedCode($file), $matches);
-
         $classes = [];
-        foreach (array_unique($matches[0]) as $name) {
+        foreach (array_unique(self::classNamesIn($this->strippedCode($file))) as $name) {
             if ($name !== $self && isset($components[$name])) {
                 $classes[$name] = $components[$name];
             }
@@ -141,6 +159,20 @@ final class ArchitectureTest extends TestCase
         ksort($classes);
 
         return $classes;
+    }
+
+    /**
+     * Capitalised names in $code that can be class references, in order.
+     * A leading `\` (global name, e.g. `\AgentFactory`) still counts; a segment
+     * after `Foo\`, `->` or `::` does not.
+     *
+     * @return list<string>
+     */
+    private static function classNamesIn(string $code): array
+    {
+        preg_match_all('/(?<![\w$]|\w\\\\|->|::)[A-Z]\w*\b/', $code, $matches);
+
+        return $matches[0];
     }
 
     /** @return array<string,string> */
