@@ -1,6 +1,10 @@
 <?php
 
 class ResponseGenerator {
+    public function __construct(private FreeShippingPolicy $freeShipping = new FreeShippingPolicy())
+    {
+    }
+
     public function generate(string $message, array $intent, array $normalized, array $plan): array {
         $primary = (string)($intent['primary_intent'] ?? 'unknown');
         $responseType = (string)($plan['response_type'] ?? 'final_answer');
@@ -54,7 +58,7 @@ class ResponseGenerator {
         }
         $threshold = $this->money((float)(!empty($fact['threshold'])
             ? $fact['threshold']
-            : FreeShippingPolicy::fromEnvironment()->threshold));
+            : $this->freeShipping->threshold));
         return match ((string)($fact['value'] ?? '')) {
             'requires_login' => "Shop miễn phí ship cho đơn từ $threshold. Bạn đăng nhập để mình kiểm tra giỏ hàng và gợi ý món phù hợp nhé.",
             'empty_cart' => "Giỏ hàng của bạn đang trống. Shop miễn phí ship cho đơn từ $threshold.",

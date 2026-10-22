@@ -6,6 +6,7 @@
  */
 
 class ChatbotService {
+    private HarnessConfig $config;
     private PDO $pdo;
     private int $sessionId;
     private ?int $userId;
@@ -32,49 +33,19 @@ class ChatbotService {
         $this->pdo = $pdo;
         $this->sessionId = $sessionId;
         $this->userId = $userId;
+        $this->config = HarnessConfig::fromEnvironment();
+        $factory = new AgentFactory($this->config);
+        // An explicitly passed $llm (even null) disables the environment LLMs.
         $llmWasInjected = func_num_args() >= 4;
-        $this->llm = $llmWasInjected ? $llm : LLMFactory::fromEnv();
+        $this->llm = $llmWasInjected ? $llm : $factory->llm();
         $this->streamingLlm = $llmWasInjected
             ? ($llm instanceof StreamingLLMProvider ? $llm : null)
-            : LLMFactory::streamingFromEnv();
-        $this->toolGateway = $toolGateway ?? $this->createToolGateway($pdo, $userId);
-        // CHATBOT_FORCE_L0=1 pins the turn to the deterministic tier: no LLM
-        // enrichment and template-only answers (no native token streaming).
-        if (!$llmWasInjected && self::envFlag('CHATBOT_FORCE_L0')) {
-            $this->llm = null;
-            $this->streamingLlm = null;
-        }
+            : $factory->streamingLlm();
+        $this->toolGateway = $toolGateway ?? $factory->toolGateway($pdo, $userId);
         $this->memory = $memory ?? new ChatbotMemory($pdo, $sessionId, $userId);
         $this->conversationStore = $conversationStore ?? new PdoChatbotConversationStore($pdo, $sessionId);
-        $this->responseGenerator = $responseGenerator ?? new ResponseGenerator();
+        $this->responseGenerator = $responseGenerator ?? $factory->responseGenerator();
         $this->memory->ensureSchema();
-    }
-
-    /**
-     * Read a boolean env flag. PHP-FPM may run with clear_env, so fall back
-     * to $_ENV/$_SERVER like LLMFactory does.
-     */
-    private static function envFlag(string $key): bool {
-        $value = getenv($key);
-        if ($value === false || $value === '') {
-            $value = $_ENV[$key] ?? $_SERVER[$key] ?? '';
-        }
-        return $value === '1' || strtolower((string)$value) === 'true';
-    }
-
-    private function createToolGateway(PDO $pdo, ?int $userId): ChatbotToolGateway
-    {        $isTest = strtolower((string) (getenv('APP_ENV') ?: '')) === 'test';
-        $transport = strtolower((string) (getenv('CHATBOT_TOOL_TRANSPORT') ?: ($isTest ? 'internal' : 'mcp')));
-        if ($transport === 'internal') {
-            return new ToolRegistry($pdo, $userId);
-        }
-        if ($transport === 'shadow') {
-            return new ShadowToolGateway(new McpToolGateway($userId), new ToolRegistry($pdo, $userId));
-        }
-        if ($transport !== 'mcp') {
-            throw new InvalidArgumentException('CHATBOT_TOOL_TRANSPORT must be mcp, shadow, or internal');
-        }
-        return new McpToolGateway($userId);
     }
 
     public function respond(string $message): array {
@@ -133,7 +104,7 @@ class ChatbotService {
         // Template-only mode (CHATBOT_TEMPLATE_RESPONSE=1) takes precedence:
         // emit the grounded draft as a single delta instead of paying a
         // native token-stream round trip (L0 fast path).
-        if (self::envFlag('CHATBOT_TEMPLATE_RESPONSE')) {
+        if ($this->config->templateResponse) {
             $onDelta((string)$result['message']);
             $streamed = (string)$result['message'];
             $result['latency']['llm_stream_ms'] = 0;
@@ -184,7 +155,7 @@ class ChatbotService {
     {
         if ($this->userId === null || !FreeShippingNudge::turnQualifies($result)) return null;
         try {
-            $policy = FreeShippingPolicy::fromEnvironment();
+            $policy = $this->config->freeShipping;
             $ledger = new FreeShippingNudge($this->pdo, $this->sessionId);
             $advice = (new FreeShippingService($this->pdo, $policy))->suggest($this->userId, ['limit' => 1]);
             if (!FreeShippingNudge::eligible($result, $advice, $ledger->lastFingerprint(), $policy)) return null;

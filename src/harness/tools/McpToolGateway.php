@@ -12,12 +12,13 @@ final class McpToolGateway implements ChatbotToolGateway
     private bool $initialized = false;
     private int $timeoutSeconds;
 
-    public function __construct(private ?int $userId)
+    /** @param array<string,mixed> $config HarnessConfig::$mcp */
+    public function __construct(private ?int $userId, private array $config)
     {
-        if ((string) (getenv('MCP_SERVICE_TOKEN') ?: '') === '') {
+        if ((string) ($config['service_token'] ?? '') === '') {
             throw new RuntimeException('MCP_SERVICE_TOKEN is not configured');
         }
-        $this->timeoutSeconds = max(1, (int) (getenv('MCP_REQUEST_TIMEOUT') ?: 35));
+        $this->timeoutSeconds = max(1, (int) ($config['timeout_seconds'] ?? 35));
     }
 
     public function __destruct()
@@ -92,7 +93,7 @@ final class McpToolGateway implements ChatbotToolGateway
         if (is_resource($this->process)) {
             return;
         }
-        $configuredNode = (string) (getenv('MCP_STDIO_NODE') ?: '/usr/bin/node');
+        $configuredNode = (string) ($this->config['node'] ?? '/usr/bin/node');
         $nodeCandidates = array_values(array_unique([
             $configuredNode,
             '/usr/local/bin/node',
@@ -108,7 +109,7 @@ final class McpToolGateway implements ChatbotToolGateway
         if ($node === '') {
             throw new RuntimeException('MCP Node executable not found; checked: ' . implode(', ', $nodeCandidates));
         }
-        $script = (string) (getenv('MCP_STDIO_SCRIPT') ?: '/opt/mcp-server/dist/stdio.js');
+        $script = (string) ($this->config['script'] ?? '/opt/mcp-server/dist/stdio.js');
         $descriptors = [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],
@@ -116,10 +117,10 @@ final class McpToolGateway implements ChatbotToolGateway
         ];
         $environment = [
             'NODE_ENV' => 'production',
-            'PATH' => (string) (getenv('PATH') ?: '/usr/local/bin:/usr/bin:/bin'),
-            'MCP_SERVICE_TOKEN' => (string) getenv('MCP_SERVICE_TOKEN'),
-            'SHOP_INTERNAL_URL' => (string) (getenv('SHOP_INTERNAL_URL') ?: 'http://127.0.0.1/api/internal/mcp'),
-            'MCP_REQUEST_TIMEOUT_MS' => (string) (getenv('MCP_REQUEST_TIMEOUT_MS') ?: '30000'),
+            'PATH' => (string) ($this->config['path'] ?? '/usr/local/bin:/usr/bin:/bin'),
+            'MCP_SERVICE_TOKEN' => (string) $this->config['service_token'],
+            'SHOP_INTERNAL_URL' => (string) ($this->config['shop_internal_url'] ?? 'http://127.0.0.1/api/internal/mcp'),
+            'MCP_REQUEST_TIMEOUT_MS' => (string) ($this->config['request_timeout_ms'] ?? '30000'),
             'MCP_PRINCIPAL_USER_ID' => $this->userId === null ? '' : (string) $this->userId,
         ];
         $process = proc_open([$node, $script], $descriptors, $pipes, null, $environment);
