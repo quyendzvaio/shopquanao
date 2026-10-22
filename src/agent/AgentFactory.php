@@ -12,18 +12,42 @@ final class AgentFactory
         return $this->config;
     }
 
-    public function llm(): ?LLMProvider
+    /** The configured LLM, wrapped in MiddlewareModel when a stack is given. */
+    public function llm(?MiddlewareStack $middleware = null): ?LLMProvider
     {
-        return $this->config->forceL0 ? null : $this->provider($this->config->llm);
+        $provider = $this->config->forceL0 ? null : $this->provider($this->config->llm);
+        return $provider !== null && $middleware !== null ? new MiddlewareModel($provider, $middleware) : $provider;
     }
 
-    public function streamingLlm(): ?StreamingLLMProvider
+    /** The configured final-answer LLM if it streams, wrapped in MiddlewareModel when a stack is given. */
+    public function streamingLlm(?MiddlewareStack $middleware = null): ?StreamingLLMProvider
     {
         if ($this->config->forceL0) {
             return null;
         }
         $provider = $this->provider($this->config->streamLlm);
-        return $provider instanceof StreamingLLMProvider ? $provider : null;
+        if (!$provider instanceof StreamingLLMProvider) {
+            return null;
+        }
+        return $middleware !== null ? new MiddlewareModel($provider, $middleware) : $provider;
+    }
+
+    /** The middleware listed in config/harness.php, in order. */
+    public function middlewareStack(PDO $pdo, int $sessionId): MiddlewareStack
+    {
+        $harness = require dirname(__DIR__, 2) . '/config/harness.php';
+        $middleware = [];
+        foreach ($harness['middleware'] ?? [] as $class) {
+            $middleware[] = $this->makeMiddleware((string) $class, $pdo, $sessionId);
+        }
+        return new MiddlewareStack($middleware);
+    }
+
+    public function makeMiddleware(string $class, PDO $pdo, int $sessionId): Middleware
+    {
+        return match ($class) {
+            default => throw new InvalidArgumentException('Unknown harness middleware: ' . $class),
+        };
     }
 
     public function toolGateway(PDO $pdo, ?int $userId): ChatbotToolGateway

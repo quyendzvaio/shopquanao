@@ -16,6 +16,7 @@ class ChatbotService {
     private ChatbotMemoryStore $memory;
     private ChatbotConversationStore $conversationStore;
     private ResponseGenerator $responseGenerator;
+    private MiddlewareStack $middleware;
     private array $knowledgeSources = [];
     private array $evaluationMetadata = [];
     private array $responseMetadata = [];
@@ -35,12 +36,13 @@ class ChatbotService {
         $this->userId = $userId;
         $this->config = HarnessConfig::fromEnvironment();
         $factory = new AgentFactory($this->config);
-        // An explicitly passed $llm (even null) disables the environment LLMs.
+        $this->middleware = $factory->middlewareStack($pdo, $sessionId);
+        // An explicitly passed $llm (even null) disables the environment LLMs and is used unwrapped.
         $llmWasInjected = func_num_args() >= 4;
-        $this->llm = $llmWasInjected ? $llm : $factory->llm();
+        $this->llm = $llmWasInjected ? $llm : $factory->llm($this->middleware);
         $this->streamingLlm = $llmWasInjected
             ? ($llm instanceof StreamingLLMProvider ? $llm : null)
-            : $factory->streamingLlm();
+            : $factory->streamingLlm($this->middleware);
         $this->toolGateway = $toolGateway ?? $factory->toolGateway($pdo, $userId);
         $this->memory = $memory ?? new ChatbotMemory($pdo, $sessionId, $userId);
         $this->conversationStore = $conversationStore ?? new PdoChatbotConversationStore($pdo, $sessionId);
@@ -58,13 +60,16 @@ class ChatbotService {
         $memoryContext = $this->enrichMemoryContextWithLastProduct($memoryContext);
         $memoryLoadMs = (int)((microtime(true) - $memoryStart) * 1000);
 
-        $result = $this->runPipeline($message, $memoryContext, $memoryLoadMs);
+        $turn = new TurnContext($message, $this->sessionId, $this->userId, $memoryContext, null);
+        $result = $this->middleware->beforeTurn($turn)?->toArray()
+            ?? $this->runPipeline($message, $memoryContext, $memoryLoadMs);
         $nudge = $this->freeShippingNudge($result);
         $result = $this->withNudgeCard($result, $nudge);
         if ($nudge !== null) {
             $result['message'] = rtrim((string)$result['message']) . ' ' . $nudge['text'];
             $result['answer'] = $result['message'];
         }
+        $result = $this->middleware->afterTurn($turn, TurnResult::fromArray($result))->toArray();
         $this->conversationStore->saveMessages(
             $message,
             $result['message'],
@@ -97,7 +102,9 @@ class ChatbotService {
         $memoryContext = $this->enrichMemoryContextWithLastProduct($memoryContext);
         $memoryLoadMs = (int)((microtime(true) - $memoryStart) * 1000);
 
-        $result = $this->runPipeline($message, $memoryContext, $memoryLoadMs);
+        $turn = new TurnContext($message, $this->sessionId, $this->userId, $memoryContext, Closure::fromCallable($onDelta));
+        $result = $this->middleware->beforeTurn($turn)?->toArray()
+            ?? $this->runPipeline($message, $memoryContext, $memoryLoadMs);
         $nudge = $this->freeShippingNudge($result);
         $result = $this->withNudgeCard($result, $nudge);
 
@@ -132,9 +139,10 @@ class ChatbotService {
             $result['answer'] = $streamed;
         }
 
+        $result = $this->middleware->afterTurn($turn, TurnResult::fromArray($result))->toArray();
         $this->conversationStore->saveMessages(
             $message,
-            $streamed,
+            (string)$result['message'],
             $result['products'] ?? [],
             $this->knowledgeSources,
             $this->evaluationMetadata,

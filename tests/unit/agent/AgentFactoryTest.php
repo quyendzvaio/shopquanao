@@ -82,6 +82,32 @@ final class AgentFactoryTest extends TestCase
         $this->assertNull($factory->streamingLlm());
     }
 
+    public function testMiddlewareStackComesFromHarnessConfig(): void
+    {
+        $factory = new AgentFactory(new HarnessConfig());
+        $configured = (require dirname(__DIR__, 3) . '/config/harness.php')['middleware'];
+
+        $this->assertSame($configured, $factory->middlewareStack(SqliteShop::pdo(), 1)->names());
+    }
+
+    public function testConfiguredLlmsAreWrappedWhenGivenAStack(): void
+    {
+        $factory = new AgentFactory(new HarnessConfig(llm: $this->llmConfig(), streamLlm: $this->llmConfig()));
+        $stack = new MiddlewareStack([]);
+
+        $this->assertInstanceOf(MiddlewareModel::class, $factory->llm($stack));
+        $this->assertInstanceOf(MiddlewareModel::class, $factory->streamingLlm($stack));
+        $this->assertNull((new AgentFactory(new HarnessConfig()))->llm($stack));
+        $this->assertNull((new AgentFactory(new HarnessConfig(forceL0: true, streamLlm: $this->llmConfig())))->streamingLlm($stack));
+    }
+
+    public function testUnknownMiddlewareClassIsRejected(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unknown harness middleware: NoSuchMiddleware');
+        (new AgentFactory(new HarnessConfig()))->makeMiddleware('NoSuchMiddleware', SqliteShop::pdo(), 1);
+    }
+
     public function testResponseGeneratorUsesConfiguredFreeShippingThreshold(): void
     {
         $factory = new AgentFactory(new HarnessConfig(freeShipping: new FreeShippingPolicy(750000)));
