@@ -129,7 +129,8 @@ final class ArchitectureTest extends TestCase
     {
         $components = $this->components();
         $self = basename($file, '.php');
-        preg_match_all('/(?<![\w$\\\\]|->|::)[A-Z]\w*\b/', $this->strippedCode($file), $matches);
+        // A leading `\` (global name, e.g. `\AgentFactory`) still counts; a segment after `Foo\` does not.
+        preg_match_all('/(?<![\w$]|\w\\\\|->|::)[A-Z]\w*\b/', $this->strippedCode($file), $matches);
 
         $classes = [];
         foreach (array_unique($matches[0]) as $name) {
