@@ -113,6 +113,45 @@ final class CheckoutGuardrailTest extends TestCase
         $this->assertSame([['routing_pipeline', ['blocked_by' => 'CheckoutGuardrail', 'selected_tools' => []]]], $store->logs);
     }
 
+    public function testInjectedStreamingLlmStillGoesThroughTheAnswerTemplateFallback(): void
+    {
+        $llm = new class implements LLMProvider, StreamingLLMProvider {
+            public function chat(array $messages, array $tools = [], string $toolChoice = 'auto', array $options = []): LLMResponse
+            {
+                throw new LogicException('chat() is not used on a blocked turn');
+            }
+
+            public function chatStream(array $messages, callable $onDelta, array $options = []): LLMResponse
+            {
+                $onDelta('Mình không thể');
+                throw new LLMTransportException('provider_unavailable', 'provider went away mid-answer');
+            }
+        };
+        $service = new ChatbotService(SqliteShop::pdo(), 1, null, $llm, $this->failingGateway(), $this->memory(), $this->recordingStore());
+        $deltas = [];
+        $log = tempnam(sys_get_temp_dir(), 'stream_llm_log');
+        $previous = ini_set('error_log', $log);
+
+        try {
+            $result = $service->respondStreaming('chốt đơn áo mã 52 cho tôi', static function (string $delta) use (&$deltas): void {
+                $deltas[] = $delta;
+            });
+            $logged = (string)file_get_contents($log);
+        } finally {
+            ini_set('error_log', (string)$previous);
+            unlink($log);
+        }
+
+        $draft = (new ResponseGenerator())->checkoutRefusal('chốt đơn áo mã 52 cho tôi');
+        $this->assertSame('template_fallback', $result['latency']['streaming']);
+        $this->assertSame(['Mình không thể', "\n\n" . $draft], $deltas);
+        $this->assertSame('Mình không thể' . "\n\n" . $draft, $result['message']);
+        $this->assertStringContainsString(
+            '{"operation":"chatbot_stream_llm","success":false,"error_category":"provider_unavailable"}',
+            $logged
+        );
+    }
+
     private function failingGateway(): ChatbotToolGateway
     {
         return new class implements ChatbotToolGateway {

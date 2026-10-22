@@ -55,9 +55,10 @@ final class AgentFactory
     }
 
     /**
-     * One turn's runner for a chat session. Config-built LLMs are always wrapped
-     * in the middleware stack; an 'llm' override (even null) replaces both of
-     * them and is used as given, unwrapped.
+     * One turn's runner for a chat session. Every LLM is wrapped in the
+     * middleware stack. An 'llm' override replaces both config-built LLMs:
+     * null means "no LLM"; a provider is wrapped too, and also serves as the
+     * streaming LLM when it streams.
      *
      * @param array{llm?:?LLMProvider,tool_gateway?:ChatbotToolGateway,memory?:ChatbotMemoryStore,conversation_store?:ChatbotConversationStore,response_generator?:ResponseGenerator} $overrides
      */
@@ -65,8 +66,9 @@ final class AgentFactory
     {
         $middleware = $this->middlewareStack($pdo, $sessionId);
         if (array_key_exists('llm', $overrides)) {
-            $llm = $overrides['llm'];
-            $streamingLlm = $llm instanceof StreamingLLMProvider ? $llm : null;
+            $override = $overrides['llm'];
+            $llm = $override !== null ? new MiddlewareModel($override, $middleware) : null;
+            $streamingLlm = $override instanceof StreamingLLMProvider ? $llm : null;
         } else {
             $llm = $this->llm($middleware);
             $streamingLlm = $this->streamingLlm($middleware);

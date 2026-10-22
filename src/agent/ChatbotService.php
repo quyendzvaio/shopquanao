@@ -24,7 +24,7 @@ class ChatbotService
             'conversation_store' => $conversationStore,
             'response_generator' => $responseGenerator,
         ], static fn ($collaborator): bool => $collaborator !== null);
-        // An explicitly passed $llm (even null) disables the environment LLMs and is used unwrapped.
+        // An explicitly passed $llm (even null) replaces the environment LLMs; a provider is still wrapped in the middleware stack.
         if (func_num_args() >= 4) {
             $overrides['llm'] = $llm;
         }
