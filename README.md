@@ -21,15 +21,16 @@ LLM không tự viết SQL và không tự chọn tool. Dữ liệu trả về c
 ```text
 Browser
   -> Nginx
-  -> PHP ChatbotService
+  -> PHP ChatbotService (facade) -> TurnRunner
+      -> middleware beforeTurn (CheckoutGuardrail)
       -> deterministic IntentResolver
       -> ToolPlanner + PlanValidator
       -> MCP stdio child process (hoặc ToolRegistry in-process)
           -> PHP internal application services
               -> Product / Size / Policy / Order / Outfit / Free-shipping tools
       -> EvidenceNormalizer + ProductConstraintVerifier
-      -> grounded ResponseGenerator -> native LLM token stream (SSE tới browser)
-      -> FreeShippingNudge (gợi ý chủ động UC-C)
+      -> grounded ResponseGenerator -> native LLM token stream (SSE tới browser; AnswerTemplateFallback phát bản nháp grounded nếu LLM lỗi)
+      -> middleware afterTurn: FreeShippingNudge (gợi ý chủ động UC-C), TraceOutbox
 ```
 
 | Service | Vai trò |
@@ -114,7 +115,14 @@ Response chỉ trả product cards của shop đã qua `ProductConstraintVerifie
 | Thư mục | Nội dung |
 | --- | --- |
 | `public/` | Web root duy nhất: trang storefront, `admin/`, `assets/`, REST front controller `public/api/index.php` |
-| `src/` | Toàn bộ code PHP (classmap): `Http/` (routes + controllers), `Shop/`, `Chatbot/`, `Infrastructure/` |
+| `src/app/api/` | `routes.php` + controllers REST (`controllers/`), `support/ChatStreamProtocol` |
+| `src/agent/` | `AgentFactory` (nơi duy nhất đọc env chatbot, ghép harness + LLM) và `ChatbotService` (facade) |
+| `src/harness/` | Agent trừ LLM, theo component: `llm/ turn/ intent/ planning/ loop/ evidence/ tools/ response/ memory/ middleware/`; xem [`src/harness/README.md`](src/harness/README.md) |
+| `src/service/`, `src/model/`, `src/repository/` | Nghiệp vụ (catalog, cart, order, size, outfit, freeship, knowledge), đối tượng dữ liệu, truy cập dữ liệu |
+| `src/core/` | Bootstrap, cache, `database/MigrationRunner`, observability (Langfuse outbox) |
+| `src/llm_providers/` | Provider LLM cụ thể (ngoài harness) |
+| `config/` | `chatbot_tools.php` (manifest tool), `harness.php` (danh sách middleware, thứ tự chạy) |
+| `tests/` | `unit/` (gồm `ArchitectureTest`), `integration/`, `support/` (fixture SQLite) |
 | `templates/` | Partials (header/footer/chat widget) |
 | `database/` | `schema.sql` và `migrations/` (đặt tên theo ngày) |
 | `mcp-server/` | MCP stdio server (TypeScript) |

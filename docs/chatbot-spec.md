@@ -5,33 +5,45 @@ Cập nhật: 2026-10-21
 
 ## 1. Bản Chất Kiến Trúc
 
-Chatbot là hệ thống deterministic-first hybrid, không phải ReAct agent. PHP chịu trách nhiệm parse intent, phát hiện conflict, chọn tool, kiểm plan, kiểm evidence và sinh câu trả lời. LLM là dependency tùy chọn chỉ được bổ sung các entity mô tả chưa giải quyết dưới dạng JSON.
+Chatbot là hệ thống deterministic-first hybrid, không phải ReAct agent. PHP (harness trong `src/harness/`) chịu trách nhiệm parse intent, phát hiện conflict, chọn tool, kiểm plan, kiểm evidence và sinh câu trả lời. LLM là dependency tùy chọn chỉ được bổ sung các entity mô tả chưa giải quyết dưới dạng JSON.
 
 ```text
 Browser fetch POST /api/chatbot/stream (Server-Sent Events)
   -> Nginx (rate limit, no proxy buffering)
-  -> ChatbotService
-      -> ChatbotMemory::rememberUserMessage()
-      -> IntentResolver
+  -> src/app/api/controllers/Chatbot  (ChatStreamProtocol: origin + max-length guard, SSE framing)
+  -> ChatbotService (src/agent, facade) -> TurnRunner::run()   [AgentFactory đọc env/config, ghép harness + LLM]
+      1. loadMemory: ChatbotMemory::rememberUserMessage()
+      2. beforeTurn (MiddlewareStack): CheckoutGuardrail (required) -> nếu match CheckoutDetector thì
+         trả lời từ chối unsupported_checkout, bỏ qua bước 3-4
+      3. IntentResolver
           -> DeterministicIntentParser
           -> ConflictDetector + ConflictResolver
           -> SemanticEntityEnricher (optional)
           -> MergeEngine
-      -> ToolPlanner + PlanValidator
-      -> EvidenceExecutionLoop
-          -> ParallelToolExecutor -> ToolRegistry
+      4. ToolPlanner + PlanValidator -> EvidenceExecutionLoop
+          -> ParallelToolExecutor -> ChatbotToolGateway (McpToolGateway | ToolRegistry) -> ToolApplicationService
           -> EvidenceNormalizer
           -> ProductConstraintVerifier
           -> ObservationEvaluator
           -> LightweightEvidenceScorer
           -> EvidenceDecisionRouter
-      -> ResponseGenerator (grounded draft)
-      -> StreamingResponseGenerator -> native LLM token stream
-         (any LLM failure -> grounded draft emitted instead)
-      -> persist messages, routing metadata and tool executions
+      5. ResponseGenerator (grounded draft)
+         -> chỉ lượt stream, không ở template mode:
+            StreamingResponseGenerator -> MiddlewareModel -> native LLM token stream
+            (AnswerTemplateFallback, required: mọi lỗi LLM -> phát grounded draft,
+             latency.streaming = template_fallback)
+         -> respond() (không stream) và CHATBOT_TEMPLATE_RESPONSE=1: dùng nguyên grounded draft
+      6. afterTurn: FreeShippingNudge (optional, UC-C) -> TraceOutbox (optional, Langfuse)
+      7. persist messages, routing metadata, tool executions; refreshSummary
   -> streamed answer + private grounded cards
   -> chat.delta / chat.cards / chat.complete events
 ```
+
+Các bước 1-7 do `TurnRunner` điều phối; thứ tự và việc bật/tắt middleware nằm trong `config/harness.php`
+(`CheckoutGuardrail` và `AnswerTemplateFallback` là `required`; nếu thiếu, `AgentFactory` ném `LogicException`
+khi dựng middleware stack / turn runner cho một lượt chat).
+Nhánh `unsupported_checkout` trong pipeline vẫn còn như lớp phòng thủ thứ hai khi LLM parser suy ra intent này.
+Sơ đồ component, bảng phụ thuộc và cách thêm middleware/intent: [`src/harness/README.md`](../src/harness/README.md).
 
 ## 2. Ranh Giới LLM
 
@@ -113,7 +125,10 @@ JSON repeats `type`:
 
 Text streaming is native provider output: each `chat.delta` is flushed as soon
 as PHP receives it. If the LLM fails or returns nothing, the grounded draft is
-emitted instead, so an LLM outage does not fail the turn. Product cards are
+emitted instead, so an LLM outage does not fail the turn. In template mode
+(`CHATBOT_TEMPLATE_RESPONSE=1`) no LLM is called: the grounded draft is sent
+unchanged as one `chat.delta`. `POST /api/chatbot` (non-streamed `respond()`)
+always answers with the grounded draft as is. Product cards are
 grounded by Product Search, reduced to `ChatStreamProtocol::CARD_FIELDS`, and
 can only contain private shop `id` values. Only numeric/boolean latency fields
 leave PHP. The model prompt is constrained to rewrite the grounded draft and
