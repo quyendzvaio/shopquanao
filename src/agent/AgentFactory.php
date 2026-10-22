@@ -54,6 +54,41 @@ final class AgentFactory
         return new MiddlewareStack($middleware);
     }
 
+    /**
+     * One turn's runner for a chat session. Config-built LLMs are always wrapped
+     * in the middleware stack; an 'llm' override (even null) replaces both of
+     * them and is used as given, unwrapped.
+     *
+     * @param array{llm?:?LLMProvider,tool_gateway?:ChatbotToolGateway,memory?:ChatbotMemoryStore,conversation_store?:ChatbotConversationStore,response_generator?:ResponseGenerator} $overrides
+     */
+    public function turnRunner(PDO $pdo, int $sessionId, ?int $userId, array $overrides = []): TurnRunner
+    {
+        $middleware = $this->middlewareStack($pdo, $sessionId);
+        if (array_key_exists('llm', $overrides)) {
+            $llm = $overrides['llm'];
+            $streamingLlm = $llm instanceof StreamingLLMProvider ? $llm : null;
+        } else {
+            $llm = $this->llm($middleware);
+            $streamingLlm = $this->streamingLlm($middleware);
+        }
+        $tools = $overrides['tool_gateway'] ?? $this->toolGateway($pdo, $userId);
+        $memory = $overrides['memory'] ?? new ChatbotMemory($pdo, $sessionId, $userId);
+        $conversations = $overrides['conversation_store'] ?? new PdoChatbotConversationStore($pdo, $sessionId);
+        $responses = $overrides['response_generator'] ?? $this->responseGenerator();
+        $memory->ensureSchema();
+
+        return new TurnRunner(
+            $tools,
+            $memory,
+            $conversations,
+            $responses,
+            $middleware,
+            $llm,
+            $streamingLlm,
+            $this->config->templateResponse
+        );
+    }
+
     public function makeMiddleware(string $class, PDO $pdo, int $sessionId): Middleware
     {
         return match ($class) {
