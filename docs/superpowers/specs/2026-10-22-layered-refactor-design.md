@@ -122,7 +122,7 @@ Ngoại lệ được ghi rõ: `core/database/MigrationRunner` có SQL (DDL, b�
 
 | Component | Chứa (từ code hiện có) | Cửa vào công khai | Được dùng (ngoài service/model/core) |
 |---|---|---|---|
-| `llm/` | `LLMProvider`, `StreamingLLMProvider`, `LLMResponse`, `ToolCall`, `LLMTransportException` (tách file), `ModelCall`, `MiddlewareModel` | interface + DTO | middleware (chỉ interface `Middleware`) |
+| `llm/` | `LLMProvider`, `StreamingLLMProvider`, `LLMResponse`, `ToolCall`, `LLMTransportException` (tách file), `ModelCall`, `MiddlewareModel` | interface + DTO | middleware (chỉ `Middleware` và `MiddlewareStack`) |
 | `turn/` | `TurnRunner` (thay `runPipeline`), `TurnContext`, `TurnResult` | `TurnRunner::run()` | mọi component |
 | `intent/` | `IntentResolver`, `DeterministicIntentParser`, `PartialParseResult`, `ConflictDetector`, `ConflictResolver`, `MergeEngine`, `LlmInputParser`, `SemanticEntityEnricher`, `TurnTierGate`, `CheckoutDetector` (MỚI: regex `isCheckout` tách ra) | `IntentResolver::resolve()`, `CheckoutDetector` | llm, planning |
 | `planning/` | `ChatbotToolManifest`, `CapabilityRegistry`, `ToolPlanner`, `PlanValidator` | 4 class trên | — |
@@ -135,7 +135,7 @@ Ngoại lệ được ghi rõ: `core/database/MigrationRunner` có SQL (DDL, b�
 
 Bảng này là **luật bắt buộc**: code phải sửa cho khớp bảng, không sửa bảng cho khớp code.
 - `TurnContext`/`TurnResult` là kiểu dữ liệu thuần. Middleware chỉ dùng hai kiểu này, không dùng `TurnRunner`.
-- `MiddlewareModel` chỉ biết interface `Middleware`.
+- `MiddlewareModel` chỉ biết `Middleware` và `MiddlewareStack` (class cụ thể: nó nhận stack qua constructor và gọi `MiddlewareStack::wrapModelCall`), không biết middleware cụ thể nào.
 - Mỗi luật chỉ có **một nguồn**: regex checkout ở `CheckoutDetector`, câu từ chối là hằng số trong `ResponseGenerator`. Guardrail và lớp phòng thủ thứ hai trong pipeline cùng dùng hai nguồn đó, không chép lại.
 
 Mỗi component có `README.md` ngắn (5–15 dòng) nêu 3 điều: làm gì, cửa vào là gì, được dùng ai. `src/harness/README.md` vẽ sơ đồ một lượt chat và có bảng trên.
@@ -317,7 +317,10 @@ return [
 8. **Repository**, mỗi miền một commit: product, cart, order, user, review, chat memory/session.
 9. **Service mới** (User, Review, Admin…) và chuyển `Shop` cũ sang dùng repository.
 10. **`app/web` + `templates/pages`**, mỗi nhóm trang một commit: catalog, giỏ, checkout, tài khoản, admin. Checkout đổi hành vi theo 5.4 ở commit riêng.
-11. `ArchitectureTest` mở rộng: không SQL ngoài repository, không env ngoài agent/core.
+11. `ArchitectureTest` mở rộng: không SQL ngoài repository, không env ngoài agent/core. Phần A còn để lại các điểm sau; bản mở rộng phải bao phủ (và bước này phải sửa) chúng:
+    - `service/freeship/FreeShippingService` vẫn gọi `FreeShippingPolicy::fromEnvironment()` khi không được truyền policy. Tool `suggest_freeship_items` (`ToolApplicationService`) tạo service không kèm policy, nên intent `freeship_gap` chưa thấy policy tùy chỉnh trong `HarnessConfig` cho tới khi sửa.
+    - `service/knowledge/KnowledgeRetriever` và `service/catalog/ProductReranker` vẫn đọc env.
+    - Controller trong `app/` (`app/api/controllers/Chatbot/index.php`, `stream.php`) tham chiếu thẳng class của harness (`ChatbotSessionContext`, `LLMTransportException`) thay vì đi qua `agent`.
 12. **Tài liệu:** `CLAUDE.md`, `.claude/rules/*`, `README.md`, `docs/chatbot-spec.md`, `docs/technical-spec.md`, gồm mục "thêm intent/tool", "thêm middleware", "thêm trang/endpoint".
 
 Mỗi phần một PR vào `develop`. Phần A merge trước rồi mới mở nhánh phần B.

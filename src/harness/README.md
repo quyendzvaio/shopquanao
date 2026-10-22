@@ -15,8 +15,10 @@ loadMemory -> beforeTurn -> intent -> loop(planning / tools / evidence) -> respo
 2. `beforeTurn`: middleware may block the turn (the checkout guardrail does) and skip the middle steps.
 3. `intent`: `IntentResolver` (deterministic first, LLM only enriches), or a clarification answer.
 4. `loop`: `EvidenceExecutionLoop` plans tools, validates, runs them and checks the evidence.
-5. `response`: `ResponseGenerator` builds the grounded draft; `StreamingResponseGenerator` asks the LLM to
-   rewrite it. Every model call goes through the middleware stack.
+5. `response`: `ResponseGenerator` builds the grounded draft. Only a streamed turn outside template mode asks
+   the LLM (`StreamingResponseGenerator`) to rewrite it; `respond()` (non-streamed) keeps the draft as is, and
+   template mode (`CHATBOT_TEMPLATE_RESPONSE=1`) streams the draft unchanged. Every model call goes through the
+   middleware stack.
 6. `afterTurn`: middleware may add to the result (free-shipping nudge, trace outbox).
 7. `persist`: save messages, refresh the memory summary.
 
@@ -59,7 +61,8 @@ Hooks (`Middleware`): `beforeTurn(TurnContext): ?TurnResult` (return a result to
 | `FreeShippingNudge` | `afterTurn` | UC-C proactive line, once per cart fingerprint, shopping intents only | no |
 | `TraceOutbox` | `afterTurn` (last) | enqueue the sanitized Langfuse trace | no |
 
-`AgentFactory` refuses to start when a class in `AgentFactory::REQUIRED_MIDDLEWARE` is missing from the config.
+When a class in `AgentFactory::REQUIRED_MIDDLEWARE` is missing from the config, `AgentFactory` throws a
+`LogicException` while it builds the middleware stack (and so the turn runner) for a turn.
 
 ### How to add a middleware
 
