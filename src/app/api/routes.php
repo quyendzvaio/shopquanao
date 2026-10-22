@@ -1,7 +1,7 @@
 <?php
 
 /**
- * REST routing table: 'METHOD /regex' => controller file under Http/Controllers.
+ * REST routing table: 'METHOD /regex' => controller file under src/app/api/controllers.
  * The front controller (public/api/index.php) matches in declaration order.
  */
 return [

@@ -9,8 +9,8 @@
 // Always treat as JSON API
 header('Content-Type: application/json; charset=utf-8');
 
-require_once dirname(__DIR__, 2) . '/src/Http/helpers.php';
-require_once dirname(__DIR__, 2) . '/src/Http/middleware.php';
+require_once dirname(__DIR__, 2) . '/src/core/http/helpers.php';
+require_once dirname(__DIR__, 2) . '/src/app/api/middleware.php';
 
 // ---- Parse request ----
 $method = $_SERVER['REQUEST_METHOD'];
@@ -25,7 +25,7 @@ if ($route === '/') $route = '';
 
 // ---- Routing table ----
 // Format: ['METHOD /path', 'handler_file']
-$routes = require dirname(__DIR__, 2) . '/src/Http/routes.php';
+$routes = require dirname(__DIR__, 2) . '/src/app/api/routes.php';
 
 // ---- Match ----
 $matched = null;
@@ -59,7 +59,7 @@ if (!$matched) {
 }
 
 // ---- Dispatch ----
-$handlerFile = dirname(__DIR__, 2) . '/src/Http/Controllers/' . $matched;
+$handlerFile = dirname(__DIR__, 2) . '/src/app/api/controllers/' . $matched;
 
 if (!file_exists($handlerFile)) {
     errorResponse("Handler not implemented: $matched", 501);

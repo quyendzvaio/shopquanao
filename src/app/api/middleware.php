@@ -1,5 +1,5 @@
 <?php
-require_once __DIR__ . '/helpers.php';
+require_once dirname(__DIR__, 2) . '/core/http/helpers.php';
 
 /**
  * Authenticate user via Bearer token.
