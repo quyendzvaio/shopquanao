@@ -59,6 +59,8 @@ final class AgentFactory
         return match ($class) {
             CheckoutGuardrail::class => new CheckoutGuardrail($this->responseGenerator()),
             AnswerTemplateFallback::class => new AnswerTemplateFallback(),
+            FreeShippingNudge::class => new FreeShippingNudge($pdo, $sessionId, $this->config->freeShipping),
+            TraceOutbox::class => new TraceOutbox(new LangfuseTraceOutbox($pdo)),
             default => throw new InvalidArgumentException('Unknown harness middleware: ' . $class),
         };
     }

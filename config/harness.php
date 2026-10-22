@@ -9,5 +9,7 @@ return [
     'middleware' => [
         CheckoutGuardrail::class,
         AnswerTemplateFallback::class,
+        FreeShippingNudge::class,
+        TraceOutbox::class,
     ],
 ];

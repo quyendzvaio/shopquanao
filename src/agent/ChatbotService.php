@@ -7,7 +7,6 @@
 
 class ChatbotService {
     private HarnessConfig $config;
-    private PDO $pdo;
     private int $sessionId;
     private ?int $userId;
     private ?LLMProvider $llm;
@@ -31,7 +30,6 @@ class ChatbotService {
         ?ChatbotConversationStore $conversationStore = null,
         ?ResponseGenerator $responseGenerator = null
     ) {
-        $this->pdo = $pdo;
         $this->sessionId = $sessionId;
         $this->userId = $userId;
         $this->config = HarnessConfig::fromEnvironment();
@@ -62,12 +60,6 @@ class ChatbotService {
 
         $turn = new TurnContext($message, $this->sessionId, $this->userId, $memoryContext, null);
         $result = $this->turnResult($turn, $memoryLoadMs);
-        $nudge = $this->freeShippingNudge($result);
-        $result = $this->withNudgeCard($result, $nudge);
-        if ($nudge !== null) {
-            $result['message'] = rtrim((string)$result['message']) . ' ' . $nudge['text'];
-            $result['answer'] = $result['message'];
-        }
         $result = $this->middleware->afterTurn($turn, TurnResult::fromArray($result))->toArray();
         $this->conversationStore->saveMessages(
             $message,
@@ -77,7 +69,6 @@ class ChatbotService {
             $this->evaluationMetadata,
             $this->responseMetadata
         );
-        $this->enqueueLangfuseTrace($message, $result);
         $this->memory->refreshSummary();
         return $result;
     }
@@ -103,15 +94,12 @@ class ChatbotService {
 
         $turn = new TurnContext($message, $this->sessionId, $this->userId, $memoryContext, Closure::fromCallable($onDelta));
         $result = $this->turnResult($turn, $memoryLoadMs);
-        $nudge = $this->freeShippingNudge($result);
-        $result = $this->withNudgeCard($result, $nudge);
 
         // Template-only mode (CHATBOT_TEMPLATE_RESPONSE=1) takes precedence:
         // emit the grounded draft as a single delta instead of paying a
         // native token-stream round trip (L0 fast path).
         if ($this->config->templateResponse) {
             $onDelta((string)$result['message']);
-            $streamed = (string)$result['message'];
             $result['latency']['llm_stream_ms'] = 0;
             $result['latency']['streaming'] = 'template';
         } elseif ($this->streamingLlm === null) {
@@ -119,9 +107,8 @@ class ChatbotService {
         } else {
             $streamStart = microtime(true);
             $generated = (new StreamingResponseGenerator())->stream($this->streamingLlm, $message, $result, $onDelta);
-            $streamed = $generated['text'];
-            $result['message'] = $streamed;
-            $result['answer'] = $streamed;
+            $result['message'] = $generated['text'];
+            $result['answer'] = $generated['text'];
             $result['latency']['llm_stream_ms'] = (int)((microtime(true) - $streamStart) * 1000);
             $result['latency']['streaming'] = $generated['fallback'] === null ? true : 'template_fallback';
             if ($generated['fallback'] !== null) {
@@ -129,14 +116,7 @@ class ChatbotService {
             }
         }
 
-        // The nudge is its own delta after the answer so an LLM rewrite cannot drop it.
-        if ($nudge !== null) {
-            $onDelta(' ' . $nudge['text']);
-            $streamed .= ' ' . $nudge['text'];
-            $result['message'] = $streamed;
-            $result['answer'] = $streamed;
-        }
-
+        // afterTurn (e.g. the free-shipping nudge) emits its own deltas after the whole answer.
         $result = $this->middleware->afterTurn($turn, TurnResult::fromArray($result))->toArray();
         $this->conversationStore->saveMessages(
             $message,
@@ -146,46 +126,7 @@ class ChatbotService {
             $this->evaluationMetadata,
             $this->responseMetadata
         );
-        $this->enqueueLangfuseTrace($message, $result);
         $this->memory->refreshSummary();
-        return $result;
-    }
-
-    /**
-     * UC-C proactive nudge: computed after the grounded answer, at most once
-     * per cart state. Failures never break the chat turn.
-     *
-     * @return array{text:string,card:array}|null
-     */
-    private function freeShippingNudge(array $result): ?array
-    {
-        if ($this->userId === null || !FreeShippingNudge::turnQualifies($result)) return null;
-        try {
-            $policy = $this->config->freeShipping;
-            $ledger = new FreeShippingNudge($this->pdo, $this->sessionId);
-            $advice = (new FreeShippingService($this->pdo, $policy))->suggest($this->userId, ['limit' => 1]);
-            if (!FreeShippingNudge::eligible($result, $advice, $ledger->lastFingerprint(), $policy)) return null;
-            $cards = (new EvidenceNormalizer())->productCards($advice['products']);
-            if ($cards === []) return null;
-            $ledger->remember((string)$advice['cart_fingerprint']);
-            return ['text' => FreeShippingNudge::message($advice), 'card' => $cards[0]];
-        } catch (Throwable) {
-            error_log(json_encode(['operation' => 'freeship_nudge', 'success' => false, 'error_category' => 'suppressed_runtime_failure']));
-            return null;
-        }
-    }
-
-    private function withNudgeCard(array $result, ?array $nudge): array
-    {
-        $result['freeship_nudge'] = $nudge !== null;
-        if ($nudge === null) return $result;
-        $byId = [];
-        foreach (($result['products'] ?? []) as $card) {
-            if (is_array($card)) $byId[(int)($card['id'] ?? 0)] = $card;
-        }
-        $byId[(int)$nudge['card']['id']] ??= $nudge['card'];
-        $result['products'] = array_values($byId);
-        $result['cards'] = $result['products'];
         return $result;
     }
 
@@ -434,23 +375,6 @@ class ChatbotService {
                 (bool)($entry['success'] ?? false)
             );
         }
-    }
-
-    /**
-     * Trace export is intentionally decoupled from request processing. This
-     * only writes a sanitized outbox row; the separate worker owns all HTTP
-     * communication, retries, and failure handling with Langfuse.
-     */
-    private function enqueueLangfuseTrace(string $message, array $result): void
-    {
-        $traceId = (string) ($result['trace_id'] ?? '');
-        (new LangfuseTraceOutbox($this->pdo))->enqueueSafely(
-            $traceId,
-            $message,
-            $result,
-            $this->userId,
-            $this->sessionId
-        );
     }
 
     private function enrichMemoryContextWithLastProduct(array $memoryContext): array {
