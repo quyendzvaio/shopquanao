@@ -23,6 +23,23 @@ final class ProductRepositoryTest extends TestCase
         $this->assertNull($repository->findById(999));
     }
 
+    public function testCartAndCheckoutStockAccessors(): void
+    {
+        $repository = new ProductRepository($this->catalog());
+
+        $row = $repository->idAndStock(1);
+        $this->assertNotNull($row);
+        $this->assertSame(['id', 'stock'], array_keys($row));
+        $this->assertNull($repository->idAndStock(999));
+
+        $stock = (int)$repository->stockById(1);
+        $this->assertFalse($repository->stockById(999));
+        $this->assertFalse($repository->decrementStock(1, $stock + 1));
+        $this->assertTrue($repository->decrementStock(1, 1));
+        $this->assertSame($stock - 1, (int)$repository->stockById(1));
+        $this->assertFalse($repository->decrementStock(999, 1));
+    }
+
     public function testSearchWithoutCriteriaReturnsEveryProductByPriceAscending(): void
     {
         $rows = (new ProductRepository($this->catalog()))->search(new ProductSearchCriteria());

@@ -192,6 +192,29 @@ final class OrderServiceTest extends TestCase
         $this->orders->detail($other, $orderId);
     }
 
+    public function testAdminStatusUpdateReturnsAffectedRows(): void
+    {
+        $userId = $this->newUser();
+        $orderId = $this->insertOrder($userId, 1000.00, 'Chờ xử lý', '2030-01-01 10:00:00');
+        $countBefore = $this->orders->count();
+
+        $this->assertSame(1, $this->orders->updateStatus($orderId, 'Đang giao'));
+        $this->assertSame('Đang giao', $this->pdo->query('SELECT status FROM orders WHERE id = ' . $orderId)->fetchColumn());
+        // MariaDB reports 0 changed rows when the status is already the requested one.
+        $this->assertSame(0, $this->orders->updateStatus($orderId, 'Đang giao'));
+        $this->assertSame(0, $this->orders->updateStatus(2147483647, 'Đã hủy'));
+
+        $listed = array_values(array_filter($this->orders->allWithUsername(), fn(array $o): bool => (int)$o['id'] === $orderId));
+        $this->assertCount(1, $listed);
+        $this->assertSame($userId, (int)$listed[0]['user_id']);
+        $this->assertStringStartsWith('chartest_', $listed[0]['username']);
+        $this->assertSame($countBefore, $this->orders->count());
+
+        $revenueBefore = $this->orders->completedRevenue();
+        $this->assertSame(1, $this->orders->updateStatus($orderId, 'Đã hoàn thành'));
+        $this->assertEqualsWithDelta($revenueBefore + 1000.0, $this->orders->completedRevenue(), 0.001);
+    }
+
     private function newUser(): int
     {
         $name = 'chartest_' . bin2hex(random_bytes(6));

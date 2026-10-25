@@ -101,8 +101,6 @@ final class ArchitectureTest extends TestCase
         'public/submit_review.php',
         'public/update_cart.php',
         'src/app/api/controllers/Admin/dashboard.php',
-        'src/app/api/controllers/Admin/order_status.php',
-        'src/app/api/controllers/Admin/orders.php',
         'src/app/api/controllers/Admin/product_create.php',
         'src/app/api/controllers/Admin/product_delete.php',
         'src/app/api/controllers/Admin/product_update.php',
@@ -123,9 +121,7 @@ final class ArchitectureTest extends TestCase
         'src/harness/memory/ChatbotSessionContext.php',
         'src/harness/memory/PdoChatbotConversationStore.php',
         'src/harness/middleware/FreeShippingNudge.php',
-        'src/service/cart/CartService.php',
         'src/service/knowledge/KnowledgeRetriever.php',
-        'src/service/order/OrderService.php',
         'templates/partials/header.php',
     ];
 

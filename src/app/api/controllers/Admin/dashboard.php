@@ -5,11 +5,11 @@ requireAdmin();
 global $pdo;
 
 $totalProducts = (int)$pdo->query("SELECT COUNT(*) FROM products")->fetchColumn();
-$totalOrders   = (int)$pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
+$orders        = new OrderService($pdo);
+$totalOrders   = $orders->count();
 $totalUsers    = (int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
 
-$stmt = $pdo->query("SELECT SUM(total_price) FROM orders WHERE status = 'Đã hoàn thành'");
-$totalRevenue = (float)($stmt->fetchColumn() ?: 0);
+$totalRevenue = $orders->completedRevenue();
 
 jsonResponse([
     'dashboard' => [

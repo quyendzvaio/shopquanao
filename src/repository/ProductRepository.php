@@ -54,6 +54,29 @@ final class ProductRepository
         return $row === false ? null : $row;
     }
 
+    /** @return array{id:mixed,stock:mixed}|null the cart's view of a product */
+    public function idAndStock(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT id, stock FROM products WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row === false ? null : $row;
+    }
+
+    /** The stock column of one product; false when the product does not exist (PDOStatement::fetchColumn). */
+    public function stockById(int $id): mixed
+    {
+        return $this->pdo->query('SELECT stock FROM products WHERE id = ' . $id)->fetchColumn();
+    }
+
+    /** Takes $qty units out of stock only if that many remain; true when exactly the one row changed. */
+    public function decrementStock(int $id, int $qty): bool
+    {
+        $stmt = $this->pdo->prepare('UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?');
+        $stmt->execute([$qty, $id, $qty]);
+        return $stmt->rowCount() === 1;
+    }
+
     /**
      * @param list<int> $ids non-empty
      * @return list<array<string,mixed>> product cards in database order
