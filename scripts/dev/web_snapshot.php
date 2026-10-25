@@ -9,8 +9,9 @@
  * It seeds the database named by DB_* (a FRESH shop_test: the script refuses
  * to run twice), starts `php -S` with scripts/dev/web_router.php, replays a
  * fixed list of requests with per-actor cookie jars and writes one file per
- * scenario: `NN-<scenario>.txt` holding `status:`, `location:`, a blank line
- * and the normalised body. Two runs against a fresh database must be
+ * scenario: `NN-<scenario>.txt` holding `status:`, `location:`, `content-type:`,
+ * a blank line and the normalised body, plus one `zz-server-log-<server>.txt`
+ * per server with its normalised PHP error log (empty when clean). Two runs against a fresh database must be
  * byte-identical; later refactor tasks diff against a stored baseline.
  *
  * No image is ever uploaded, so nothing is written under public/assets/images/.
@@ -72,6 +73,19 @@ function snapNormalise(string $body): string
     return $body;
 }
 
+/** Normalise a PHP error log: timestamps, temp paths and random values. */
+function snapNormaliseLog(string $log): string
+{
+    $rules = [
+        '/\[\d{2}-[A-Za-z]{3}-\d{4} \d{2}:\d{2}:\d{2} [A-Za-z\/_]+\]/' => '[<ts>]',
+        '#/[^\s:\'"]*web-snapshot-\d+(?:/phase\d+)?#' => '<tmp>',
+    ];
+    foreach ($rules as $pattern => $replacement) {
+        $log = preg_replace($pattern, $replacement, $log) ?? $log;
+    }
+    return snapNormalise($log);
+}
+
 final class SnapRunner
 {
     /** @var array<string, CurlHandle> one handle (cookie jar) per actor */
@@ -79,6 +93,8 @@ final class SnapRunner
     private int $seq = 0;
     /** @var list<string> */
     public array $failures = [];
+    /** @var array<string, array{status: int, location: string}> by scenario name */
+    public array $results = [];
 
     public function __construct(private string $outDir, private string $baseUrl)
     {
@@ -164,7 +180,14 @@ final class SnapRunner
             $location = (string) end($m[1]);
         }
 
-        $content = 'status: ' . $status . "\nlocation: " . snapNormalise($location) . "\n\n" . snapNormalise($responseBody);
+        $contentType = '-';
+        if (preg_match_all('/^Content-Type:[ \t]*(.*?)\r?$/mi', $rawHeaders, $m) && $m[1] !== []) {
+            $contentType = (string) end($m[1]);
+        }
+        $this->results[$scenario] = ['status' => $status, 'location' => $location];
+
+        $content = 'status: ' . $status . "\nlocation: " . snapNormalise($location)
+            . "\ncontent-type: " . snapNormalise($contentType) . "\n\n" . snapNormalise($responseBody);
         if (file_put_contents($file, $content) === false) {
             $this->failures[] = sprintf('%s: cannot write %s', $scenario, $file);
             return null;
@@ -459,6 +482,53 @@ function snapCustomer(SnapRunner $s, PDO $pdo, array $ids): void
     $s->api('customer-api-review', $api, 'POST', '/api/products/50/reviews', ['rating' => 4, 'comment' => 'Snap API review'], $token);
     $s->api('customer-api-admin-forbidden', $api, 'GET', '/api/admin/dashboard', null, $token);
     $s->api('customer-api-order-create', $api, 'POST', '/api/orders', null, $token);
+    // Reviews sort by created_at (one-second resolution): space them out so a
+    // slow or fast run cannot reorder two reviews written in the same second.
+    $pdo->exec("UPDATE reviews SET created_at = TIMESTAMPADD(SECOND, id, '2026-01-01 00:00:00')");
+    $s->api('customer-api-reviews-after', $api, 'GET', '/api/products/50/reviews');
+
+    // Cart writes: add, PUT (quantity, size), DELETE, each followed by a read.
+    $added = $s->api('customer-api-cart-add-again', $api, 'POST', '/api/cart', ['product_id' => $ids['second'], 'quantity' => 1, 'size' => 'M'], $token);
+    $cartId = (int) ($added['cart_id'] ?? 0);
+    if ($cartId === 0) {
+        $s->failures[] = 'customer-api-cart-add-again: no cart_id in response';
+        return;
+    }
+    $s->api('customer-api-cart-put-quantity', $api, 'PUT', '/api/cart/' . $cartId, ['quantity' => 2], $token);
+    $s->api('customer-api-cart-after-put-quantity', $api, 'GET', '/api/cart', null, $token);
+    $s->api('customer-api-cart-put-size', $api, 'PUT', '/api/cart/' . $cartId, ['size' => 'l'], $token);
+    $s->api('customer-api-cart-put-invalid', $api, 'PUT', '/api/cart/' . $cartId, ['quantity' => 0], $token);
+    $s->api('customer-api-cart-put-missing', $api, 'PUT', '/api/cart/999999', ['quantity' => 1], $token);
+    $s->api('customer-api-cart-after-put-size', $api, 'GET', '/api/cart', null, $token);
+    $s->api('customer-api-cart-delete', $api, 'DELETE', '/api/cart/' . $cartId, null, $token);
+    $s->api('customer-api-cart-delete-missing', $api, 'DELETE', '/api/cart/' . $cartId, null, $token);
+    $s->api('customer-api-cart-after-delete', $api, 'GET', '/api/cart', null, $token);
+
+    // Account writes: register (invalid, new, duplicate), login rotation, logout.
+    $reg = 'new-api-user';
+    $s->api('api-register-invalid', $reg, 'POST', '/api/auth/register', ['email' => 'not-an-email', 'password' => 'snap-pass-4', 'username' => 'x']);
+    $created = $s->api('api-register-new', $reg, 'POST', '/api/auth/register', [
+        'username' => 'snap-api-new', 'email' => 'snap-api-new@example.test', 'password' => 'snap-pass-4',
+    ]);
+    $s->api('api-register-duplicate', $reg, 'POST', '/api/auth/register', [
+        'username' => 'snap-api-dup', 'email' => SNAP_USER_EMAIL, 'password' => 'snap-pass-4',
+    ]);
+    $newToken = is_string($created['token'] ?? null) ? $created['token'] : null;
+    if ($newToken === null) {
+        $s->failures[] = 'api-register-new: no token in response';
+        return;
+    }
+    $s->api('api-register-new-me', $reg, 'GET', '/api/auth/me', null, $newToken);
+    // Logging in rotates the token: the registration token stops working.
+    $login = $s->api('api-register-new-login', $reg, 'POST', '/api/auth/login', ['email' => 'snap-api-new@example.test', 'password' => 'snap-pass-4']);
+    $s->api('api-register-token-rotated-me', $reg, 'GET', '/api/auth/me', null, $newToken);
+    $loginToken = is_string($login['token'] ?? null) ? $login['token'] : null;
+    if ($loginToken === null) {
+        $s->failures[] = 'api-register-new-login: no token in response';
+        return;
+    }
+    $s->api('api-logout', $reg, 'POST', '/api/auth/logout', null, $loginToken);
+    $s->api('api-logout-me-after', $reg, 'GET', '/api/auth/me', null, $loginToken);
 }
 
 /** Admin stored in the database: storefront-less admin pages and REST admin API. */
@@ -524,6 +594,47 @@ function snapDbAdmin(SnapRunner $s, PDO $pdo, array $ids): void
     $s->api('dbadmin-api-order-status-invalid', $api, 'PUT', '/api/admin/orders/' . $orderId, ['status' => 'bogus'], $token);
     $s->api('dbadmin-api-orders-after', $api, 'GET', '/api/admin/orders', null, $token);
     $s->api('dbadmin-api-dashboard-after', $api, 'GET', '/api/admin/dashboard', null, $token);
+
+    // Product writes (JSON only, no upload), each followed by the admin list.
+    $s->api('dbadmin-api-product-create-invalid', $api, 'POST', '/api/admin/products', ['name' => '', 'price' => 0], $token);
+    $created = $s->api('dbadmin-api-product-create', $api, 'POST', '/api/admin/products', [
+        'name' => 'Snap API Product', 'price' => 123000, 'stock' => 7, 'description' => 'created through the API',
+        'category_id' => 1, 'style_tags' => ['basic', 'dichoi'],
+    ], $token);
+    $newId = (int) ($created['product_id'] ?? 0);
+    if ($newId === 0) {
+        $s->failures[] = 'dbadmin-api-product-create: no product_id in response';
+        return;
+    }
+    $s->api('dbadmin-api-products-after-create', $api, 'GET', '/api/admin/products', null, $token);
+    $s->api('dbadmin-api-product-update-empty', $api, 'PUT', '/api/admin/products/' . $newId, [], $token);
+    $s->api('dbadmin-api-product-update', $api, 'PUT', '/api/admin/products/' . $newId, [
+        'name' => 'Snap API Product v2', 'price' => 125000, 'stock' => 3, 'description' => 'updated through the API',
+        'style_tags' => ['thethao'],
+    ], $token);
+    $s->api('dbadmin-api-product-update-missing', $api, 'PUT', '/api/admin/products/999999', ['name' => 'nope'], $token);
+    $s->api('dbadmin-api-products-after-update', $api, 'GET', '/api/admin/products', null, $token);
+    $deletable = snapSeedDeletable($pdo);
+    $s->api('dbadmin-api-product-delete', $api, 'DELETE', '/api/admin/products/' . $deletable, null, $token);
+    $s->api('dbadmin-api-product-delete-missing', $api, 'DELETE', '/api/admin/products/' . $deletable, null, $token);
+    $s->api('dbadmin-api-products-after-delete', $api, 'GET', '/api/admin/products', null, $token);
+
+    // User writes: lock, unlock, role, plus the rejected cases.
+    $other = $ids['other'];
+    $s->api('dbadmin-api-user-lock', $api, 'PUT', '/api/admin/users/' . $other, ['action' => 'lock'], $token);
+    $s->api('dbadmin-api-users-after-lock', $api, 'GET', '/api/admin/users', null, $token);
+    $s->api('dbadmin-api-user-unlock', $api, 'PUT', '/api/admin/users/' . $other, ['action' => 'unlock'], $token);
+    $s->api('dbadmin-api-users-after-unlock', $api, 'GET', '/api/admin/users', null, $token);
+    $s->api('dbadmin-api-user-role-user', $api, 'PUT', '/api/admin/users/' . $other, ['action' => 'toggle_role', 'role' => 'user'], $token);
+    $s->api('dbadmin-api-user-role-invalid', $api, 'PUT', '/api/admin/users/' . $other, ['action' => 'toggle_role', 'role' => 'root'], $token);
+    $s->api('dbadmin-api-user-self', $api, 'PUT', '/api/admin/users/' . $ids['admin'], ['action' => 'lock'], $token);
+    $s->api('dbadmin-api-user-missing', $api, 'PUT', '/api/admin/users/999999', ['action' => 'lock'], $token);
+    $s->api('dbadmin-api-users-after-role', $api, 'GET', '/api/admin/users', null, $token);
+
+    // Bad and missing tokens on admin routes.
+    $s->api('dbadmin-api-bad-token', $api, 'GET', '/api/admin/dashboard', null, 'not-a-valid-token');
+    $s->api('dbadmin-api-bad-token-write', $api, 'PUT', '/api/admin/orders/' . $orderId, ['status' => 'Đã hủy'], 'not-a-valid-token');
+    $s->api('dbadmin-api-no-token-write', $api, 'DELETE', '/api/admin/products/' . $newId);
 }
 
 /** Admin whose credentials come from the environment (second server only). */
@@ -542,6 +653,35 @@ function snapEnvAdmin(SnapRunner $s): void
     $s->request('admin-env-panel-login', $b, 'POST', '/admin/login.php', ['username' => SNAP_ENV_ADMIN_USER, 'password' => SNAP_ENV_ADMIN_PASS, 'login' => '1']);
     $s->request('admin-env-panel-index', $b, 'GET', '/admin/index.php');
     $s->request('admin-env-panel-manage-users', $b, 'GET', '/admin/manage_users.php');
+}
+
+/**
+ * Built-in sanity checks; a harness bug must not produce a plausible baseline.
+ *
+ * @return list<string> problems
+ */
+function snapAssertions(SnapRunner $runner): array
+{
+    $problems = [];
+    $guestCart = $runner->results['guest-cart'] ?? null;
+    if ($guestCart === null || $guestCart['location'] !== 'login.php?error=vui_long_dang_nhap') {
+        $problems[] = 'guest-cart must redirect to login.php?error=vui_long_dang_nhap';
+    }
+    foreach (['customer-api-login', 'dbadmin-api-login'] as $name) {
+        if (($runner->results[$name]['status'] ?? 0) !== 200) {
+            $problems[] = "$name must return 200 with an api token";
+        }
+    }
+    $errors = [];
+    foreach ($runner->results as $name => $result) {
+        if ($result['status'] === 500) {
+            $errors[] = $name;
+        }
+    }
+    if ($errors !== [] && $errors !== ['customer-order-details']) {
+        $problems[] = 'unexpected status 500: ' . implode(', ', $errors) . ' (only customer-order-details may)';
+    }
+    return $problems;
 }
 
 function snapMain(array $argv): int
@@ -584,14 +724,14 @@ function snapMain(array $argv): int
     $logs = [];
     $phases = [
         // Server 1: no ADMIN_* variables.
-        ['env' => [], 'run' => static function () use ($runner, $pdo, $ids): void {
+        ['name' => 'main', 'env' => [], 'run' => static function () use ($runner, $pdo, $ids): void {
             snapGuest($runner, $ids);
             snapRegister($runner);
             snapCustomer($runner, $pdo, $ids);
             snapDbAdmin($runner, $pdo, $ids);
         }],
         // Server 2: environment administrator, scenarios admin-env-*.
-        ['env' => [
+        ['name' => 'env', 'env' => [
             'ADMIN_EMAIL' => SNAP_ENV_ADMIN_EMAIL, 'ADMIN_PASSWORD' => SNAP_ENV_ADMIN_PASS, 'ADMIN_USER' => SNAP_ENV_ADMIN_USER,
         ], 'run' => static function () use ($runner): void {
             snapEnvAdmin($runner);
@@ -609,11 +749,17 @@ function snapMain(array $argv): int
                 $phase['run']();
             } finally {
                 snapStopServer($server['proc']);
+                // Written even when the phase threw, so the log explains why.
+                $raw = is_file($server['log']) ? (string) file_get_contents($server['log']) : '';
+                file_put_contents($outDir . '/zz-server-log-' . $phase['name'] . '.txt', snapNormaliseLog($raw));
             }
         }
     } catch (Throwable $e) {
         fwrite(STDERR, 'web_snapshot: ' . $e->getMessage() . "\n");
         $exit = 1;
+    }
+    foreach (snapAssertions($runner) as $problem) {
+        $runner->failures[] = 'assertion: ' . $problem;
     }
     foreach ($runner->failures as $failure) {
         fwrite(STDERR, "FAILED scenario: $failure\n");
