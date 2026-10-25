@@ -26,7 +26,7 @@ final class ArchitectureTest extends TestCase
         'evidence' => [],
         'tools' => [],
         'response' => ['llm'],
-        'memory' => [],
+        'memory' => ['repository'],
         'middleware' => ['turn', 'llm', 'intent', 'response', 'evidence'],
     ];
 
@@ -35,6 +35,7 @@ final class ArchitectureTest extends TestCase
         'middleware' => [
             'turn' => ['TurnContext', 'TurnResult'],
             'intent' => ['CheckoutDetector'],
+            'repository' => ['ChatMemoryRepository'],
         ],
         'llm' => [
             'middleware' => ['Middleware', 'MiddlewareStack'],
@@ -42,6 +43,126 @@ final class ArchitectureTest extends TestCase
     ];
 
     private const OUTSIDE = ['app', 'agent', 'llm_providers'];
+
+    /**
+     * Spec §3.1 layer table: layer => layers it may use. Every harness component is the layer `harness`
+     * (its inner rules live in ALLOWED/LIMITED); files directly under src/ are the composition root, layer `app`.
+     */
+    private const LAYERS = [
+        'app' => ['agent', 'service', 'model', 'core'],
+        'agent' => ['harness', 'llm_providers', 'service', 'repository', 'model', 'core'],
+        'service' => ['repository', 'model', 'core'],
+        'repository' => ['model', 'core'],
+        'model' => [],
+        'core' => [],
+        'llm_providers' => ['harness', 'core'],
+    ];
+
+    /** Layer edges limited to one harness component: [from][to] => component. */
+    private const LAYER_LIMITED = [
+        'llm_providers' => ['harness' => 'llm'],
+    ];
+
+    /** Layers whose files must never read $_SERVER (getenv/$_ENV are allowed only in agent and core). */
+    private const NO_SERVER_LAYERS = ['harness', 'service', 'repository', 'model'];
+
+    private const ENV_LAYERS = ['agent', 'core'];
+
+    /** Permanent: infrastructure that owns its tables' SQL outside src/repository (spec §3.1). */
+    private const SQL_EXCEPTIONS = [
+        'src/core/database/MigrationRunner.php',
+        'src/core/observability/LangfuseOtlpTracePublisher.php',
+        'src/core/observability/LangfuseTraceOutbox.php',
+    ];
+
+    /**
+     * Ratchet: files that still run SQL outside the repository layer. Later tasks only remove entries.
+     *
+     * @var list<string>
+     */
+    private const LEGACY_SQL = [
+        'public/add_to_cart.php',
+        'public/admin/add_product.php',
+        'public/admin/edit_product.php',
+        'public/admin/index.php',
+        'public/admin/login.php',
+        'public/admin/manage_orders.php',
+        'public/admin/manage_products.php',
+        'public/admin/manage_users.php',
+        'public/cart.php',
+        'public/checkout.php',
+        'public/index.php',
+        'public/login.php',
+        'public/order_details.php',
+        'public/process_checkout.php',
+        'public/product.php',
+        'public/profile.php',
+        'public/register.php',
+        'public/submit_review.php',
+        'public/update_cart.php',
+        'src/app/api/controllers/Admin/dashboard.php',
+        'src/app/api/controllers/Admin/order_status.php',
+        'src/app/api/controllers/Admin/orders.php',
+        'src/app/api/controllers/Admin/product_create.php',
+        'src/app/api/controllers/Admin/product_delete.php',
+        'src/app/api/controllers/Admin/product_update.php',
+        'src/app/api/controllers/Admin/products.php',
+        'src/app/api/controllers/Admin/user_action.php',
+        'src/app/api/controllers/Admin/users.php',
+        'src/app/api/controllers/Auth/login.php',
+        'src/app/api/controllers/Auth/logout.php',
+        'src/app/api/controllers/Auth/register.php',
+        'src/app/api/controllers/Categories/list.php',
+        'src/app/api/controllers/Chatbot/history.php',
+        'src/app/api/controllers/Faq/index.php',
+        'src/app/api/controllers/Outfit/index.php',
+        'src/app/api/controllers/Products/add_review.php',
+        'src/app/api/controllers/Products/detail.php',
+        'src/app/api/controllers/Products/list.php',
+        'src/app/api/controllers/Products/reviews.php',
+        'src/app/api/controllers/Products/sizes.php',
+        'src/app/api/controllers/SizeGuide/index.php',
+        'src/app/api/middleware.php',
+        'src/harness/memory/ChatbotMemory.php',
+        'src/harness/memory/ChatbotSessionContext.php',
+        'src/harness/memory/PdoChatbotConversationStore.php',
+        'src/harness/middleware/FreeShippingNudge.php',
+        'src/service/cart/CartService.php',
+        'src/service/catalog/CatalogVariantBackfill.php',
+        'src/service/catalog/CatalogVariantHydrator.php',
+        'src/service/catalog/ProductService.php',
+        'src/service/knowledge/KnowledgeRetriever.php',
+        'src/service/order/OrderService.php',
+        'src/service/size/SizeService.php',
+        'templates/partials/header.php',
+    ];
+
+    /**
+     * Ratchet: files that still read the environment where they must not. Later tasks only remove entries.
+     *
+     * @var list<string>
+     */
+    private const LEGACY_ENV = [
+        'public/admin/login.php',
+        'public/login.php',
+        'src/app/api/controllers/Internal/mcp.php',
+        'src/app/api/support/ChatStreamProtocol.php',
+        'src/model/FreeShippingPolicy.php',
+        'src/service/catalog/ProductReranker.php',
+        'src/service/knowledge/KnowledgeRetriever.php',
+    ];
+
+    /**
+     * Ratchet: layer-table violations still present, path => referenced classes. Later tasks only remove entries.
+     *
+     * @var array<string,list<string>>
+     */
+    private const LEGACY_EDGES = [
+        'src/app/api/controllers/Chatbot/index.php' => ['ChatbotSessionContext'],
+        'src/app/api/controllers/Chatbot/stream.php' => ['ChatbotSessionContext', 'LLMTransportException'],
+        'src/app/api/controllers/Internal/mcp.php' => ['ToolApplicationService'],
+        'src/repository/OutfitCatalogRepository.php' => ['OutfitPalette'],
+    ];
 
     /** @var array<string,string>|null class => component */
     private static ?array $components = null;
@@ -56,6 +177,103 @@ final class ArchitectureTest extends TestCase
         $this->assertSame('agent', $components['AgentFactory'] ?? null);
         $this->assertContains($components['AgentFactory'], self::OUTSIDE);
         $this->assertSame('middleware', $this->referencedClasses(ROOT_DIR . '/src/harness/turn/TurnRunner.php')['MiddlewareStack'] ?? null);
+
+        // One known class per layer, so the layer, SQL and env tests cannot pass vacuously.
+        $this->assertSame('service', $this->layerOfComponent($components['CartService'] ?? ''));
+        $this->assertSame('repository', $this->layerOfComponent($components['OutfitCatalogRepository'] ?? ''));
+        $this->assertSame('model', $this->layerOfComponent($components['StyleTag'] ?? ''));
+        $this->assertSame('harness', $this->layerOfComponent($components['TurnRunner'] ?? ''));
+    }
+
+    public function testLayerDependenciesFollowTable(): void
+    {
+        $violations = [];
+        $scanned = array_fill_keys(array_keys(self::LAYERS), 0);
+        foreach ($this->projectFiles(['src']) as $file) {
+            $layer = $this->layerOfPath($this->relative($file));
+            if ($layer === 'harness') {
+                continue; // the harness keeps its component test
+            }
+            $this->assertArrayHasKey($layer, self::LAYERS, $this->relative($file) . " is in unknown layer {$layer}");
+            $scanned[$layer]++;
+            $legacy = self::LEGACY_EDGES[$this->relative($file)] ?? [];
+            foreach ($this->layerViolations($file) as $class => $to) {
+                if (!in_array($class, $legacy, true)) {
+                    $violations[] = $this->relative($file) . " ({$layer}) -> {$class} ({$to})";
+                }
+            }
+        }
+
+        foreach ($scanned as $layer => $count) {
+            $this->assertGreaterThan(0, $count, "no file scanned in layer {$layer}");
+        }
+        $this->assertSame([], $violations, "dependency not allowed by spec §3.1:\n" . implode("\n", $violations));
+    }
+
+    public function testSqlOnlyInRepositories(): void
+    {
+        $violations = [];
+        foreach ($this->projectFiles(['src', 'public', 'templates']) as $file) {
+            $path = $this->relative($file);
+            if ($this->runsSqlOutsideRepository($file) && !in_array($path, self::LEGACY_SQL, true)) {
+                $violations[] = $path;
+            }
+        }
+
+        $this->assertSame([], $violations, "->prepare/query/exec outside src/repository:\n" . implode("\n", $violations));
+    }
+
+    public function testEnvReadOnlyInAgentAndCore(): void
+    {
+        $violations = [];
+        foreach ($this->projectFiles(['src', 'public', 'templates']) as $file) {
+            $path = $this->relative($file);
+            $reads = $this->forbiddenEnvReads($file);
+            if ($reads !== [] && !in_array($path, self::LEGACY_ENV, true)) {
+                $violations[] = $path . ': ' . implode(', ', $reads);
+            }
+        }
+
+        $this->assertSame([], $violations, "environment read outside agent/core:\n" . implode("\n", $violations));
+    }
+
+    /** The ratchet only shrinks: a fixed file must be removed from its LEGACY_* list. */
+    public function testLegacyAllowlistsStillApply(): void
+    {
+        $stale = [];
+        foreach (['LEGACY_SQL' => self::LEGACY_SQL, 'LEGACY_ENV' => self::LEGACY_ENV] as $name => $paths) {
+            $sorted = $paths;
+            sort($sorted);
+            $this->assertSame($sorted, $paths, "{$name} must be sorted");
+            $this->assertSame(array_values(array_unique($paths)), $paths, "{$name} has duplicates");
+        }
+        foreach (self::LEGACY_SQL as $path) {
+            if (!is_file(ROOT_DIR . '/' . $path) || !$this->runsSqlOutsideRepository(ROOT_DIR . '/' . $path)) {
+                $stale[] = "LEGACY_SQL: {$path}";
+            }
+        }
+        foreach (self::LEGACY_ENV as $path) {
+            if (!is_file(ROOT_DIR . '/' . $path) || $this->forbiddenEnvReads(ROOT_DIR . '/' . $path) === []) {
+                $stale[] = "LEGACY_ENV: {$path}";
+            }
+        }
+        $paths = array_keys(self::LEGACY_EDGES);
+        $sortedPaths = $paths;
+        sort($sortedPaths);
+        $this->assertSame($sortedPaths, $paths, 'LEGACY_EDGES must be sorted by path');
+        foreach (self::LEGACY_EDGES as $path => $classes) {
+            $sorted = $classes;
+            sort($sorted);
+            $this->assertSame($sorted, $classes, "LEGACY_EDGES {$path} must be sorted");
+            $current = is_file(ROOT_DIR . '/' . $path) ? $this->layerViolations(ROOT_DIR . '/' . $path) : [];
+            foreach ($classes as $class) {
+                if (!isset($current[$class])) {
+                    $stale[] = "LEGACY_EDGES: {$path} -> {$class}";
+                }
+            }
+        }
+
+        $this->assertSame([], $stale, "legacy entries that no longer violate (remove them):\n" . implode("\n", $stale));
     }
 
     public function testClassReferenceExtractionSeesGlobalNamesOnly(): void
@@ -127,6 +345,116 @@ final class ArchitectureTest extends TestCase
         }
 
         $this->assertSame([], $violations, "harness functions over 80 lines:\n" . implode("\n", $violations));
+    }
+
+    /**
+     * @param list<string> $dirs top-level directories under the project root
+     * @return list<string> absolute paths of .php files, sorted
+     */
+    private function projectFiles(array $dirs): array
+    {
+        $files = [];
+        foreach ($dirs as $dir) {
+            $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(ROOT_DIR . '/' . $dir, FilesystemIterator::SKIP_DOTS));
+            foreach ($iterator as $entry) {
+                if ($entry->isFile() && $entry->getExtension() === 'php') {
+                    $files[] = $entry->getPathname();
+                }
+            }
+        }
+        sort($files);
+        $this->assertNotEmpty($files);
+
+        return $files;
+    }
+
+    /** Layer of a component name from components(): every harness component is `harness`. */
+    private function layerOfComponent(string $component): string
+    {
+        if (isset(self::ALLOWED[$component])) {
+            return 'harness';
+        }
+
+        return str_ends_with($component, '.php') ? 'app' : $component;
+    }
+
+    /** Layer of a repo-relative path under src/, public/ or templates/ (the last two are their own names). */
+    private function layerOfPath(string $path): string
+    {
+        $parts = explode('/', $path);
+        if ($parts[0] !== 'src') {
+            return $parts[0];
+        }
+
+        return count($parts) === 2 ? 'app' : $parts[1];
+    }
+
+    /** @return array<string,string> referenced project class => its layer, for edges the layer table forbids */
+    private function layerViolations(string $file): array
+    {
+        $from = $this->layerOfPath($this->relative($file));
+        $violations = [];
+        foreach ($this->referencedClasses($file) as $class => $component) {
+            $to = $this->layerOfComponent($component);
+            if ($to === $from) {
+                continue;
+            }
+            $allowed = in_array($to, self::LAYERS[$from] ?? [], true);
+            $only = self::LAYER_LIMITED[$from][$to] ?? null;
+            if (!$allowed || ($only !== null && $component !== $only)) {
+                $violations[$class] = $to;
+            }
+        }
+
+        return $violations;
+    }
+
+    /** True when the file calls ->prepare( / ->query( / ->exec( and is not in the repository layer or SQL_EXCEPTIONS. */
+    private function runsSqlOutsideRepository(string $file): bool
+    {
+        $path = $this->relative($file);
+        if ($this->layerOfPath($path) === 'repository' || in_array($path, self::SQL_EXCEPTIONS, true)) {
+            return false;
+        }
+        $tokens = array_values(array_filter(
+            token_get_all((string) file_get_contents($file)),
+            static fn ($token): bool => !is_array($token) || !in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)
+        ));
+        $count = count($tokens);
+        for ($i = 0; $i + 2 < $count; $i++) {
+            $operator = $tokens[$i];
+            $name = $tokens[$i + 1];
+            if (is_array($operator) && in_array($operator[0], [T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR], true)
+                && is_array($name) && $name[0] === T_STRING && in_array($name[1], ['prepare', 'query', 'exec'], true)
+                && $tokens[$i + 2] === '(') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return list<string> forbidden environment reads in the file (empty = clean) */
+    private function forbiddenEnvReads(string $file): array
+    {
+        $layer = $this->layerOfPath($this->relative($file));
+        $code = $this->strippedCode($file);
+        $patterns = [];
+        if (!in_array($layer, self::ENV_LAYERS, true)) {
+            $patterns[] = '/\bgetenv\s*\(/';
+            $patterns[] = '/\$_ENV\b/';
+        }
+        if (in_array($layer, self::NO_SERVER_LAYERS, true)) {
+            $patterns[] = '/\$_SERVER\b/';
+        }
+        $reads = [];
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $code, $match) === 1) {
+                $reads[] = $match[0];
+            }
+        }
+
+        return $reads;
     }
 
     /** @return list<string> */
