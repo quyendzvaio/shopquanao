@@ -37,7 +37,7 @@
                             <option value="M" <?= $item['size'] == 'M' ? 'selected' : '' ?>>M</option>
                             <option value="L" <?= $item['size'] == 'L' ? 'selected' : '' ?>>L</option>
                             <option value="XL" <?= $item['size'] == 'XL' ? 'selected' : '' ?>>XL</option>
-                            <option value="Freesize" <?= $item['size'] == 'Freesize' ? 'selected' : '' ?>>Freesize</option>
+                            <option value="Freesize" <?= strcasecmp((string) $item['size'], 'Freesize') === 0 ? 'selected' : '' ?>>Freesize</option>
                         </select>
                     </td>
 

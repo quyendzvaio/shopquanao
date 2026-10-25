@@ -75,7 +75,7 @@ final class OrderService
             $total = 0.0;
             foreach ($items as $item) {
                 if ((int) $item['quantity'] > (int) $item['stock']) {
-                    throw new RuntimeException('Insufficient stock for product ' . (int) $item['product_id']);
+                    throw new InsufficientStockException((int) $item['product_id']);
                 }
                 $total += (float) $item['price'] * (int) $item['quantity'];
             }

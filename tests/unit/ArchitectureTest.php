@@ -80,10 +80,7 @@ final class ArchitectureTest extends TestCase
      *
      * @var list<string>
      */
-    private const LEGACY_SQL = [
-        'public/add_to_cart.php',
-        'public/process_checkout.php',
-    ];
+    private const LEGACY_SQL = [];
 
     /**
      * Ratchet: files that still read the environment where they must not. Later tasks only remove entries.
