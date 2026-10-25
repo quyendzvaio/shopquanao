@@ -88,7 +88,7 @@ final class CartService
             if ($quantity <= 0) {
                 throw new InvalidArgumentException('quantity must be positive');
             }
-            $stock = (int) $this->products->stockById((int) $item['product_id']);
+            $stock = $this->products->stockById((int) $item['product_id']) ?? 0;
             if ($quantity > $stock) {
                 throw new RuntimeException('Insufficient product stock');
             }

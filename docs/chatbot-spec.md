@@ -44,7 +44,7 @@ Các bước 1-7 do `TurnRunner` điều phối; thứ tự và việc bật/t�
 khi dựng middleware stack / turn runner cho một lượt chat).
 Nhánh `unsupported_checkout` trong pipeline vẫn còn như lớp phòng thủ thứ hai khi LLM parser suy ra intent này.
 Sơ đồ component, bảng phụ thuộc và cách thêm middleware/intent: [`src/harness/README.md`](../src/harness/README.md).
-Harness dùng `service/` cho nghiệp vụ; mọi SQL của chatbot (memory, session, hội thoại, outfit catalog) nằm trong `src/repository/`, và env chỉ đọc ở `src/agent/` và `src/core/config/`; `ArchitectureTest` cưỡng chế, không có allowlist.
+Harness dùng `service/` cho nghiệp vụ; mọi SQL của chatbot (memory, session, hội thoại, outfit catalog) nằm trong `src/repository/`, và env chỉ đọc ở `src/agent/` và `src/core/`; `ArchitectureTest` cưỡng chế, không có allowlist.
 
 ## 2. Ranh Giới LLM
 

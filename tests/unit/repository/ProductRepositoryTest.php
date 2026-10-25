@@ -32,11 +32,12 @@ final class ProductRepositoryTest extends TestCase
         $this->assertSame(['id', 'stock'], array_keys($row));
         $this->assertNull($repository->idAndStock(999));
 
-        $stock = (int)$repository->stockById(1);
-        $this->assertFalse($repository->stockById(999));
+        $stock = $repository->stockById(1);
+        $this->assertIsInt($stock);
+        $this->assertNull($repository->stockById(999));
         $this->assertFalse($repository->decrementStock(1, $stock + 1));
         $this->assertTrue($repository->decrementStock(1, 1));
-        $this->assertSame($stock - 1, (int)$repository->stockById(1));
+        $this->assertSame($stock - 1, $repository->stockById(1));
         $this->assertFalse($repository->decrementStock(999, 1));
     }
 

@@ -318,15 +318,16 @@ return [
 9. **Service mới** (User, Review, Admin…) và chuyển `Shop` cũ sang dùng repository.
 10. **`app/web` + `templates/pages`**, mỗi nhóm trang một commit: catalog, giỏ, checkout, tài khoản, admin. Checkout đổi hành vi theo 5.4 ở commit riêng.
 11. `ArchitectureTest` mở rộng: không SQL ngoài repository, không env ngoài agent/core. Phần A còn để lại các điểm sau; bản mở rộng phải bao phủ (và bước này phải sửa) chúng:
-    - `service/freeship/FreeShippingService` vẫn gọi `FreeShippingPolicy::fromEnvironment()` khi không được truyền policy. Tool `suggest_freeship_items` (`ToolApplicationService`) tạo service không kèm policy, nên intent `freeship_gap` chưa thấy policy tùy chỉnh trong `HarnessConfig` cho tới khi sửa.
-    - `service/knowledge/KnowledgeRetriever` và `service/catalog/ProductReranker` vẫn đọc env.
-    - Controller trong `app/` (`app/api/controllers/Chatbot/index.php`, `stream.php`) tham chiếu thẳng class của harness (`ChatbotSessionContext`, `LLMTransportException`) thay vì đi qua `agent`.
+    - `service/freeship/FreeShippingService` vẫn gọi `FreeShippingPolicy::fromEnvironment()` khi không được truyền policy. Tool `suggest_freeship_items` (`ToolApplicationService`) tạo service không kèm policy, nên intent `freeship_gap` chưa thấy policy tùy chỉnh trong `HarnessConfig` cho tới khi sửa. Resolved in Part B (website layers).
+    - `service/knowledge/KnowledgeRetriever` và `service/catalog/ProductReranker` vẫn đọc env. Resolved in Part B (website layers).
+    - Controller trong `app/` (`app/api/controllers/Chatbot/index.php`, `stream.php`) tham chiếu thẳng class của harness (`ChatbotSessionContext`, `LLMTransportException`) thay vì đi qua `agent`. Resolved in Part B (website layers).
     - **Các lỗi trang có sẵn, giữ nguyên để khớp byte (known page bugs kept for byte identity)** cùng các việc tiếp theo, để sửa ở PR riêng:
       - redirect sau khi đã có output ở `checkout.php` (khách) và `register.php` (thành công). Lỗi ngầm trên prod: PHP-FPM `output_buffering=4096` che lỗi này trừ khi output trước redirect vượt 4 KB;
       - join `reviews r JOIN users u ON r.id = u.id` ở `product.php` (`ReviewRepository::forProductLegacyJoin`);
       - đích redirect của đăng nhập admin không nhất quán;
       - `admin/manage_orders.php` không có whitelist trạng thái;
-      - cập nhật giỏ hàng qua GET (`UpdateCartAction`).
+      - cập nhật giỏ hàng qua GET (`UpdateCartAction`);
+      - liên kết GET đổi trạng thái (chỉ admin, nhưng CSRF được): `admin/manage_products.php?delete_id=` (xóa dòng và `unlink` ảnh), `admin/manage_users.php?action=lock|unlock&id=`, `?toggle_role=`.
     - Phát hiện khi thực hiện:
       - `admin/manage_users.php` đọc `$_SESSION['user_id']` cho admin từ env, vốn không có `user_id` (cảnh báo "Undefined array key");
       - `admin/edit_product.php` / `manage_products.php` cảnh báo ở `$_FILES['image']` khi form được gửi không có phần file;

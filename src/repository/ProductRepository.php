@@ -206,10 +206,13 @@ final class ProductRepository
         return $row === false ? null : $row;
     }
 
-    /** The stock column of one product; false when the product does not exist (PDOStatement::fetchColumn). */
-    public function stockById(int $id): mixed
+    /** The stock column of one product; null when the product does not exist. */
+    public function stockById(int $id): ?int
     {
-        return $this->pdo->query('SELECT stock FROM products WHERE id = ' . $id)->fetchColumn();
+        $stmt = $this->pdo->prepare('SELECT stock FROM products WHERE id = ?');
+        $stmt->execute([$id]);
+        $stock = $stmt->fetchColumn();
+        return $stock === false ? null : (int) $stock;
     }
 
     /** Takes $qty units out of stock only if that many remain; true when exactly the one row changed. */

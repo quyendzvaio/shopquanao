@@ -31,4 +31,5 @@ A change is green only when all gates pass; integration tests and the agent eval
 ## Conventions
 
 - Unit tests live in `tests/unit` (mirrors `src/`), integration in `tests/integration`; the SQLite catalog fixture is `tests/support/SqliteShop.php`. `tests/unit/ArchitectureTest.php` enforces the `src/harness` component table and layer rules; a violation means fix the code, not the test.
+- Web snapshot baseline (local only, CI does not run it): to compare a change against a reference commit such as `develop`, check that commit out and run `scripts/dev/web-snapshot.sh baseline` before making the change, then `scripts/dev/web-snapshot.sh current` and `diff -r reports/web-snapshot/baseline reports/web-snapshot/current`.
 - Pipeline behavior changes (intent, evidence loop, constraint verifier, outfit/free-shipping logic) require a matching unit test — the eval alone is not enough.
