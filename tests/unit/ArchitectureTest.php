@@ -75,27 +75,6 @@ final class ArchitectureTest extends TestCase
         'src/core/observability/LangfuseTraceOutbox.php',
     ];
 
-    /**
-     * Ratchet: files that still run SQL outside the repository layer. Later tasks only remove entries.
-     *
-     * @var list<string>
-     */
-    private const LEGACY_SQL = [];
-
-    /**
-     * Ratchet: files that still read the environment where they must not. Later tasks only remove entries.
-     *
-     * @var list<string>
-     */
-    private const LEGACY_ENV = [];
-
-    /**
-     * Ratchet: layer-table violations still present, path => referenced classes. Later tasks only remove entries.
-     *
-     * @var array<string,list<string>>
-     */
-    private const LEGACY_EDGES = [];
-
     /** @var array<string,string>|null class => component */
     private static ?array $components = null;
 
@@ -128,11 +107,8 @@ final class ArchitectureTest extends TestCase
             }
             $this->assertArrayHasKey($layer, self::LAYERS, $this->relative($file) . " is in unknown layer {$layer}");
             $scanned[$layer]++;
-            $legacy = self::LEGACY_EDGES[$this->relative($file)] ?? [];
             foreach ($this->layerViolations($file) as $class => $to) {
-                if (!in_array($class, $legacy, true)) {
-                    $violations[] = $this->relative($file) . " ({$layer}) -> {$class} ({$to})";
-                }
+                $violations[] = $this->relative($file) . " ({$layer}) -> {$class} ({$to})";
             }
         }
 
@@ -147,7 +123,7 @@ final class ArchitectureTest extends TestCase
         $violations = [];
         foreach ($this->projectFiles(['src', 'public', 'templates']) as $file) {
             $path = $this->relative($file);
-            if ($this->runsSqlOutsideRepository($file) && !in_array($path, self::LEGACY_SQL, true)) {
+            if ($this->runsSqlOutsideRepository($file)) {
                 $violations[] = $path;
             }
         }
@@ -161,51 +137,12 @@ final class ArchitectureTest extends TestCase
         foreach ($this->projectFiles(['src', 'public', 'templates']) as $file) {
             $path = $this->relative($file);
             $reads = $this->forbiddenEnvReads($file);
-            if ($reads !== [] && !in_array($path, self::LEGACY_ENV, true)) {
+            if ($reads !== []) {
                 $violations[] = $path . ': ' . implode(', ', $reads);
             }
         }
 
         $this->assertSame([], $violations, "environment read outside agent/core:\n" . implode("\n", $violations));
-    }
-
-    /** The ratchet only shrinks: a fixed file must be removed from its LEGACY_* list. */
-    public function testLegacyAllowlistsStillApply(): void
-    {
-        $stale = [];
-        foreach (['LEGACY_SQL' => self::LEGACY_SQL, 'LEGACY_ENV' => self::LEGACY_ENV] as $name => $paths) {
-            $sorted = $paths;
-            sort($sorted);
-            $this->assertSame($sorted, $paths, "{$name} must be sorted");
-            $this->assertSame(array_values(array_unique($paths)), $paths, "{$name} has duplicates");
-        }
-        foreach (self::LEGACY_SQL as $path) {
-            if (!is_file(ROOT_DIR . '/' . $path) || !$this->runsSqlOutsideRepository(ROOT_DIR . '/' . $path)) {
-                $stale[] = "LEGACY_SQL: {$path}";
-            }
-        }
-        foreach (self::LEGACY_ENV as $path) {
-            if (!is_file(ROOT_DIR . '/' . $path) || $this->forbiddenEnvReads(ROOT_DIR . '/' . $path) === []) {
-                $stale[] = "LEGACY_ENV: {$path}";
-            }
-        }
-        $paths = array_keys(self::LEGACY_EDGES);
-        $sortedPaths = $paths;
-        sort($sortedPaths);
-        $this->assertSame($sortedPaths, $paths, 'LEGACY_EDGES must be sorted by path');
-        foreach (self::LEGACY_EDGES as $path => $classes) {
-            $sorted = $classes;
-            sort($sorted);
-            $this->assertSame($sorted, $classes, "LEGACY_EDGES {$path} must be sorted");
-            $current = is_file(ROOT_DIR . '/' . $path) ? $this->layerViolations(ROOT_DIR . '/' . $path) : [];
-            foreach ($classes as $class) {
-                if (!isset($current[$class])) {
-                    $stale[] = "LEGACY_EDGES: {$path} -> {$class}";
-                }
-            }
-        }
-
-        $this->assertSame([], $stale, "legacy entries that no longer violate (remove them):\n" . implode("\n", $stale));
     }
 
     public function testClassReferenceExtractionSeesGlobalNamesOnly(): void

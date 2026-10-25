@@ -83,4 +83,4 @@ When a class in `AgentFactory::REQUIRED_MIDDLEWARE` is missing from the config, 
    (`mcp-server/tests/contract.test.ts` checks the list).
 5. Add a unit test; pipeline behaviour changes need one, the eval alone is not enough. Add eval cases if user-visible.
 
-Business logic for the tool belongs in `src/service/`, not here; `tools/ToolApplicationService` only wires it.
+Business logic for the tool belongs in `src/service/`, not here; `tools/ToolApplicationService` only wires it. SQL belongs in `src/repository/`; see `src/service/README.md` and `src/repository/README.md`.

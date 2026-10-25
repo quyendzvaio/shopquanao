@@ -14,7 +14,11 @@ scripts/dev/composer dump-autoload                                # after adding
 npm --prefix mcp-server ci && npm --prefix mcp-server test && npm --prefix mcp-server run build
 docker compose config --quiet
 scripts/dev/smoke.sh                                              # HTTP smoke incl. 404/403 on source paths
+scripts/dev/web-snapshot.sh <label>                               # HTTP snapshot of storefront, admin and REST on shop_test
+diff -r reports/web-snapshot/baseline reports/web-snapshot/<label> # must be empty for a pure refactor
 ```
+
+The snapshot baseline lives in gitignored `reports/web-snapshot/baseline`. Re-take it only for a deliberate, reviewed behaviour change (e.g. web checkout moving to `OrderService`), never to make a diff go away.
 
 Agent eval (40 cases, needs shop_test): see `eval.md`.
 
