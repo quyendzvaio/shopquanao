@@ -47,7 +47,7 @@ export async function internalCall(payload: Record<string, unknown>, attempts = 
 
 export async function callTool(tool: string, arguments_: Record<string, unknown>, principal: Principal): Promise<Record<string, unknown>> {
   const retryable = new Set([
-    'search_products', 'get_product_detail', 'suggest_size', 'retrieve_knowledge', 'get_categories',
+    'search_products', 'get_product_detail', 'suggest_size', 'retrieve_knowledge', 'get_categories', 'build_outfit', 'suggest_freeship_items',
     'get_order_status', 'list_cart', 'list_orders', 'get_order_detail',
   ]);
   const body = await internalCall({
@@ -60,14 +60,4 @@ export async function callTool(tool: string, arguments_: Record<string, unknown>
     throw new ShopApiError('Invalid tool response from shop application', 502);
   }
   return body.result as Record<string, unknown>;
-}
-
-export async function advanceProactiveTurn(primaryIntent: string, threadId: string, principal: Principal): Promise<Record<string, unknown>> {
-  if (principal.userId === null) return { status: 'not_armed' };
-  return internalCall({
-    operation: 'agent.proactive_turn',
-    primary_intent: primaryIntent,
-    session_id: threadId,
-    user_id: principal.userId,
-  });
 }

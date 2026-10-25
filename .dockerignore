@@ -23,6 +23,9 @@ docs/
 DOCKER.md
 CLAUDE.md
 
+# ── Dev tooling ────────────────────────────────────────────
+scripts/dev
+
 # ── Test and evaluation suites ─────────────────────────────
 tests/
 eval/
@@ -40,10 +43,9 @@ mcp-server/tests/
 mcp-server/coverage/
 mcp-server/*.tsbuildinfo
 
-# ── PHP development dependencies — runtime has no Composer autoload usage ──
+# ── PHP dev dependencies (the image installs its own vendor/ in the php-deps stage) ──
 vendor/
 composer.phar
-composer.lock
 
 # ── Docker meta-files ─────────────────────────────────────
 docker-compose.yml

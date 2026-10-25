@@ -2,6 +2,10 @@
 
 declare(strict_types=1);
 
-require __DIR__ . '/../config/db.php';
+require dirname(__DIR__) . '/src/bootstrap.php';
 
-fwrite(STDOUT, "Database migrations are up to date.\n");
+/** @var PDO $pdo */
+$applied = (new MigrationRunner($pdo, dirname(__DIR__) . '/database/migrations'))->run();
+fwrite(STDOUT, $applied === []
+    ? "Database migrations are up to date.\n"
+    : 'Applied migrations: ' . implode(', ', $applied) . "\n");

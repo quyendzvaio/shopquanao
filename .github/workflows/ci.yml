@@ -55,22 +55,21 @@ jobs:
           ERRORS=0
           while IFS= read -r f; do
             php -l "$f" 2>/dev/null | grep -q "No syntax errors" || { echo "❌ $f"; ERRORS=$((ERRORS+1)); }
-          done < <(find . -name '*.php' -not -path './vendor/*' -not -path './test-evidence/*' \
-            -not -path './reports/*' -not -path './.codex/*' -not -path './.git/*')
+          done < <(find public src config scripts templates tests -name '*.php')
           [ "$ERRORS" -eq 0 ] && echo "✅ All PHP syntax OK" || exit 1
 
       - name: PHPCS (PSR-12)
         run: |
           vendor/bin/phpcs --standard=PSR12 --extensions=php \
-            --ignore=test-evidence,reports,.codex,.agents,vendor,tests \
+            --ignore=test-evidence,reports,.codex,.agents,vendor,tests,public/assets \
             --error-severity=1 --warning-severity=0 . || echo "⚠️ Style issues (non-blocking)"
 
       - name: PHPStan
-        run: vendor/bin/phpstan analyse --level=1 api/ config/ --no-progress
+        run: vendor/bin/phpstan analyse --level=1 config/ src/ --no-progress
 
       - name: Python lint (reranker)
         run: |
-          python3 -m py_compile docker/reranker/app.py docker/rag-ml/app.py eval/ragas_compat.py eval/langfuse_tracing.py eval/run_chatbot_eval.py eval/run_findmine_ragas.py eval/build_full_agent_eval_report.py eval/publish_stylitics_langfuse.py scripts/eval_rag_chatbot.py && echo "✅ Python syntax OK"
+          python3 -m py_compile docker/reranker/app.py docker/rag-ml/app.py && echo "✅ Python syntax OK"
 
   # ============================================================
   # Job 2: Unit Tests
@@ -96,9 +95,6 @@ jobs:
         run: vendor/bin/phpunit --testsuite=Unit --colors=always --display-warnings
         env:
           APP_ENV: test
-
-      - name: Validate 70-question agent corpus
-        run: php scripts/run_findmine_offline_eval.php
 
   # ============================================================
   # Job 3: Integration Tests
@@ -139,7 +135,11 @@ jobs:
           done
 
       - name: Import schema
-        run: sed '/^CREATE DATABASE/d;/^USE /d' sql/shop_db.sql | mysql -h127.0.0.1 -u root -proot_pass shop_test
+        run: sed '/^CREATE DATABASE/d;/^USE /d' database/schema.sql | mysql -h127.0.0.1 -u root -proot_pass shop_test
+
+      # The migration script loads vendor/autoload.php, so dependencies first.
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress
 
       - name: Apply database migrations
         env:
@@ -148,9 +148,6 @@ jobs:
           DB_USER: root
           DB_PASS: root_pass
         run: php scripts/run_database_migrations.php
-
-      - name: Install dependencies
-        run: composer install --no-interaction --no-progress
 
       - name: Run Integration Tests
         env:
@@ -161,6 +158,16 @@ jobs:
           DB_USER: root
           DB_PASS: root_pass
         run: vendor/bin/phpunit --testsuite=Integration --colors=always --display-warnings
+
+      - name: Agent eval (UC-A outfits, UC-C free shipping, guardrails)
+        env:
+          APP_ENV: test
+          CHATBOT_TOOL_TRANSPORT: internal
+          DB_HOST: 127.0.0.1
+          DB_NAME: shop_test
+          DB_USER: root
+          DB_PASS: root_pass
+        run: php scripts/run_agent_eval.php
 
   # ============================================================
   # Job 4: Security Scan
@@ -385,23 +392,6 @@ jobs:
             echo "REDIS_TIMEOUT=0.15" >> .env
             echo "CLIENT_CACHE_TTL=60" >> .env
             echo "CLIENT_CACHE_STALE_TTL=30" >> .env
-            echo "FASHION_PROVIDER=${{ secrets.FASHION_PROVIDER || 'findmine_demo' }}" >> .env
-            echo "FINDMINE_ENABLED=${{ secrets.FINDMINE_ENABLED || 'false' }}" >> .env
-            echo "FINDMINE_DEMO_ENABLED=${{ secrets.FINDMINE_DEMO_ENABLED || 'false' }}" >> .env
-            echo "FINDMINE_DEMO_MODE=${{ secrets.FINDMINE_DEMO_MODE || 'false' }}" >> .env
-            echo "FINDMINE_LIVE_VERIFIED=${{ secrets.FINDMINE_LIVE_VERIFIED || 'false' }}" >> .env
-            echo "FINDMINE_API_URL=${{ secrets.FINDMINE_API_URL || 'https://api.findmine.com' }}" >> .env
-            echo "FINDMINE_APP_ID=${{ secrets.FINDMINE_APP_ID || '' }}" >> .env
-            echo "FINDMINE_API_VERSION=${{ secrets.FINDMINE_API_VERSION || 'v3' }}" >> .env
-            echo "FINDMINE_DEFAULT_REGION=${{ secrets.FINDMINE_DEFAULT_REGION || 'us' }}" >> .env
-            echo "FINDMINE_DEFAULT_LANGUAGE=${{ secrets.FINDMINE_DEFAULT_LANGUAGE || 'en' }}" >> .env
-            echo "FINDMINE_STARTUP_TIMEOUT_MS=${{ secrets.FINDMINE_STARTUP_TIMEOUT_MS || '5000' }}" >> .env
-            echo "FINDMINE_REQUEST_TIMEOUT_MS=${{ secrets.FINDMINE_REQUEST_TIMEOUT_MS || '15000' }}" >> .env
-            echo "FINDMINE_RETRY_ATTEMPTS=${{ secrets.FINDMINE_RETRY_ATTEMPTS || '1' }}" >> .env
-            echo "FINDMINE_PRODUCT_IDENTIFIER_KEY=${{ secrets.FINDMINE_PRODUCT_IDENTIFIER_KEY || 'product_id' }}" >> .env
-            echo "FINDMINE_COLOR_IDENTIFIER_KEY=${{ secrets.FINDMINE_COLOR_IDENTIFIER_KEY || 'product_color_id' }}" >> .env
-            echo "FASHION_EVENT_STREAM=${{ secrets.FASHION_EVENT_STREAM || 'fashion:events' }}" >> .env
-            echo "FASHION_EVENT_GROUP=${{ secrets.FASHION_EVENT_GROUP || 'proactive-styling' }}" >> .env
             # Observability is opt-in and independent of the agent path. The
             # profile starts only when deployment secrets explicitly enable it.
             echo "LANGFUSE_ENABLED=${{ secrets.LANGFUSE_ENABLED || 'false' }}" >> .env
@@ -522,28 +512,29 @@ jobs:
             echo "Checking rag-ml..."
             docker compose exec -T rag-ml python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5).read()" && echo " ✅" || echo " ⚠️ rag-ml health check failed"
 
-            echo "Checking chat stream..."
-            for i in $(seq 1 30); do
-              if docker compose exec -T chat-stream node -e "fetch('http://127.0.0.1:8090/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
-                echo " ✅"
-                break
-              fi
-              if [ "$i" -eq 30 ]; then
-                echo "❌ chat-stream health check failed"
-                docker compose logs chat-stream --tail=60 2>/dev/null || true
-                exit 1
-              fi
-              sleep 2
-            done
-
             echo "Checking chatbot PHP pipeline route..."
             for i in $(seq 1 15); do
-              if docker compose exec -T chat-stream node -e "fetch('http://app:8080/api/chatbot',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:'áo polo màu đỏ'})}).then(async r=>{const b=await r.json(); if(!r.ok || b.latency?.pipeline!=='deterministic_hybrid_pipeline' || b.primary_intent!=='product_search') process.exit(1)}).catch(() => process.exit(1))"; then
+              body=$(curl -sf -m 60 -X POST http://localhost/api/chatbot -H 'content-type: application/json' --data '{"message":"áo polo màu đỏ"}' || true)
+              if echo "$body" | grep -q '"primary_intent":"product_search"' && echo "$body" | grep -q '"pipeline":"deterministic_hybrid_pipeline"'; then
                 echo " ✅"
                 break
               fi
               if [ "$i" -eq 15 ]; then
                 echo "❌ chatbot PHP pipeline route check failed"
+                docker compose logs app --tail=60 2>/dev/null || true
+                exit 1
+              fi
+              sleep 2
+            done
+
+            echo "Checking chatbot SSE stream..."
+            for i in $(seq 1 15); do
+              if curl -sfN -m 90 -X POST http://localhost/api/chatbot/stream -H 'content-type: application/json' --data '{"message":"áo polo màu đỏ"}' | grep -q '^event: chat.complete'; then
+                echo " ✅"
+                break
+              fi
+              if [ "$i" -eq 15 ]; then
+                echo "❌ chatbot SSE stream check failed"
                 docker compose logs app --tail=60 2>/dev/null || true
                 exit 1
               fi

@@ -27,7 +27,7 @@ function requireConfirmation(confirmed: true): void {
 export function createMcpServer(principal: Principal): McpServer {
   const server = new McpServer(
     { name: 'fashion-shop', version: '1.0.0' },
-    { instructions: 'Use product and knowledge tools for shop questions. Account tools require an authenticated PHP chatbot session. Mutating cart/order tools require confirmed=true only after explicit user confirmation. Outfit advice and external payment are unsupported.' },
+    { instructions: 'Use product and knowledge tools for shop questions. Account tools require an authenticated PHP chatbot session. Mutating cart/order tools require confirmed=true only after explicit user confirmation. External payment is unsupported.' },
   );
 
   server.registerTool('search_products', {
@@ -56,14 +56,26 @@ export function createMcpServer(principal: Principal): McpServer {
     inputSchema: { product_id: z.number().int().positive() }, outputSchema, annotations: readOnly,
   }, async (args) => result(await callTool('get_product_detail', args, principal)));
 
-  server.registerTool('suggest_complementary_products', {
-    title: 'Suggest complementary products',
-    description: 'Use this when the user asks what would coordinate with a specific shop product. Recommendations are grounded in the shop catalog after styling analysis.',
+  const styleTags = ['congso', 'phongvan', 'dichoi', 'dibien', 'hendo', 'dutiec', 'thethao', 'streetstyle', 'basic', 'mualanh'] as const;
+
+  server.registerTool('build_outfit', {
+    title: 'Build outfit',
+    description: 'Use this when the user wants a complete outfit for an occasion or style, optionally with a budget, size or anchor product. Returns in-stock shop products only.',
     inputSchema: {
-      product_id: z.number().int().positive(),
-      variant_id: z.number().int().positive().optional(),
+      style_tags: z.array(z.enum(styleTags)).max(2).optional(),
+      product_id: z.number().int().positive().optional(),
+      budget: z.number().int().positive().optional(),
+      size: z.string().max(5).optional(),
+      height: z.number().int().min(80).max(230).optional(),
+      weight: z.number().int().min(20).max(220).optional(),
     }, outputSchema, annotations: readOnly,
-  }, async (args) => result(await callTool('suggest_complementary_products', args, principal)));
+  }, async (args) => result(await callTool('build_outfit', args, principal)));
+
+  server.registerTool('suggest_freeship_items', {
+    title: 'Suggest items to reach free shipping',
+    description: 'Use this when the user asks how much more to buy, or what to add, to get free shipping. Read-only: it never changes the cart. Guests receive the threshold and a login requirement.',
+    inputSchema: { limit: z.number().int().min(1).max(5).optional() }, outputSchema, annotations: readOnly,
+  }, async (args) => result(await callTool('suggest_freeship_items', args, principal)));
 
   server.registerTool('suggest_size', {
     title: 'Suggest a size',

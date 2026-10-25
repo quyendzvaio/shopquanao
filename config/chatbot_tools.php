@@ -72,13 +72,6 @@ return [
             'needs_auth' => true,
             'mutation' => false,
         ],
-        'suggest_complementary_products' => [
-            'tools' => ['suggest_complementary_products'],
-            'required_slots' => ['product_id'],
-            'empty_response' => 'clarification',
-            'needs_auth' => false,
-            'mutation' => false,
-        ],
         'unknown' => [
             'tools' => [],
             'required_slots' => [],
@@ -86,8 +79,15 @@ return [
             'needs_auth' => false,
             'mutation' => false,
         ],
-        'unsupported_outfit' => [
-            'tools' => [],
+        'build_outfit' => [
+            'tools' => ['build_outfit'],
+            'required_slots' => [],
+            'empty_response' => 'clarification',
+            'needs_auth' => false,
+            'mutation' => false,
+        ],
+        'freeship_gap' => [
+            'tools' => ['suggest_freeship_items'],
             'required_slots' => [],
             'empty_response' => 'final_answer',
             'needs_auth' => false,
@@ -105,6 +105,7 @@ return [
     // Entity fields a required_slots entry may reference.
     'entity_fields' => [
         'product_id',
+        'style_tags',
         'product_query',
         'product_type',
         'category_id',

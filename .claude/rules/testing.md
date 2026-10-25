@@ -2,24 +2,29 @@
 
 ## Local
 
+The host has no PHP; `scripts/dev/php` and `scripts/dev/composer` run it in Docker.
+
 ```bash
-vendor/bin/phpstan analyse --level=1 api/ config/ --no-progress
-vendor/bin/phpcs --standard=PSR12 .            # via composer lint
-vendor/bin/phpunit --testsuite=Unit            # hermetic, no DB
-vendor/bin/phpunit --testsuite=Integration     # needs shop_test DB
-vendor/bin/phpunit --filter=testName           # single test
+scripts/dev/php vendor/bin/phpunit --testsuite=Unit              # hermetic (SQLite fixtures)
+scripts/dev/php vendor/bin/phpunit tests/unit/service/outfit/OutfitBuilderTest.php   # single file
+scripts/dev/php vendor/bin/phpunit --filter=testName
+scripts/dev/test-db.sh && scripts/dev/test-integration.sh         # shop_test in Compose MariaDB
+scripts/dev/php vendor/bin/phpstan analyse --level=1 config/ src/ --no-progress
+scripts/dev/composer dump-autoload                                # after adding a class under src/
 npm --prefix mcp-server ci && npm --prefix mcp-server test && npm --prefix mcp-server run build
-php scripts/run_findmine_offline_eval.php      # 70-case deterministic corpus gate (historical name, provider-agnostic)
 docker compose config --quiet
+scripts/dev/smoke.sh                                              # HTTP smoke incl. 404/403 on source paths
 ```
+
+Agent eval (40 cases, needs shop_test): see `eval.md`.
 
 ## CI (.github/workflows/ci.yml)
 
-Jobs: Code Quality (composer validate, PHP lint, PSR-12 advisory, PHPStan, Python syntax, MCP contract tests + build) → Unit Tests (+ 70-question corpus validation) → Integration Tests (import schema, apply migrations first) → Security Scan (hardcoded-secret checks, Trivy fs) → Docker Build (app/reranker/rag-ml + image scans) → Deploy.
+Jobs: Code Quality (composer validate, PHP lint, PSR-12 advisory, PHPStan, MCP contract tests + build) → Unit Tests → Integration Tests (import schema, apply migrations first) → Agent eval (40 cases) after integration → Security Scan (hardcoded-secret checks, Trivy fs) → Docker Build (app/reranker/rag-ml + image scans) → Deploy.
 
-A change is green only when all gates pass; integration tests must run after migration, not against a stale schema.
+A change is green only when all gates pass; integration tests and the agent eval must run after migration, not against a stale schema.
 
 ## Conventions
 
-- Unit tests live in `tests/Unit`, integration in `tests/Integration`; fixtures in `tests/fixtures`.
-- Pipeline behavior changes (intent, evidence loop, constraint verifier, provider mapping) require a matching unit test — the corpus gate alone is not enough.
+- Unit tests live in `tests/unit` (mirrors `src/`), integration in `tests/integration`; the SQLite catalog fixture is `tests/support/SqliteShop.php`. `tests/unit/ArchitectureTest.php` enforces the `src/harness` component table and layer rules; a violation means fix the code, not the test.
+- Pipeline behavior changes (intent, evidence loop, constraint verifier, outfit/free-shipping logic) require a matching unit test — the eval alone is not enough.

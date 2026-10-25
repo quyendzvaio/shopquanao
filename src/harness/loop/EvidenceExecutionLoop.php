@@ -1,0 +1,364 @@
+<?php
+
+/**
+ * Executes a deterministic tool plan and retries only when rule-based evidence
+ * checks request it. There is no model reasoning or model-driven tool choice.
+ */
+class EvidenceExecutionLoop {
+    public const MAX_EXECUTION_LOOPS = 3;
+    public const MAX_TOOL_CALLS_TOTAL = 4;
+    public const MAX_QUERY_REWRITES = 1;
+    public const MAX_TOOL_RETRIES = 1;
+
+    private PlanValidator $planValidator;
+    private ToolPlanner $planner;
+    private ParallelToolExecutor $executor;
+    private EvidenceNormalizer $normalizer;
+    private ProductConstraintVerifier $constraintVerifier;
+    private ObservationEvaluator $observationEvaluator;
+    private LightweightEvidenceScorer $scorer;
+    private EvidenceDecisionRouter $router;
+    private NoProgressDetector $noProgress;
+
+    public function __construct(ChatbotToolGateway $toolGateway, array $capabilities) {
+        $this->planValidator = new PlanValidator($capabilities);
+        $this->planner = new ToolPlanner($capabilities);
+        $this->executor = new ParallelToolExecutor($toolGateway);
+        $this->normalizer = new EvidenceNormalizer();
+        $this->constraintVerifier = new ProductConstraintVerifier();
+        $this->observationEvaluator = new ObservationEvaluator();
+        $this->scorer = new LightweightEvidenceScorer();
+        $this->router = new EvidenceDecisionRouter();
+        $this->noProgress = new NoProgressDetector();
+    }
+
+    public function run(string $message, array $intent, array $memoryContext): array {
+        $loop = [
+            'trace' => [],
+            'spans' => [],
+            'executions' => [],
+            'plan' => ['batches' => [], 'response_type' => 'final_answer'],
+            'normalized' => ['cards' => [], 'knowledge_sources' => [], 'evidence' => [], 'tool_results' => []],
+            'score' => [],
+            'decision' => ['action' => 'fallback', 'reason' => 'not_started'],
+            'previous_score' => [],
+            'tool_calls' => 0,
+            'rewrites' => 0,
+            'retries' => 0,
+        ];
+
+        for ($step = 1; $step <= self::MAX_EXECUTION_LOOPS; $step++) {
+            if (!$this->runStep($loop, $step, $message, $intent, $memoryContext)) {
+                break;
+            }
+        }
+
+        return [
+            'normalized' => $loop['normalized'],
+            'plan' => $loop['plan'],
+            'executions' => $loop['executions'],
+            'trace' => $loop['trace'],
+            'evidence_score' => $loop['score'],
+            'decision' => $loop['decision'],
+            'loop_count' => count($loop['trace']),
+            'spans' => $loop['spans'],
+        ];
+    }
+
+    /** Plans, validates, executes and decides one step; false when the loop must stop. */
+    private function runStep(array &$loop, int $step, string $message, array $intent, array $memoryContext): bool {
+        $state = $this->executionState($intent, $memoryContext, $step, $loop['previous_score']);
+        $plan = $this->planner->plan($intent);
+        $plan = $this->applyDecisionToPlan($plan, $intent, $loop['decision'], $message, $loop['rewrites']);
+
+        $validation = $this->planValidator->validate($plan, $intent);
+        $plan = $validation['sanitized_plan'];
+        $loop['plan'] = $plan;
+        if (!$validation['passed']) {
+            $loop['decision'] = ['action' => 'fallback', 'reason' => 'plan_validation_failed'];
+            $loop['trace'][] = $this->traceStep($step, $state, $plan, [], [], [], $loop['decision'], false, $validation['errors']);
+            return false;
+        }
+
+        $plannedToolCount = $this->countTools($plan);
+        if ($loop['tool_calls'] + $plannedToolCount > self::MAX_TOOL_CALLS_TOTAL) {
+            $loop['decision'] = ['action' => 'fallback', 'reason' => 'tool_budget_exhausted'];
+            $loop['trace'][] = $this->traceStep($step, $state, $plan, [], [], [], $loop['decision'], false, []);
+            return false;
+        }
+
+        if ($plannedToolCount === 0) {
+            $this->decideWithoutTools($loop, $step, $state, $plan, $intent);
+            return false;
+        }
+
+        $this->executeAndDecide($loop, $step, $state, $plan, $intent, $plannedToolCount);
+        return $this->continuesAfterDecision($loop);
+    }
+
+    /** A plan with no tools is scored and routed on the evidence gathered so far. */
+    private function decideWithoutTools(array &$loop, int $step, array $state, array $plan, array $intent): void {
+        $observation = [
+            'tool_statuses' => [],
+            'temporary_errors' => [],
+            'hard_failures' => [],
+            'has_tool_error' => false,
+            'has_hard_failure' => false,
+        ];
+        $loop['score'] = $this->scorer->score($intent, $loop['normalized'], $observation);
+        $loop['decision'] = $this->router->decide(
+            $intent,
+            $plan,
+            $loop['normalized'],
+            $observation,
+            $loop['score'],
+            $this->budget($step, $loop['tool_calls'], $loop['rewrites'], $loop['retries']),
+            false
+        );
+        $loop['trace'][] = $this->traceStep($step, $state, $plan, $observation, $loop['score'], [], $loop['decision'], false, []);
+    }
+
+    /** Executes the plan, verifies and scores the evidence, and records the routed decision. */
+    private function executeAndDecide(array &$loop, int $step, array $state, array $plan, array $intent, int $plannedToolCount): void {
+        $execution = $this->executor->execute($plan);
+        $loop['executions'][] = $execution;
+        $loop['tool_calls'] += $plannedToolCount;
+        foreach (($execution['spans'] ?? []) as $key => $value) {
+            $loop['spans'][$key] = is_numeric($value) ? (($loop['spans'][$key] ?? 0) + (int)$value) : $value;
+        }
+
+        $loop['normalized'] = $this->constraintVerifier->verify(
+            $intent,
+            $this->normalizer->normalize($intent, $execution)
+        );
+        $observation = $this->observationEvaluator->evaluate($intent, $plan, $execution, $loop['normalized']);
+        $progress = $this->noProgress->observe($execution);
+        $loop['score'] = $this->scorer->score($intent, $loop['normalized'], $observation);
+        $loop['decision'] = $this->router->decide(
+            $intent,
+            $plan,
+            $loop['normalized'],
+            $observation,
+            $loop['score'],
+            $this->budget($step, $loop['tool_calls'], $loop['rewrites'], $loop['retries']),
+            (bool)$progress['no_progress']
+        );
+
+        $loop['trace'][] = $this->traceStep(
+            $step,
+            $state,
+            $plan,
+            $observation,
+            $loop['score'],
+            $progress['fingerprints'],
+            $loop['decision'],
+            (bool)$progress['no_progress'],
+            []
+        );
+    }
+
+    /** Counts a rewrite or retry and keeps looping, or false when the decision ends the loop. */
+    private function continuesAfterDecision(array &$loop): bool {
+        $decision = $loop['decision'];
+        if ($decision['action'] === 'return' || in_array($decision['action'], ['ask_user', 'deny', 'fallback'], true)) {
+            return false;
+        }
+        if ($decision['action'] === 'rewrite_query') {
+            $loop['rewrites']++;
+        } elseif ($decision['action'] === 'retry_tool') {
+            $loop['retries']++;
+        } elseif ($decision['action'] !== 'call_next_tool') {
+            return false;
+        }
+        $loop['previous_score'] = $loop['score'];
+        return true;
+    }
+
+    private function budget(int $step, int $toolCalls, int $rewrites, int $retries): array {
+        return [
+            'loop_count' => $step,
+            'tool_calls' => $toolCalls,
+            'query_rewrites' => $rewrites,
+            'tool_retries' => $retries,
+        ];
+    }
+
+    private function applyDecisionToPlan(array $plan, array $intent, array $previousDecision, string $message, int $rewrites): array {
+        $action = (string)($previousDecision['action'] ?? '');
+        if ($action === 'rewrite_query' && $rewrites < self::MAX_QUERY_REWRITES) {
+            $plan = $this->rewritePlanQueries($plan, $intent, $message);
+        }
+        if ($action === 'call_next_tool' && !empty($previousDecision['next_tool'])) {
+            $plan = $this->onlyTool($plan, (string)$previousDecision['next_tool']);
+        }
+        return $plan;
+    }
+
+    private function rewritePlanQueries(array $plan, array $intent, string $message): array {
+        $rewritten = $this->rewriteQuery($intent, $message);
+        foreach (($plan['batches'] ?? []) as &$batch) {
+            foreach ($batch as &$call) {
+                $tool = (string)($call['tool'] ?? '');
+                if ($tool === 'retrieve_knowledge') {
+                    $call['args']['query'] = $rewritten;
+                    $call['args']['limit'] = 5;
+                } elseif ($tool === 'search_products' && !empty($intent['entities']['product_type'])) {
+                    $call['args']['search'] = (string)$intent['entities']['product_type'];
+                }
+            }
+        }
+        unset($batch, $call);
+        return $plan;
+    }
+
+    private function rewriteQuery(array $intent, string $message): string {
+        $primary = (string)($intent['primary_intent'] ?? '');
+        $query = trim($message);
+        if (in_array($primary, ['return_exchange', 'mixed_product_policy'], true)) {
+            return trim($query . ' chính sách đổi trả đổi size hoàn tiền phí vận chuyển điều kiện áp dụng');
+        }
+        if ($primary === 'shipping') {
+            return trim($query . ' phí ship giao hàng vận chuyển nội thành ngoại tỉnh');
+        }
+        if ($primary === 'policy') {
+            return trim($query . ' chính sách quy định shop');
+        }
+        return $query;
+    }
+
+    private function onlyTool(array $plan, string $tool): array {
+        $filtered = [];
+        foreach (($plan['batches'] ?? []) as $batch) {
+            $calls = array_values(array_filter($batch, fn($call) => (string)($call['tool'] ?? '') === $tool));
+            if ($calls !== []) $filtered[] = $calls;
+        }
+        $plan['batches'] = $filtered;
+        return $plan;
+    }
+
+    private function countTools(array $plan): int {
+        $count = 0;
+        foreach (($plan['batches'] ?? []) as $batch) {
+            $count += count($batch);
+        }
+        return $count;
+    }
+
+    private function executionState(array $intent, array $memoryContext, int $step, array $previousScore): array {
+        $primary = (string)($intent['primary_intent'] ?? 'unknown');
+        $entities = is_array($intent['entities'] ?? null) ? $intent['entities'] : [];
+        $knownFacts = [];
+        foreach (['product_id', 'product_type', 'height', 'weight', 'size', 'min_price', 'max_price', 'color', 'in_stock', 'order_id'] as $field) {
+            if (array_key_exists($field, $entities) && $entities[$field] !== null && $entities[$field] !== '') {
+                $knownFacts[] = $field . '=' . $this->stringValue($entities[$field]);
+            }
+        }
+        $missing = $previousScore['missing_evidence'] ?? $this->initialMissingEvidence($primary, $intent);
+        return [
+            'step' => $step,
+            'state' => $this->stateName($primary, $missing),
+            'goal' => $this->goal($primary),
+            'known_facts' => $knownFacts,
+            'missing_evidence' => array_values(array_unique(array_map('strval', is_array($missing) ? $missing : []))),
+            'memory_used' => [
+                'has_session_summary' => trim((string)($memoryContext['summary'] ?? '')) !== '',
+                'slot_keys' => array_keys(is_array($memoryContext['slots'] ?? null) ? $memoryContext['slots'] : []),
+                'long_term_available' => !empty($memoryContext['long_term_memory']),
+            ],
+        ];
+    }
+
+    private function initialMissingEvidence(string $primary, array $intent): array {
+        $missing = [];
+        $requested = is_array($intent['requested_fields'] ?? null) ? $intent['requested_fields'] : [];
+        $entities = is_array($intent['entities'] ?? null) ? $intent['entities'] : [];
+        if ($primary === 'product_search') {
+            $missing[] = 'product_results';
+            if (in_array('stock', $requested, true)) $missing[] = 'stock';
+            if (in_array('price', $requested, true)) $missing[] = 'price';
+        } elseif ($primary === 'product_detail') {
+            $missing = ['product_detail'];
+        } elseif ($primary === 'size_advice') {
+            if (empty($entities['height'])) $missing[] = 'height';
+            if (empty($entities['weight'])) $missing[] = 'weight';
+            $missing[] = 'recommended_size';
+        } elseif (in_array($primary, ['return_exchange', 'shipping', 'policy'], true)) {
+            $missing[] = 'policy_evidence';
+        } elseif ($primary === 'mixed_product_policy') {
+            $missing[] = !empty($entities['product_id']) ? 'product_detail' : 'product_results';
+            $missing[] = 'policy_evidence';
+        } elseif ($primary === 'order_status') {
+            $missing[] = 'order_status';
+        } elseif ($primary === 'build_outfit') {
+            $missing[] = 'outfit_result';
+        } elseif ($primary === 'freeship_gap') {
+            $missing[] = 'freeship_status';
+        }
+        return $missing;
+    }
+
+    private function stateName(string $primary, array $missing): string {
+        if (in_array($primary, ['unsupported_checkout'], true)) return 'guardrail';
+        if ($missing === []) return 'ready_to_answer';
+        return 'need_' . implode('_and_', array_slice(array_map(
+            fn($item) => preg_replace('/[^a-z0-9_]+/i', '_', (string)$item) ?: 'evidence',
+            $missing
+        ), 0, 3));
+    }
+
+    private function goal(string $primary): string {
+        return match ($primary) {
+            'product_search' => 'find_matching_products',
+            'product_detail' => 'answer_specific_product_detail',
+            'size_advice' => 'recommend_size_from_measurements',
+            'return_exchange', 'shipping', 'policy' => 'answer_policy_from_knowledge',
+            'mixed_product_policy' => 'combine_product_and_policy_evidence',
+            'order_status' => 'answer_order_status_safely',
+            'build_outfit' => 'compose_outfit_from_private_catalog',
+            'freeship_gap' => 'close_free_shipping_gap',
+            'unsupported_checkout' => 'explain_unsupported_scope',
+            default => 'clarify_user_request',
+        };
+    }
+
+    private function stringValue($value): string {
+        if (is_array($value)) return implode(',', array_map('strval', $value));
+        if (is_bool($value)) return $value ? 'true' : 'false';
+        return (string)$value;
+    }
+
+    private function traceStep(int $step, array $state, array $plan, array $observation, array $score, array $fingerprints, array $decision, bool $noProgress, array $validationErrors): array {
+        return [
+            'step' => $step,
+            'execution_state' => (string)($state['state'] ?? ''),
+            'evidence_goal' => (string)($state['goal'] ?? ''),
+            'known_facts' => $state['known_facts'] ?? [],
+            'missing_evidence' => $score['missing_evidence'] ?? ($state['missing_evidence'] ?? []),
+            'selected_tools' => $this->selectedTools($plan),
+            'observation_status' => $this->observationStatus($observation),
+            'evidence_score' => $score,
+            'decision' => $decision['action'] ?? 'fallback',
+            'decision_reason' => $decision['reason'] ?? '',
+            'no_progress' => $noProgress,
+            'tool_fingerprints' => $fingerprints,
+            'validation_errors' => $validationErrors,
+        ];
+    }
+
+    private function selectedTools(array $plan): array {
+        $tools = [];
+        foreach (($plan['batches'] ?? []) as $batch) {
+            foreach ($batch as $call) {
+                if (!empty($call['tool'])) $tools[] = (string)$call['tool'];
+            }
+        }
+        return array_values(array_unique($tools));
+    }
+
+    private function observationStatus(array $observation): string {
+        if (!empty($observation['hard_failures'])) return 'hard_failure';
+        if (!empty($observation['temporary_errors'])) return 'tool_error';
+        if (!empty($observation['tool_statuses'])) return 'observed';
+        return 'no_tool_observation';
+    }
+}
