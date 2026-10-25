@@ -45,6 +45,92 @@ final class ProductRepository
         return $row === false ? null : $row;
     }
 
+    public function exists(int $id): bool
+    {
+        $stmt = $this->pdo->prepare("SELECT id FROM products WHERE id = ?");
+        $stmt->execute([$id]);
+        return (bool)$stmt->fetch();
+    }
+
+    public function count(): int
+    {
+        return (int)$this->pdo->query("SELECT COUNT(*) FROM products")->fetchColumn();
+    }
+
+    /** @return list<array<int|string,mixed>> every product, newest first (PDO default fetch mode) */
+    public function allNewestFirst(): array
+    {
+        $stmt = $this->pdo->query("SELECT * FROM products ORDER BY id DESC");
+        return $stmt->fetchAll();
+    }
+
+    /** The image file name of one product; null when the product does not exist. */
+    public function imageOf(int $id): ?string
+    {
+        $stmt = $this->pdo->prepare("SELECT image FROM products WHERE id = ?");
+        $stmt->execute([$id]);
+        $image = $stmt->fetchColumn();
+        return $image === false || $image === null ? null : (string)$image;
+    }
+
+    /**
+     * @param array{name:mixed,price:mixed,stock:mixed,description:mixed,category_id:mixed,subcategory_id:mixed,image:mixed,style_tags:mixed} $row
+     * @return int the new product id
+     */
+    public function insert(array $row): int
+    {
+        $stmt = $this->pdo->prepare("INSERT INTO products
+    (name, price, stock, description, category_id, subcategory_id, image, style_tags)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$row['name'], $row['price'], $row['stock'], $row['description'], $row['category_id'],
+            $row['subcategory_id'], $row['image'], $row['style_tags']]);
+        return (int)$this->pdo->lastInsertId();
+    }
+
+    /**
+     * Partial update: only the whitelisted columns present in $fields are written, `style_tags` (already a
+     * column string) whenever the key exists.
+     *
+     * @param array<string,mixed> $fields
+     * @return int affected rows
+     * @throws InvalidArgumentException when no writable field is present
+     */
+    public function updateFields(int $id, array $fields): int
+    {
+        $set = [];
+        $params = [];
+
+        foreach (['name', 'price', 'stock', 'description', 'category_id', 'subcategory_id', 'image'] as $f) {
+            if (isset($fields[$f])) {
+                $set[] = "$f = ?";
+                $params[] = $fields[$f];
+            }
+        }
+
+        if (array_key_exists('style_tags', $fields)) {
+            $set[] = "style_tags = ?";
+            $params[] = $fields['style_tags'];
+        }
+
+        if (!$set) {
+            throw new InvalidArgumentException('No fields to update');
+        }
+
+        $params[] = $id;
+        $sql = "UPDATE products SET " . implode(', ', $set) . " WHERE id = ?";
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->rowCount();
+    }
+
+    /** @return int affected rows */
+    public function delete(int $id): int
+    {
+        $stmt = $this->pdo->prepare("DELETE FROM products WHERE id = ?");
+        $stmt->execute([$id]);
+        return $stmt->rowCount();
+    }
+
     /** @return array{id:mixed,price:mixed,stock:mixed}|null the fresh, uncached fields */
     public function priceAndStock(int $id): ?array
     {

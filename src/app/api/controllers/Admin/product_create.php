@@ -16,13 +16,18 @@ if (!$name || $price <= 0) {
 }
 
 global $pdo;
-$stmt = $pdo->prepare("INSERT INTO products
-    (name, price, stock, description, category_id, subcategory_id, image, style_tags)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-$stmt->execute([$name, $price, $stock, $description, $categoryId, $subcategoryId, $image,
-    StyleTag::toColumn((array)($data['style_tags'] ?? []))]);
+$productId = (new ProductAdminService($pdo))->create([
+    'name' => $name,
+    'price' => $price,
+    'stock' => $stock,
+    'description' => $description,
+    'category_id' => $categoryId,
+    'subcategory_id' => $subcategoryId,
+    'image' => $image,
+    'style_tags' => $data['style_tags'] ?? [],
+]);
 
 jsonResponse([
     'message' => 'Product created',
-    'product_id' => (int)$pdo->lastInsertId(),
+    'product_id' => $productId,
 ], 201);

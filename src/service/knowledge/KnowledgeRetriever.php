@@ -480,7 +480,7 @@ class KnowledgeRetriever {
     private function getDatabaseDocuments(): array {
         $docs = [];
         try {
-            $rows = $this->pdo->query("SELECT question, answer, category FROM faqs")->fetchAll(PDO::FETCH_ASSOC);
+            $rows = (new FaqRepository($this->pdo))->allForKnowledge();
             foreach ($rows as $row) {
                 $docs[] = [
                     'source' => 'db:faqs',
@@ -493,7 +493,7 @@ class KnowledgeRetriever {
         } catch (Throwable $e) {}
 
         try {
-            $rows = $this->pdo->query("SELECT size_name, category_id, height_from, height_to, weight_from, weight_to, description FROM size_guides")->fetchAll(PDO::FETCH_ASSOC);
+            $rows = (new SizeRepository($this->pdo))->allForKnowledge();
             foreach ($rows as $row) {
                 $docs[] = [
                     'source' => 'db:size_guides',

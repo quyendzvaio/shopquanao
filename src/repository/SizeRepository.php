@@ -50,6 +50,12 @@ final class SizeRepository
         return $stmt->fetchAll();
     }
 
+    /** @return list<array<string,mixed>> the size guide columns the knowledge documents are built from */
+    public function allForKnowledge(): array
+    {
+        return $this->pdo->query("SELECT size_name, category_id, height_from, height_to, weight_from, weight_to, description FROM size_guides")->fetchAll(PDO::FETCH_ASSOC);
+    }
+
     /** @return list<array<string,mixed>> size guide rows of one category for the size suggestion */
     public function suggestionGuidesForCategory(int $categoryId): array
     {

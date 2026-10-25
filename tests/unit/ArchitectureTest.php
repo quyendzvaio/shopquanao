@@ -100,28 +100,11 @@ final class ArchitectureTest extends TestCase
         'public/register.php',
         'public/submit_review.php',
         'public/update_cart.php',
-        'src/app/api/controllers/Admin/dashboard.php',
-        'src/app/api/controllers/Admin/product_create.php',
-        'src/app/api/controllers/Admin/product_delete.php',
-        'src/app/api/controllers/Admin/product_update.php',
-        'src/app/api/controllers/Admin/products.php',
-        'src/app/api/controllers/Admin/user_action.php',
-        'src/app/api/controllers/Admin/users.php',
-        'src/app/api/controllers/Auth/login.php',
-        'src/app/api/controllers/Auth/logout.php',
-        'src/app/api/controllers/Auth/register.php',
         'src/app/api/controllers/Chatbot/history.php',
-        'src/app/api/controllers/Faq/index.php',
-        'src/app/api/controllers/Outfit/index.php',
-        'src/app/api/controllers/Products/add_review.php',
-        'src/app/api/controllers/Products/detail.php',
-        'src/app/api/controllers/Products/reviews.php',
-        'src/app/api/middleware.php',
         'src/harness/memory/ChatbotMemory.php',
         'src/harness/memory/ChatbotSessionContext.php',
         'src/harness/memory/PdoChatbotConversationStore.php',
         'src/harness/middleware/FreeShippingNudge.php',
-        'src/service/knowledge/KnowledgeRetriever.php',
         'templates/partials/header.php',
     ];
 
@@ -149,7 +132,6 @@ final class ArchitectureTest extends TestCase
         'src/app/api/controllers/Chatbot/index.php' => ['ChatbotSessionContext'],
         'src/app/api/controllers/Chatbot/stream.php' => ['ChatbotSessionContext', 'LLMTransportException'],
         'src/app/api/controllers/Internal/mcp.php' => ['ToolApplicationService'],
-        'src/repository/OutfitCatalogRepository.php' => ['OutfitPalette'],
     ];
 
     /** @var array<string,string>|null class => component */

@@ -12,9 +12,7 @@ function authenticate() {
     }
 
     global $pdo;
-    $stmt = $pdo->prepare("SELECT id, username, email, role, status FROM users WHERE api_token = ?");
-    $stmt->execute([$token]);
-    $user = $stmt->fetch();
+    $user = (new UserService($pdo))->userForApiToken($token);
 
     if (!$user) {
         errorResponse('Unauthorized - invalid token', 401);
