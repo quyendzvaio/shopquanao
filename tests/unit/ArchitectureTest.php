@@ -13,7 +13,7 @@ final class ArchitectureTest extends TestCase
 {
     private const MAX_FUNCTION_LINES = 80;
 
-    /** Spec §3.1: harness may use service, model and core (never repository directly). */
+    /** Spec §3.1 + D3: harness may use service, model and core; repository only via ALLOWED/LIMITED (memory: any; middleware: ChatMemoryRepository). */
     private const DOMAIN = ['service', 'model', 'core'];
 
     /** Spec §4.1 "Được dùng" column, per harness component (domain layers are added for all). */
@@ -63,8 +63,10 @@ final class ArchitectureTest extends TestCase
         'llm_providers' => ['harness' => 'llm'],
     ];
 
-    /** Layers whose files must never read $_SERVER (getenv/$_ENV are allowed only in agent and core). */
+    /** Layers whose files must never read request/session superglobals (getenv/$_ENV are allowed only in agent and core). */
     private const NO_SERVER_LAYERS = ['harness', 'service', 'repository', 'model'];
+
+    private const REQUEST_SUPERGLOBALS = ['$_SERVER', '$_POST', '$_GET', '$_SESSION'];
 
     private const ENV_LAYERS = ['agent', 'core'];
 
@@ -153,6 +155,44 @@ final class ArchitectureTest extends TestCase
         $this->assertSame(['AgentFactory', 'TurnRunner', 'Foo', 'X', 'TurnRunner'], self::classNamesIn($sample));
     }
 
+    /** The SQL scan must see every call form, or the empty allowlist would pass vacuously. */
+    public function testSqlScanDetectsPrepareQueryAndExecInAnyCase(): void
+    {
+        foreach (['$pdo->prepare(\'x\');', '$this->pdo->Query("x");', '$db->EXEC ( "x" );', '$db?->prepare($sql);', "\$pdo->\n  query(\$sql);"] as $call) {
+            $this->assertTrue(self::callsSql('<?php ' . $call), $call);
+        }
+        foreach (['// $pdo->prepare(1);', '/* $pdo->query(1); */', '$x->prepared(1);', 'prepare(1);', '$x->prepare;', '$x::query(1);'] as $clean) {
+            $this->assertFalse(self::callsSql('<?php ' . $clean), $clean);
+        }
+    }
+
+    public function testEnvScanDetectsGetenvEnvAndRequestSuperglobals(): void
+    {
+        foreach (['getenv(\'A\')', '\\getenv(\'A\')', 'getenv (\'A\')', '$_ENV[\'A\']'] as $code) {
+            $this->assertNotSame([], self::envReadsIn($code, true, false), $code);
+        }
+        foreach (['$_SERVER[\'A\']', '$_POST[\'a\']', '$_GET[\'a\']', '$_SESSION[\'a\']'] as $code) {
+            $this->assertNotSame([], self::envReadsIn($code, false, true), $code);
+            $this->assertSame([], self::envReadsIn($code, true, false), "{$code} is not an env read");
+        }
+        $this->assertSame([], self::envReadsIn('getenv(\'A\'); $_ENV[\'A\'];', false, true), 'agent/core layers may read env');
+        $this->assertSame([], self::envReadsIn('$x->getenvironment(); $_ENVIRONMENT; $post;', true, true));
+    }
+
+    /** The scans read stripped code, so a forbidden call inside a comment or string is not a violation but real code is. */
+    public function testStrippedCodeKeepsRealCallsAndDropsCommentsAndStrings(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'arch');
+        file_put_contents($path, "<?php\n// getenv('A')\n\$s = 'getenv(1)'; \$v = getenv('B'); \$p = \$_POST['x'];");
+        try {
+            $reads = self::envReadsIn($this->strippedCode($path), true, true);
+        } finally {
+            unlink($path);
+        }
+
+        $this->assertSame(['getenv(', '$_POST'], $reads);
+    }
+
     public function testHarnessNeverReferencesOutside(): void
     {
         $violations = [];
@@ -172,7 +212,7 @@ final class ArchitectureTest extends TestCase
         $violations = [];
         foreach ($this->harnessFiles() as $file) {
             $code = $this->strippedCode($file);
-            foreach (['/\bgetenv\s*\(/', '/\$_ENV\b/', '/\$_SERVER\b/'] as $pattern) {
+            foreach (self::envPatterns(true, true) as $pattern) {
                 if (preg_match($pattern, $code, $match) === 1) {
                     $violations[] = $this->relative($file) . ': ' . $match[0];
                 }
@@ -295,8 +335,15 @@ final class ArchitectureTest extends TestCase
         if ($this->layerOfPath($path) === 'repository' || in_array($path, self::SQL_EXCEPTIONS, true)) {
             return false;
         }
+
+        return self::callsSql((string) file_get_contents($file));
+    }
+
+    /** True when $code calls ->prepare( / ->query( / ->exec( (any case, ->  or ?->); comments are ignored. */
+    private static function callsSql(string $code): bool
+    {
         $tokens = array_values(array_filter(
-            token_get_all((string) file_get_contents($file)),
+            token_get_all($code),
             static fn ($token): bool => !is_array($token) || !in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)
         ));
         $count = count($tokens);
@@ -304,7 +351,7 @@ final class ArchitectureTest extends TestCase
             $operator = $tokens[$i];
             $name = $tokens[$i + 1];
             if (is_array($operator) && in_array($operator[0], [T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR], true)
-                && is_array($name) && $name[0] === T_STRING && in_array($name[1], ['prepare', 'query', 'exec'], true)
+                && is_array($name) && $name[0] === T_STRING && in_array(strtolower($name[1]), ['prepare', 'query', 'exec'], true)
                 && $tokens[$i + 2] === '(') {
                 return true;
             }
@@ -317,23 +364,46 @@ final class ArchitectureTest extends TestCase
     private function forbiddenEnvReads(string $file): array
     {
         $layer = $this->layerOfPath($this->relative($file));
-        $code = $this->strippedCode($file);
-        $patterns = [];
-        if (!in_array($layer, self::ENV_LAYERS, true)) {
-            $patterns[] = '/\bgetenv\s*\(/';
-            $patterns[] = '/\$_ENV\b/';
-        }
-        if (in_array($layer, self::NO_SERVER_LAYERS, true)) {
-            $patterns[] = '/\$_SERVER\b/';
-        }
+
+        return self::envReadsIn(
+            $this->strippedCode($file),
+            !in_array($layer, self::ENV_LAYERS, true),
+            in_array($layer, self::NO_SERVER_LAYERS, true)
+        );
+    }
+
+    /**
+     * @param bool $env     forbid getenv( and $_ENV
+     * @param bool $request forbid $_SERVER, $_POST, $_GET and $_SESSION
+     * @return list<string> forbidden reads found in already-stripped code
+     */
+    private static function envReadsIn(string $code, bool $env, bool $request): array
+    {
         $reads = [];
-        foreach ($patterns as $pattern) {
+        foreach (self::envPatterns($env, $request) as $pattern) {
             if (preg_match($pattern, $code, $match) === 1) {
                 $reads[] = $match[0];
             }
         }
 
         return $reads;
+    }
+
+    /** @return list<string> */
+    private static function envPatterns(bool $env, bool $request): array
+    {
+        $patterns = [];
+        if ($env) {
+            $patterns[] = '/\bgetenv\s*\(/';
+            $patterns[] = '/\$_ENV\b/';
+        }
+        if ($request) {
+            foreach (self::REQUEST_SUPERGLOBALS as $name) {
+                $patterns[] = '/' . preg_quote($name, '/') . '\b/';
+            }
+        }
+
+        return $patterns;
     }
 
     /** Spec §4.1: `to` must be in ALLOWED[from]; when LIMITED names classes for that edge, only those classes pass. */
