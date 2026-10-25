@@ -5,6 +5,9 @@
  */
 
 $data = getJsonInput();
+if (!is_array($data)) {
+    $data = [];
+}
 
 global $pdo;
 
