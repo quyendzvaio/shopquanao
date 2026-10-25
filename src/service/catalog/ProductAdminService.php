@@ -60,4 +60,54 @@ final class ProductAdminService
     {
         return $this->products->allNewestFirst();
     }
+
+    /**
+     * public/admin/edit_product.php: the product row for the raw (already int-cast) id, null when missing.
+     *
+     * @return array<int|string,mixed>|null
+     */
+    public function find(int|string $id): ?array
+    {
+        return $this->products->findById($id);
+    }
+
+    /**
+     * public/admin/add_product.php: inserts name, price, category and image (the page's own, smaller INSERT).
+     *
+     * @param mixed $styleTags the posted style_tags list, stored as the column string
+     */
+    public function createFromAddProductPage(mixed $name, mixed $price, ?int $categoryId, string $image, mixed $styleTags): void
+    {
+        $this->products->insertFromAddProductPage($name, $price, $categoryId, $image, StyleTag::toColumn((array)$styleTags));
+    }
+
+    /**
+     * public/admin/edit_product.php: writes every editable column of the product (NULL included).
+     *
+     * @param mixed $styleTags the posted style_tags list, stored as the column string
+     * @return bool what the statement's execute() returned
+     */
+    public function updateFromEditPage(
+        int $id,
+        mixed $name,
+        mixed $price,
+        int $stock,
+        mixed $description,
+        ?int $categoryId,
+        ?int $subcategoryId,
+        mixed $image,
+        mixed $styleTags
+    ): bool {
+        return $this->products->updateFromEditPage(
+            $id,
+            $name,
+            $price,
+            $stock,
+            $description,
+            $categoryId,
+            $subcategoryId,
+            $image,
+            StyleTag::toColumn((array)$styleTags)
+        );
+    }
 }

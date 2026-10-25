@@ -148,6 +148,38 @@ final class ProductRepository
         return $stmt->rowCount();
     }
 
+    /**
+     * public/admin/add_product.php: the page's own INSERT (no stock, description or subcategory column).
+     * The values are bound as the page prepared them: $name and $price raw, the category null when unset.
+     */
+    public function insertFromAddProductPage(mixed $name, mixed $price, ?int $categoryId, string $image, string $styleTags): void
+    {
+        $stmt = $this->pdo->prepare("INSERT INTO products (name, price, category_id, image, style_tags) VALUES (?, ?, ?, ?, ?)");
+        $stmt->execute([$name, $price, $categoryId, $image, $styleTags]);
+    }
+
+    /**
+     * public/admin/edit_product.php: the page's own full-row UPDATE. Unlike updateFields() it writes every column,
+     * including NULL for the category, the subcategory and the image.
+     *
+     * @return bool what execute() returned
+     */
+    public function updateFromEditPage(
+        int $id,
+        mixed $name,
+        mixed $price,
+        int $stock,
+        mixed $description,
+        ?int $categoryId,
+        ?int $subcategoryId,
+        mixed $image,
+        string $styleTags
+    ): bool {
+        $stmt = $this->pdo->prepare("UPDATE products
+        SET name=?, price=?, stock=?, description=?, category_id=?, subcategory_id=?, image=?, style_tags=? WHERE id=?");
+        return $stmt->execute([$name, $price, $stock, $description, $categoryId, $subcategoryId, $image, $styleTags, $id]);
+    }
+
     /** @return int affected rows */
     public function delete(int $id): int
     {

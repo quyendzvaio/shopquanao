@@ -97,8 +97,12 @@ final class OrderRepository
         return $stmt->fetchAll();
     }
 
-    /** @return int rows changed (0 when the order is missing or already has that status) */
-    public function updateStatus(int $id, string $status): int
+    /**
+     * $status is bound exactly as given: public/admin/manage_orders.php posts it without any whitelist.
+     *
+     * @return int rows changed (0 when the order is missing or already has that status)
+     */
+    public function updateStatus(int $id, mixed $status): int
     {
         $stmt = $this->pdo->prepare("UPDATE orders SET status = ? WHERE id = ?");
         $stmt->execute([$status, $id]);

@@ -152,6 +152,16 @@ final class UserService
     }
 
     /**
+     * public/admin/login.php: the admin account matching this username or email, false when none.
+     *
+     * @return array<int|string,mixed>|false
+     */
+    public function findAdminForAdminLogin(string $username): array|false
+    {
+        return $this->users->findAdminForAdminLogin($username);
+    }
+
+    /**
      * public/login.php: the customer row for this email (any role), false when none.
      *
      * @return array<int|string,mixed>|false

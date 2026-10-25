@@ -41,4 +41,14 @@ final class CategoryService
     {
         return $this->categories->subcategoriesWithCategory();
     }
+
+    /**
+     * public/admin/edit_product.php and manage_products.php: the id and name of every category, by id.
+     *
+     * @return list<array<int|string,mixed>>
+     */
+    public function idAndNames(): array
+    {
+        return $this->categories->idAndNameOrdered();
+    }
 }

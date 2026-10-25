@@ -110,6 +110,18 @@ final class UserRepository
     }
 
     /**
+     * public/admin/login.php: the admin account matching a username or an email (the database path of the admin sign-in).
+     *
+     * @return array<int|string,mixed>|false the users row, false when none (PDO default fetch mode)
+     */
+    public function findAdminForAdminLogin(string $username): array|false
+    {
+        $stmt = $this->pdo->prepare("SELECT * FROM users WHERE (username = ? OR email = ?) AND role = 'admin' LIMIT 1");
+        $stmt->execute([$username, $username]);
+        return $stmt->fetch();
+    }
+
+    /**
      * public/login.php: the users row with this email (any role).
      *
      * @return array<int|string,mixed>|false the users row, false when none (PDO default fetch mode)

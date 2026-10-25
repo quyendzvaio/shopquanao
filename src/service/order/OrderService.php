@@ -104,8 +104,12 @@ final class OrderService
         return $this->orderRows->allWithUsername();
     }
 
-    /** @return int rows changed: 1, or 0 when the order is missing or already has that status (admin) */
-    public function updateStatus(int $orderId, string $status): int
+    /**
+     * $status is the raw posted value (public/admin/manage_orders.php has no whitelist).
+     *
+     * @return int rows changed: 1, or 0 when the order is missing or already has that status (admin)
+     */
+    public function updateStatus(int $orderId, mixed $status): int
     {
         return $this->orderRows->updateStatus($orderId, $status);
     }

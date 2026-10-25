@@ -82,13 +82,6 @@ final class ArchitectureTest extends TestCase
      */
     private const LEGACY_SQL = [
         'public/add_to_cart.php',
-        'public/admin/add_product.php',
-        'public/admin/edit_product.php',
-        'public/admin/index.php',
-        'public/admin/login.php',
-        'public/admin/manage_orders.php',
-        'public/admin/manage_products.php',
-        'public/admin/manage_users.php',
         'public/process_checkout.php',
     ];
 
@@ -97,9 +90,7 @@ final class ArchitectureTest extends TestCase
      *
      * @var list<string>
      */
-    private const LEGACY_ENV = [
-        'public/admin/login.php',
-    ];
+    private const LEGACY_ENV = [];
 
     /**
      * Ratchet: layer-table violations still present, path => referenced classes. Later tasks only remove entries.

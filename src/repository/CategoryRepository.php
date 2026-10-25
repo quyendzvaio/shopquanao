@@ -40,4 +40,14 @@ final class CategoryRepository
      FROM product_subcategories sc JOIN categories c ON c.id = sc.category_id ORDER BY c.id, sc.id"
         )->fetchAll();
     }
+
+    /**
+     * public/admin/edit_product.php and manage_products.php: the id and name of every category for the form select.
+     *
+     * @return list<array<int|string,mixed>> (PDO default fetch mode)
+     */
+    public function idAndNameOrdered(): array
+    {
+        return $this->pdo->query("SELECT id, name FROM categories ORDER BY id")->fetchAll();
+    }
 }
