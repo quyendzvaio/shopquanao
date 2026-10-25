@@ -4,8 +4,11 @@
 /** Batch-loads all structured variant/color data behind one catalog interface. */
 final class CatalogVariantHydrator
 {
+    private VariantRepository $variantRows;
+
     public function __construct(private PDO $pdo)
     {
+        $this->variantRows = new VariantRepository($pdo);
     }
 
     /** @return list<array<string, mixed>> */
@@ -76,19 +79,9 @@ final class CatalogVariantHydrator
     private function loadVariantRows(array $productIds): array
     {
         if ($productIds === []) return [];
-        $placeholders = implode(',', array_fill(0, count($productIds), '?'));
         try {
-            $stmt = $this->pdo->prepare(
-                "SELECT v.id, v.product_id, v.variant_key, v.sku, v.color_id, v.size, v.price, v.stock,
-                        v.is_active, c.canonical_key, c.display_name, c.external_code
-                 FROM product_variants v
-                 LEFT JOIN colors c ON c.id = v.color_id
-                 WHERE v.product_id IN ($placeholders) AND v.is_active = 1
-                 ORDER BY v.product_id, v.id"
-            );
-            $stmt->execute($productIds);
             $byProduct = [];
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            foreach ($this->variantRows->activeByProductIds($productIds) as $row) {
                 $byProduct[(int)$row['product_id']][] = $row;
             }
             return $byProduct;

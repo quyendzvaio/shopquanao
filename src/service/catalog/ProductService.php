@@ -4,12 +4,20 @@
 final class ProductService
 {
     private CatalogVariantHydrator $catalogVariants;
+    private ProductRepository $productRows;
+    private SizeRepository $sizeRows;
+    private ReviewRepository $reviewRows;
+    private CategoryService $categoryList;
 
     private const SEARCH_CACHE_VERSION = 4;
 
     public function __construct(private PDO $pdo, private ?int $userId = null)
     {
         $this->catalogVariants = new CatalogVariantHydrator($pdo);
+        $this->productRows = new ProductRepository($pdo);
+        $this->sizeRows = new SizeRepository($pdo);
+        $this->reviewRows = new ReviewRepository($pdo);
+        $this->categoryList = new CategoryService($pdo);
     }
 
     public function search(array $args): array {
@@ -115,18 +123,120 @@ final class ProductService
             return $cached;
         }
 
-        $stmt = $this->pdo->query("SELECT id, name, canonical_key, family FROM categories ORDER BY id");
-        $result = ['categories' => array_map(
-            fn($category) => [
-                'id' => (int)$category['id'],
-                'name' => (string)$category['name'],
-                'canonical_key' => (string)$category['canonical_key'],
-                'family' => (string)$category['family'],
-            ],
-            $stmt->fetchAll(PDO::FETCH_ASSOC)
-        )];
+        $result = ['categories' => $this->categoryList->taxonomy()];
         Cache::setCategories($result);
         return $result;
+    }
+
+    /**
+     * GET /api/products: hybrid FULLTEXT + LIKE search, filters, sort and optional paging.
+     * $query is the request query string; returns the response body.
+     *
+     * FULLTEXT index ignores words < innodb_ft_min_token_size (default 3).
+     * Vietnamese words like "áo" (2 char) use LIKE fallback.
+     */
+    public function listPage(array $query): array {
+        $limit    = isset($query['limit']) ? min(200, max(1, (int)$query['limit'])) : null;
+        $page     = $limit ? max(1, (int)($query['page'] ?? 1)) : 1;
+        $offset   = $limit ? ($page - 1) * $limit : 0;
+
+        $sort     = $query['sort'] ?? 'newest';
+        $sort     = is_string($sort) ? $sort : 'newest'; // a non-string sort always fell through to the default
+
+        $result = $this->productRows->listPage($this->listFilter($query), $sort, $limit, $offset);
+        $total = $result['total'];
+        $products = $result['rows'];
+
+        // Cast types
+        foreach ($products as &$p) {
+            $p['id']    = (int)$p['id'];
+            $p['price'] = (float)$p['price'];
+            $p['stock'] = (int)$p['stock'];
+            $p['category_id'] = $p['category_id'] ? (int)$p['category_id'] : null;
+        }
+        unset($p);
+        $products = $this->catalogVariants->enrich($products);
+
+        return [
+            'products' => $products,
+            'pagination' => [
+                'page'       => $page,
+                'limit'      => $limit,
+                'total'      => $total,
+                'total_pages'=> $limit ? (int)ceil($total / $limit) : 1,
+            ],
+        ];
+    }
+
+    /**
+     * GET /api/products/{id}: every product column with taxonomy, its legacy sizes and its variants;
+     * null when the product does not exist.
+     */
+    public function detailWithSizes(int $id): ?array {
+        $product = $this->productRows->findWithTaxonomy($id);
+        if (!$product) return null;
+
+        $product['id']    = (int)$product['id'];
+        $product['price'] = (float)$product['price'];
+        $product['stock'] = (int)$product['stock'];
+        $product['category_id'] = $product['category_id'] ? (int)$product['category_id'] : null;
+
+        // Get sizes
+        $product['sizes'] = $this->sizeRows->sizesForProduct($id);
+        $enriched = $this->catalogVariants->enrich([$product]);
+        return $enriched[0] ?? $product;
+    }
+
+    /** Parses the list query string into the filter values Products/list.php has always used. */
+    private function listFilter(array $query): ProductListFilter {
+        $normalizedSearch = CatalogTaxonomy::normalizeSearchArguments([
+            'search' => $query['search'] ?? '',
+            'category' => $query['category'] ?? '',
+            'subcategory' => $query['subcategory'] ?? '',
+        ]);
+        $search   = $normalizedSearch['search'] ?? '';
+        $category = $query['category'] ?? ($normalizedSearch['category_id'] ?? '');
+        $categoryKey = $normalizedSearch['category'] ?? '';
+        $subcategory = $normalizedSearch['subcategory'] ?? '';
+        $color = ProductAttributeNormalizer::normalizeCanonicalColor((string)($query['color'] ?? ''));
+        $minPrice = $query['min_price'] ?? '';
+        $maxPrice = $query['max_price'] ?? '';
+        $inStock  = $query['in_stock'] ?? '';
+
+        $ftsQuery = null;
+        $words = [];
+        if ($search !== '') {
+            $clean = preg_replace('/[^\p{L}\p{N}\s]/u', '', $search);
+            $words = preg_split('/\s+/u', $clean);
+            $words = array_values(array_filter($words, fn($w) => mb_strlen($w) >= 2));
+
+            // FULLTEXT words (≥ 3 chars, indexed)
+            $ftsWords = array_values(array_filter($words, fn($w) => mb_strlen($w) >= 3));
+            if (!empty($ftsWords)) {
+                $ftsQuery = '+' . implode(' +', array_map(function($w) {
+                    return str_replace(['\\', "'"], ['\\\\', "\\'"], $w) . '*';
+                }, $ftsWords));
+            }
+        }
+
+        $categoryFilter = null;
+        if ($category !== '') {
+            $categoryFilter = is_numeric($category) ? (int)$category : (string)$category;
+        } elseif ($categoryKey !== '') {
+            $categoryFilter = $categoryKey;
+        }
+
+        return new ProductListFilter(
+            ftsQuery: $ftsQuery,
+            likeTerm: $search !== '' ? "%$search%" : null,
+            tokens: $words,
+            category: $categoryFilter,
+            subcategory: $subcategory !== '' ? (string)$subcategory : null,
+            minPrice: $minPrice !== '' ? (float)$minPrice : null,
+            maxPrice: $maxPrice !== '' ? (float)$maxPrice : null,
+            inStock: $inStock === '1',
+            color: $color,
+        );
     }
 
     private function normalizeSearchArgs(array $args): array {
@@ -202,68 +312,8 @@ final class ProductService
 
     private function executeSearchProductsDirect(array $args): array {
         $args = $this->normalizeSearchArgs($args);
-        $sql = "SELECT p.id, p.category_id, p.subcategory_id, p.name, p.price, p.stock, p.image, p.description,
-                       c.name as category_name, c.canonical_key as category,
-                       sc.canonical_key as subcategory, sc.display_name as subcategory_name
-                FROM products p
-                LEFT JOIN categories c ON p.category_id = c.id
-                LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.id
-                WHERE 1=1";
-        $params = [];
-
-        if (!empty($args['category_id'])) {
-            $sql .= " AND p.category_id = ?";
-            $params[] = (int)$args['category_id'];
-        }
-        if (!empty($args['subcategory'])) {
-            $sql .= " AND sc.canonical_key = ?";
-            $params[] = (string)$args['subcategory'];
-        }
-        if (!empty($args['min_price'])) {
-            $sql .= " AND p.price >= ?";
-            $params[] = (float)$args['min_price'];
-        }
-        if (!empty($args['max_price'])) {
-            $sql .= " AND p.price <= ?";
-            $params[] = (float)$args['max_price'];
-        }
-        if (($args['in_stock'] ?? null) === true) {
-            $sql .= " AND (p.stock > 0 OR EXISTS (
-                SELECT 1 FROM product_variants av
-                WHERE av.product_id = p.id AND av.is_active = 1 AND COALESCE(av.stock, p.stock) > 0
-            ))";
-        }
-        if (!empty($args['size'])) {
-            $size = ProductAttributeNormalizer::normalizeSize((string)$args['size']);
-            if ($size !== null) {
-                $sql .= " AND (EXISTS (
-                    SELECT 1 FROM product_variants sv
-                    WHERE sv.product_id = p.id AND sv.is_active = 1 AND UPPER(sv.size) = ?
-                ) OR EXISTS (
-                    SELECT 1 FROM product_sizes ps WHERE ps.product_id = p.id AND UPPER(ps.size_name) = ?
-                ))";
-                $params[] = $size;
-                $params[] = $size;
-            }
-        }
-        if (!empty($args['color'])) {
-            $canonicalColor = ProductAttributeNormalizer::normalizeCanonicalColor((string)$args['color']);
-            if ($canonicalColor !== null) {
-                $sql .= " AND (EXISTS (
-                    SELECT 1 FROM product_variants cv
-                    JOIN colors cc ON cc.id = cv.color_id
-                    WHERE cv.product_id = p.id AND cv.is_active = 1 AND cc.canonical_key = ?
-                ) OR NOT EXISTS (
-                    SELECT 1 FROM product_variants nv WHERE nv.product_id = p.id AND nv.is_active = 1
-                ))";
-                $params[] = $canonicalColor;
-            }
-        }
-
-        $sql .= " ORDER BY p.price ASC";
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($params);
-        $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $rows = $this->productRows->search($this->searchCriteria($args));
+        $products = $rows;
 
         $search = mb_strtolower(trim((string)($args['search'] ?? '')));
         if ($search !== '') {
@@ -272,9 +322,7 @@ final class ProductService
                 return mb_strpos(mb_strtolower($p['name'] ?? ''), $search) !== false;
             }));
             if (empty($products) && count($words) > 1) {
-                $stmt = $this->pdo->prepare($sql);
-                $stmt->execute($params);
-                $allProducts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                $allProducts = $rows; // the same query and params: reuse its rows instead of running it twice
                 $products = array_values(array_filter($allProducts, function($p) use ($words) {
                     $name = mb_strtolower($p['name'] ?? '');
                     foreach ($words as $word) {
@@ -308,19 +356,24 @@ final class ProductService
         ];
     }
 
+    private function searchCriteria(array $args): ProductSearchCriteria {
+        $size = !empty($args['size']) ? ProductAttributeNormalizer::normalizeSize((string)$args['size']) : null;
+        $color = !empty($args['color']) ? ProductAttributeNormalizer::normalizeCanonicalColor((string)$args['color']) : null;
+        return new ProductSearchCriteria(
+            categoryId: !empty($args['category_id']) ? (int)$args['category_id'] : null,
+            subcategory: !empty($args['subcategory']) ? (string)$args['subcategory'] : null,
+            minPrice: !empty($args['min_price']) ? (float)$args['min_price'] : null,
+            maxPrice: !empty($args['max_price']) ? (float)$args['max_price'] : null,
+            inStock: ($args['in_stock'] ?? null) === true ? true : null,
+            size: $size,
+            color: $color,
+        );
+    }
+
     private function fetchFreshProductsByIds(array $ids): array {
         $ids = array_values(array_filter(array_unique($ids), fn($id) => $id > 0));
         if ($ids === []) return [];
-        $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        $stmt = $this->pdo->prepare("SELECT p.id, p.category_id, p.subcategory_id, p.name, p.price, p.stock,
-                    p.image, p.description, c.name as category_name, c.canonical_key as category,
-                    sc.canonical_key as subcategory, sc.display_name as subcategory_name
-                FROM products p
-                LEFT JOIN categories c ON p.category_id = c.id
-                LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.id
-                WHERE p.id IN ($placeholders)");
-        $stmt->execute($ids);
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $rows = $this->productRows->cardsByIds($ids);
         $byId = [];
         foreach ($rows as $p) {
             $p['id'] = (int)$p['id'];
@@ -338,9 +391,7 @@ final class ProductService
     }
 
     private function fetchProductFreshById(int $id): ?array {
-        $stmt = $this->pdo->prepare("SELECT id, price, stock FROM products WHERE id = ?");
-        $stmt->execute([$id]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $row = $this->productRows->priceAndStock($id);
         if (!$row) return null;
         return [
             'id' => (int)$row['id'],
@@ -350,31 +401,19 @@ final class ProductService
     }
 
     private function fetchProductDetailStatic(int $id): array {
-        $stmt = $this->pdo->prepare("SELECT p.id, p.category_id, p.subcategory_id, p.name, p.description, p.image,
-                    c.name as category_name, c.canonical_key as category,
-                    sc.canonical_key as subcategory, sc.display_name as subcategory_name
-                FROM products p
-                LEFT JOIN categories c ON p.category_id = c.id
-                LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.id
-                WHERE p.id = ?");
-        $stmt->execute([$id]);
-        $product = $stmt->fetch(PDO::FETCH_ASSOC);
+        $product = $this->productRows->detailStatic($id);
         if (!$product) return ['error' => 'Product not found'];
 
         $product['id'] = (int)$product['id'];
         $product['category_id'] = $product['category_id'] !== null ? (int)$product['category_id'] : null;
         $product['sizes'] = [];
         try {
-            $stmt = $this->pdo->prepare("SELECT * FROM product_sizes WHERE product_id = ?");
-            $stmt->execute([$id]);
-            $product['sizes'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $product['sizes'] = $this->sizeRows->sizesForProduct($id);
         } catch (Throwable $e) {}
         $product['available_colors'] = ProductAttributeNormalizer::extractColorsFromProduct($product);
 
         try {
-            $stmt = $this->pdo->prepare("SELECT AVG(rating) as avg_rating, COUNT(*) as total_reviews FROM reviews WHERE product_id = ?");
-            $stmt->execute([$id]);
-            $rating = $stmt->fetch(PDO::FETCH_ASSOC);
+            $rating = $this->reviewRows->ratingSummary($id);
             $product['avg_rating'] = $rating && $rating['avg_rating'] ? round((float)$rating['avg_rating'], 1) : null;
             $product['total_reviews'] = $rating ? (int)$rating['total_reviews'] : 0;
         } catch (Throwable $e) {
@@ -389,12 +428,9 @@ final class ProductService
         $ids = array_values(array_filter(array_map(fn($p) => (int)($p['id'] ?? 0), $products), fn($id) => $id > 0));
         if ($ids === []) return;
 
-        $placeholders = implode(',', array_fill(0, count($ids), '?'));
         try {
-            $stmt = $this->pdo->prepare("SELECT product_id, size_name FROM product_sizes WHERE product_id IN ($placeholders)");
-            $stmt->execute($ids);
             $sizesByProduct = [];
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            foreach ($this->sizeRows->sizesForProducts($ids) as $row) {
                 $productId = (int)($row['product_id'] ?? 0);
                 $size = ProductAttributeNormalizer::normalizeSize((string)($row['size_name'] ?? ''));
                 if ($productId > 0 && $size !== null) {
