@@ -27,7 +27,7 @@ final class ArchitectureTest extends TestCase
         'tools' => [],
         'response' => ['llm'],
         'memory' => ['repository'],
-        'middleware' => ['turn', 'llm', 'intent', 'response', 'evidence'],
+        'middleware' => ['turn', 'llm', 'intent', 'response', 'evidence', 'repository'],
     ];
 
     /** Edges the table limits to named classes: [from][to] => classes. */
@@ -322,15 +322,25 @@ final class ArchitectureTest extends TestCase
                 if ($to === $from || in_array($to, self::DOMAIN, true)) {
                     continue;
                 }
-                $allowed = in_array($to, self::ALLOWED[$from] ?? [], true);
-                $limit = self::LIMITED[$from][$to] ?? null;
-                if (!$allowed || ($limit !== null && !in_array($class, $limit, true))) {
+                if (!$this->componentEdgeAllowed($from, $class, $to)) {
                     $violations[] = $this->relative($file) . " ({$from}) -> {$class} ({$to})";
                 }
             }
         }
 
         $this->assertSame([], $violations, "dependency not allowed by spec §4.1:\n" . implode("\n", $violations));
+    }
+
+    /** Decision function behind the table, fed synthetic edges so D3 cannot be dead config. */
+    public function testComponentEdgeDecisionHonoursAllowedAndLimited(): void
+    {
+        $this->assertTrue($this->componentEdgeAllowed('middleware', 'ChatMemoryRepository', 'repository'));
+        $this->assertFalse($this->componentEdgeAllowed('middleware', 'OutfitCatalogRepository', 'repository'));
+        $this->assertFalse($this->componentEdgeAllowed('middleware', 'SomeOtherRepository', 'repository'));
+        $this->assertTrue($this->componentEdgeAllowed('memory', 'AnyRepository', 'repository'));
+        $this->assertFalse($this->componentEdgeAllowed('turn', 'ChatMemoryRepository', 'repository'));
+        $this->assertTrue($this->componentEdgeAllowed('middleware', 'TurnContext', 'turn'));
+        $this->assertFalse($this->componentEdgeAllowed('middleware', 'TurnRunner', 'turn'));
     }
 
     public function testNoHarnessFunctionOver80Lines(): void
@@ -455,6 +465,17 @@ final class ArchitectureTest extends TestCase
         }
 
         return $reads;
+    }
+
+    /** Spec §4.1: `to` must be in ALLOWED[from]; when LIMITED names classes for that edge, only those classes pass. */
+    private function componentEdgeAllowed(string $from, string $class, string $to): bool
+    {
+        if (!in_array($to, self::ALLOWED[$from] ?? [], true)) {
+            return false;
+        }
+        $limit = self::LIMITED[$from][$to] ?? null;
+
+        return $limit === null || in_array($class, $limit, true);
     }
 
     /** @return list<string> */
