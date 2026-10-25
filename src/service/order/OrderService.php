@@ -126,4 +126,20 @@ final class OrderService
         $order['total_price'] = (float) $order['total_price'];
         return $order;
     }
+
+    /**
+     * public/profile.php: the user's orders with every column, newest first; the filter is the raw ?status= value.
+     *
+     * @return list<array<int|string,mixed>>
+     */
+    public function listForProfilePage(int|string $userId, mixed $statusFilter): array
+    {
+        return $this->orderRows->listForProfilePage($userId, $statusFilter);
+    }
+
+    /** @return array<string,mixed> total_spent and completed_count of the user's completed orders (empty if none) */
+    public function completedStats(int|string $userId): array
+    {
+        return $this->orderRows->completedStats($userId);
+    }
 }

@@ -23,7 +23,7 @@ final class OrderRepository
     }
 
     /** @return array<string,mixed> total_spent and completed_count of the user's completed orders (empty if none) */
-    public function completedStats(int $userId): array
+    public function completedStats(int|string $userId): array
     {
         $stats = $this->pdo->prepare("SELECT SUM(total_price) AS total_spent, COUNT(*) AS completed_count
             FROM orders WHERE user_id = ? AND status = 'Đã hoàn thành'");
@@ -119,5 +119,28 @@ final class OrderRepository
             ");
         $stmt->execute([$userId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * public/profile.php: the user's orders (all columns), newest first, optionally of one status.
+     * The status filter is bound raw; only the literal 'all' means no filter.
+     *
+     * @return list<array<int|string,mixed>> (PDO default fetch mode)
+     */
+    public function listForProfilePage(int|string $userId, mixed $statusFilter): array
+    {
+        $sql = "SELECT * FROM orders WHERE user_id = ?";
+        $params = [$userId];
+
+        if ($statusFilter !== 'all') {
+            $sql .= " AND status = ?";
+            $params[] = $statusFilter;
+        }
+
+        $sql .= " ORDER BY created_at DESC";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll();
     }
 }

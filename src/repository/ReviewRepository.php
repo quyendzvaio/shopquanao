@@ -43,4 +43,13 @@ final class ReviewRepository
         $stmt = $this->pdo->prepare("INSERT INTO reviews (product_id, user_id, rating, comment) VALUES (?, ?, ?, ?)");
         $stmt->execute([$productId, $userId, $rating, $comment]);
     }
+
+    /**
+     * public/submit_review.php: inserts the review with the form values bound raw (no int casts).
+     */
+    public function addFromReviewForm(mixed $productId, int|string $userId, mixed $rating, string $comment): void
+    {
+        $stmt = $this->pdo->prepare("INSERT INTO reviews (product_id, user_id, rating, comment) VALUES (?, ?, ?, ?)");
+        $stmt->execute([$productId, $userId, $rating, $comment]);
+    }
 }

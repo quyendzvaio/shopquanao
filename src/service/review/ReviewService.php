@@ -46,4 +46,13 @@ final class ReviewService
         }
         $this->reviews->add($productId, $userId, $rating, $comment);
     }
+
+    /**
+     * public/submit_review.php: adds the review from the form, values bound raw. Unlike add() it does not check
+     * that the product exists: a bad id surfaces as the database error the page always reported.
+     */
+    public function addFromReviewForm(mixed $productId, int|string $userId, mixed $rating, string $comment): void
+    {
+        $this->reviews->addFromReviewForm($productId, $userId, $rating, $comment);
+    }
 }

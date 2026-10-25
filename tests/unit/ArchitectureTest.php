@@ -89,11 +89,7 @@ final class ArchitectureTest extends TestCase
         'public/admin/manage_orders.php',
         'public/admin/manage_products.php',
         'public/admin/manage_users.php',
-        'public/login.php',
         'public/process_checkout.php',
-        'public/profile.php',
-        'public/register.php',
-        'public/submit_review.php',
     ];
 
     /**
@@ -103,7 +99,6 @@ final class ArchitectureTest extends TestCase
      */
     private const LEGACY_ENV = [
         'public/admin/login.php',
-        'public/login.php',
     ];
 
     /**

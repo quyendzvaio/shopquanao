@@ -140,4 +140,49 @@ final class UserService
     {
         return $this->users->count();
     }
+
+    /**
+     * public/login.php: the admin account matching an email or username, false when none.
+     *
+     * @return array<int|string,mixed>|false
+     */
+    public function findStorefrontAdmin(string $login): array|false
+    {
+        return $this->users->findAdminByLogin($login);
+    }
+
+    /**
+     * public/login.php: the customer row for this email (any role), false when none.
+     *
+     * @return array<int|string,mixed>|false
+     */
+    public function customerByEmail(string $email): array|false
+    {
+        return $this->users->findByEmail($email);
+    }
+
+    /** public/login.php: stores a fresh API token for the user and returns it. */
+    public function rotateApiToken(int|string $userId): string
+    {
+        $apiToken = bin2hex(random_bytes(32));
+        $this->users->setApiToken($userId, $apiToken);
+        return $apiToken;
+    }
+
+    /** public/register.php: is this email already registered (raw bound, counted by rowCount). */
+    public function emailTaken(mixed $email): bool
+    {
+        return $this->users->emailTakenForRegisterPage($email);
+    }
+
+    /**
+     * public/register.php: hashes the password, generates the API token and inserts the user.
+     * Values are the raw form fields, as the page bound them.
+     */
+    public function registerFromWeb(mixed $username, mixed $email, mixed $password): bool
+    {
+        $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+        $apiToken = bin2hex(random_bytes(32));
+        return $this->users->insertFromRegisterPage($username, $email, $hashed_password, $apiToken);
+    }
 }

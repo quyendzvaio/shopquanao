@@ -34,7 +34,7 @@ final class UserRepository
         return $row === false ? null : $row;
     }
 
-    public function setApiToken(int $id, string $token): void
+    public function setApiToken(int|string $id, string $token): void
     {
         $stmt = $this->pdo->prepare("UPDATE users SET api_token = ? WHERE id = ?");
         $stmt->execute([$token, $id]);
@@ -95,5 +95,51 @@ final class UserRepository
         $stmt = $this->pdo->prepare("UPDATE users SET role = ? WHERE id = ?");
         $stmt->execute([$role, $id]);
         return $stmt->rowCount();
+    }
+
+    /**
+     * public/login.php: the admin account matching an email or a username (the database-admin path).
+     *
+     * @return array<int|string,mixed>|false the users row, false when none (PDO default fetch mode)
+     */
+    public function findAdminByLogin(string $login): array|false
+    {
+        $stmt = $this->pdo->prepare("SELECT * FROM users WHERE (email = ? OR username = ?) AND role = 'admin' LIMIT 1");
+        $stmt->execute([$login, $login]);
+        return $stmt->fetch();
+    }
+
+    /**
+     * public/login.php: the users row with this email (any role).
+     *
+     * @return array<int|string,mixed>|false the users row, false when none (PDO default fetch mode)
+     */
+    public function findByEmail(string $email): array|false
+    {
+        $stmt = $this->pdo->prepare("SELECT * FROM users WHERE email = ?");
+        $stmt->execute([$email]);
+        return $stmt->fetch();
+    }
+
+    /**
+     * public/register.php: is the email taken. Counts rows with rowCount() as the page always did.
+     * The value is bound raw, whatever the form sent.
+     */
+    public function emailTakenForRegisterPage(mixed $email): bool
+    {
+        $check = $this->pdo->prepare("SELECT id FROM users WHERE email = ?");
+        $check->execute([$email]);
+        return $check->rowCount() > 0;
+    }
+
+    /**
+     * public/register.php: inserts the user without role/status (column defaults apply), values bound raw.
+     *
+     * @return bool what PDOStatement::execute returned
+     */
+    public function insertFromRegisterPage(mixed $username, mixed $email, string $passwordHash, string $token): bool
+    {
+        $stmt = $this->pdo->prepare("INSERT INTO users (username, email, password, api_token) VALUES (?, ?, ?, ?)");
+        return $stmt->execute([$username, $email, $passwordHash, $token]);
     }
 }
