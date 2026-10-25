@@ -64,6 +64,39 @@ final class ProductPageTest extends TestCase
         $this->assertTrue($data['loggedIn']);
     }
 
+    /**
+     * Ids bind as raw strings like the old page: "1.5", "abc" and "" match nothing, "50abc" matches id 50.
+     * Only inputs that SQLite and MariaDB treat identically are asserted here.
+     *
+     * @return array<string,array{mixed,bool}>
+     */
+    public static function rawIds(): array
+    {
+        return [
+            'fraction' => ['1.5', true],
+            'letters' => ['abc', true],
+            'empty' => ['', true],
+            'array' => [['1'], true],
+            'exact' => ['50', false],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('rawIds')]
+    public function testRawIdsBindLikeTheOldPage(mixed $id, bool $notFound): void
+    {
+        $pdo = $this->shop();
+        SqliteShop::product($pdo, 1, 1, 'Áo một', 100000, 1, '');
+        SqliteShop::product($pdo, 50, 1, 'Áo năm mươi', 100000, 1, '');
+        $session = [];
+
+        $data = $this->page($pdo)->handle($this->request(['id' => $id]), $session)->data();
+
+        $this->assertSame($notFound, $data['notFound']);
+        if (!$notFound) {
+            $this->assertSame($id, $data['product_id']);
+        }
+    }
+
     public function testGuestIsNotLoggedIn(): void
     {
         $session = [];

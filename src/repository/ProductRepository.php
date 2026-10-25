@@ -7,8 +7,12 @@ final class ProductRepository
     {
     }
 
-    /** @return array<int|string,mixed>|null the raw products row (PDO default fetch mode) */
-    public function findById(int $id): ?array
+    /**
+     * $id may be a raw query-string value: public/product.php binds it as a string, exactly as it always did.
+     *
+     * @return array<int|string,mixed>|null the raw products row (PDO default fetch mode)
+     */
+    public function findById(int|string $id): ?array
     {
         $stmt = $this->pdo->prepare("SELECT * FROM products WHERE id = ?");
         $stmt->execute([$id]);

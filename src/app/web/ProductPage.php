@@ -10,7 +10,8 @@ final class ProductPage
     public function handle(WebRequest $request, array &$session): PageResult
     {
         $product_id = $request->query['id'] ?? 0;
-        $product = is_scalar($product_id) ? $this->products->pageRow((int) $product_id) : null;
+        // Raw query-string value, bound as a string exactly as the page always did (no int cast).
+        $product = is_string($product_id) || is_int($product_id) ? $this->products->pageRow($product_id) : null;
 
         if (!$product) {
             return PageResult::view(['notFound' => true]);
@@ -20,8 +21,8 @@ final class ProductPage
             'notFound' => false,
             'product_id' => $product_id,
             'product' => $product,
-            'sizes' => $this->products->pageSizes((int) $product_id),
-            'reviews' => $this->reviews->forProductLegacyJoin((int) $product_id),
+            'sizes' => $this->products->pageSizes($product_id),
+            'reviews' => $this->reviews->forProductLegacyJoin($product_id),
             'loggedIn' => isset($session['user_id']),
         ]);
     }

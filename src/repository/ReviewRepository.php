@@ -31,7 +31,7 @@ final class ReviewRepository
      *
      * @return list<array<int|string,mixed>> (PDO default fetch mode)
      */
-    public function forProductLegacyJoin(int $productId): array
+    public function forProductLegacyJoin(int|string $productId): array
     {
         $stmt = $this->pdo->prepare("SELECT r.*, u.username FROM reviews r JOIN users u ON r.id = u.id WHERE r.product_id = ? ORDER BY r.created_at DESC");
         $stmt->execute([$productId]);

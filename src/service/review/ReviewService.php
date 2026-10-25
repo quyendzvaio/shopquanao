@@ -23,7 +23,7 @@ final class ReviewService
      *
      * @return list<array<int|string,mixed>> reviews joined on r.id = u.id, newest first
      */
-    public function forProductLegacyJoin(int $productId): array
+    public function forProductLegacyJoin(int|string $productId): array
     {
         return $this->reviews->forProductLegacyJoin($productId);
     }

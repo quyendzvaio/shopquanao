@@ -193,12 +193,12 @@ final class ProductService
     }
 
     /** public/product.php: the raw products row of the product page, or null when it does not exist. */
-    public function pageRow(int $id): ?array {
+    public function pageRow(int|string $id): ?array {
         return $this->productRows->findById($id);
     }
 
     /** public/product.php: the legacy product_sizes rows of the product page. */
-    public function pageSizes(int $id): array {
+    public function pageSizes(int|string $id): array {
         return $this->sizeRows->sizesForProduct($id);
     }
 

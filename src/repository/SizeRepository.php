@@ -7,8 +7,12 @@ final class SizeRepository
     {
     }
 
-    /** @return list<array<int|string,mixed>> every product_sizes column of one product */
-    public function sizesForProduct(int $productId, int $fetchMode = PDO::FETCH_ASSOC): array
+    /**
+     * $productId may be a raw query-string value (public/product.php binds it as a string).
+     *
+     * @return list<array<int|string,mixed>> every product_sizes column of one product
+     */
+    public function sizesForProduct(int|string $productId, int $fetchMode = PDO::FETCH_ASSOC): array
     {
         $stmt = $this->pdo->prepare("SELECT * FROM product_sizes WHERE product_id = ?");
         $stmt->execute([$productId]);
