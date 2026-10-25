@@ -46,7 +46,7 @@ final class OrderService
         ];
     }
 
-    public function detail(int $userId, int $orderId): array
+    public function detail(int|string $userId, int $orderId): array
     {
         $order = $this->orderRows->findForUser($orderId, $userId);
         if (!$order) {

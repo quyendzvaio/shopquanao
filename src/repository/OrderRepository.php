@@ -32,7 +32,7 @@ final class OrderRepository
     }
 
     /** @return array<string,mixed>|null the order, only if it belongs to the user */
-    public function findForUser(int $orderId, int $userId): ?array
+    public function findForUser(int $orderId, int|string $userId): ?array
     {
         $stmt = $this->pdo->prepare('SELECT id, total_price, status, created_at FROM orders WHERE id = ? AND user_id = ?');
         $stmt->execute([$orderId, $userId]);

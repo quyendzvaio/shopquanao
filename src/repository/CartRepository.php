@@ -61,7 +61,7 @@ final class CartRepository
     }
 
     /** @return int lines deleted (0 when the line is missing or not the user's) */
-    public function deleteLine(int $cartId, int $userId): int
+    public function deleteLine(int $cartId, int|string $userId): int
     {
         $stmt = $this->pdo->prepare('DELETE FROM cart WHERE id = ? AND user_id = ?');
         $stmt->execute([$cartId, $userId]);
@@ -80,5 +80,56 @@ final class CartRepository
         $stmt->execute([$userId]);
         $row = $stmt->fetch();
         return isset($row['total']) ? (int) $row['total'] : null;
+    }
+
+    /**
+     * public/cart.php's list query, kept verbatim (no ORDER BY, c.size and subtotal only): not itemsWithProduct,
+     * which orders by c.id. The user id is the raw session value.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function itemsForCartPage(int|string $userId): array
+    {
+        $stmt = $this->pdo->prepare("
+    SELECT c.id as cart_id, p.id as product_id, p.name, p.price, p.image, c.quantity, c.size, (p.price * c.quantity) as subtotal 
+    FROM cart c 
+    JOIN products p ON c.product_id = p.id 
+    WHERE c.user_id = ?
+");
+        $stmt->execute([$userId]);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * public/checkout.php's summary query, kept verbatim. The user id is the raw session value.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function itemsForCheckoutPage(int|string $userId): array
+    {
+        $stmt = $this->pdo->prepare("
+    SELECT p.name, p.price, c.quantity, (p.price * c.quantity) as subtotal 
+    FROM cart c JOIN products p ON c.product_id = p.id 
+    WHERE c.user_id = ?
+");
+        $stmt->execute([$userId]);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * public/update_cart.php (Part B plan D4): the quantity is written exactly as sent, with no stock or
+     * range check. All three values are the raw request/session values.
+     */
+    public function setQuantityUnchecked(mixed $quantity, mixed $cartId, mixed $userId): void
+    {
+        $stmt = $this->pdo->prepare("UPDATE cart SET quantity = ? WHERE id = ? AND user_id = ?");
+        $stmt->execute([$quantity, $cartId, $userId]);
+    }
+
+    /** public/update_cart.php (Part B plan D4): the size is written exactly as sent, unvalidated. */
+    public function setSizeUnchecked(mixed $size, mixed $cartId, mixed $userId): void
+    {
+        $stmt = $this->pdo->prepare("UPDATE cart SET size = ? WHERE id = ? AND user_id = ?");
+        $stmt->execute([$size, $cartId, $userId]);
     }
 }

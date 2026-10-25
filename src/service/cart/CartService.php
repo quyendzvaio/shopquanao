@@ -117,4 +117,38 @@ final class CartService
     {
         return $this->cartRows->totalQuantity($userId) ?? 0;
     }
+
+    /**
+     * public/cart.php's list, unordered and uncast, exactly as the page rendered it.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function itemsForCartPage(int|string $userId): array
+    {
+        return $this->cartRows->itemsForCartPage($userId);
+    }
+
+    /** @return list<array<string,mixed>> public/checkout.php's order summary lines */
+    public function itemsForCheckoutPage(int|string $userId): array
+    {
+        return $this->cartRows->itemsForCheckoutPage($userId);
+    }
+
+    /** Deletes the user's cart line without throwing when it is missing (public/cart.php?remove=). */
+    public function removeLine(int|string $userId, int $cartId): void
+    {
+        $this->cartRows->deleteLine($cartId, $userId);
+    }
+
+    /** D4 (Part B plan): public/update_cart.php writes the quantity unchecked, as the page always did. */
+    public function setQuantityUnchecked(mixed $cartId, mixed $quantity, mixed $userId): void
+    {
+        $this->cartRows->setQuantityUnchecked($quantity, $cartId, $userId);
+    }
+
+    /** D4 (Part B plan): public/update_cart.php writes the size unchecked, as the page always did. */
+    public function setSizeUnchecked(mixed $cartId, mixed $size, mixed $userId): void
+    {
+        $this->cartRows->setSizeUnchecked($size, $cartId, $userId);
+    }
 }
