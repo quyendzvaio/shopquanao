@@ -11,7 +11,7 @@ final class FinalReviewMinorsTest extends TestCase
     {
         $pdo = SqliteShop::pdo();
         $pdo->exec("INSERT INTO chat_session_memory (session_id, summary, slots) VALUES (9, '', '{\"size\":\"M\"}')");
-        (new FreeShippingNudge($pdo, 9))->remember('cart-fingerprint-abc');
+        (new FreeShippingNudge(new ChatMemoryRepository($pdo), 9, new FreeShippingPolicy(), new FreeShippingService($pdo, new FreeShippingPolicy())))->remember('cart-fingerprint-abc');
 
         (new ChatbotMemory($pdo, 9))->refreshSummary();
 
@@ -19,7 +19,7 @@ final class FinalReviewMinorsTest extends TestCase
         $this->assertStringContainsString('- size: M', (string)$row['summary']);
         $this->assertStringNotContainsString('freeship_nudged_fingerprint', (string)$row['summary']);
         $this->assertStringNotContainsString('cart-fingerprint-abc', (string)$row['summary']);
-        $this->assertSame('cart-fingerprint-abc', (new FreeShippingNudge($pdo, 9))->lastFingerprint(), 'ledger slot itself is kept');
+        $this->assertSame('cart-fingerprint-abc', (new FreeShippingNudge(new ChatMemoryRepository($pdo), 9, new FreeShippingPolicy(), new FreeShippingService($pdo, new FreeShippingPolicy())))->lastFingerprint(), 'ledger slot itself is kept');
     }
 
     public function testNonNumericFreeShippingEnvFallsBackToDefaults(): void

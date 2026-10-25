@@ -16,6 +16,15 @@ final class UserRepository
         return $row === false ? null : $row;
     }
 
+    /** @return int|null id of the user holding this API token (the chatbot session lookup) */
+    public function idByApiToken(string $token): ?int
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM users WHERE api_token = ?');
+        $stmt->execute([$token]);
+        $user = $stmt->fetch();
+        return $user ? (int) $user['id'] : null;
+    }
+
     /** @return array<int|string,mixed>|null the full users row matching an email or a username (PDO default fetch mode) */
     public function findByEmailOrUsername(string $login): ?array
     {

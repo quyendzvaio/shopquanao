@@ -100,11 +100,6 @@ final class ArchitectureTest extends TestCase
         'public/register.php',
         'public/submit_review.php',
         'public/update_cart.php',
-        'src/app/api/controllers/Chatbot/history.php',
-        'src/harness/memory/ChatbotMemory.php',
-        'src/harness/memory/ChatbotSessionContext.php',
-        'src/harness/memory/PdoChatbotConversationStore.php',
-        'src/harness/middleware/FreeShippingNudge.php',
         'templates/partials/header.php',
     ];
 
@@ -129,8 +124,6 @@ final class ArchitectureTest extends TestCase
      * @var array<string,list<string>>
      */
     private const LEGACY_EDGES = [
-        'src/app/api/controllers/Chatbot/index.php' => ['ChatbotSessionContext'],
-        'src/app/api/controllers/Chatbot/stream.php' => ['ChatbotSessionContext', 'LLMTransportException'],
         'src/app/api/controllers/Internal/mcp.php' => ['ToolApplicationService'],
     ];
 

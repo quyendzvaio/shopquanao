@@ -30,20 +30,20 @@ $emit = static function (array $event): void {
 };
 
 try {
-    $context = ChatbotSessionContext::resolve($pdo, $sessionToken, getBearerToken());
+    // open() resolves the session only; the harness is assembled on the first turn, after this progress event.
+    $chatbot = ChatbotService::open($pdo, $sessionToken, getBearerToken());
     $emit(['type' => 'chat.progress', 'stage' => 'pipeline']);
-    $chatbot = new ChatbotService($pdo, $context->sessionId, $context->userId);
     $result = $chatbot->respondStreaming($message, static function (string $delta) use ($emit): void {
         $emit(['type' => 'chat.delta', 'delta' => $delta]);
     });
 
     $cards = ChatStreamProtocol::cards(is_array($result['products'] ?? null) ? $result['products'] : []);
     if ($cards !== []) $emit(['type' => 'chat.cards', 'products' => $cards]);
-    $context->touch($pdo);
+    $chatbot->touchSession();
     $emit([
         'type' => 'chat.complete',
-        'session_token' => $context->sessionToken,
-        'session_id' => $context->sessionId,
+        'session_token' => $chatbot->sessionToken(),
+        'session_id' => $chatbot->sessionId(),
         'response_type' => $result['response_type'] ?? 'final_answer',
         'primary_intent' => $result['primary_intent'] ?? 'unknown',
         'trace_id' => $result['trace_id'] ?? null,
@@ -60,7 +60,7 @@ try {
     error_log(json_encode([
         'operation' => 'chatbot_stream',
         'success' => false,
-        'error_category' => $error instanceof LLMTransportException ? $error->category : 'runtime_failure',
+        'error_category' => ChatbotService::errorCategory($error),
     ], JSON_UNESCAPED_SLASHES));
     $emit(['type' => 'chat.error', 'code' => 'STREAM_FAILED', 'message' => 'Không thể tạo câu trả lời dạng streaming, vui lòng thử lại.']);
 }
