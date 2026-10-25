@@ -9,12 +9,8 @@ require_once __DIR__ . '/../../src/bootstrap.php';
 
 $total_items = 0;
 if (isset($_SESSION['user_id'])) {
-    // Truy vấn tổng số lượng của tất cả sản phẩm trong giỏ của User này
-    $stmt_count = $pdo->prepare("SELECT SUM(quantity) as total FROM cart WHERE user_id = ?");
-    $stmt_count->execute([$_SESSION['user_id']]);
-    $row = $stmt_count->fetch();
-    
-    $total_items = $row['total'] ?? 0;
+    // Tổng số lượng của tất cả sản phẩm trong giỏ của User này
+    $total_items = (new CartService($pdo))->itemCount((int) $_SESSION['user_id']);
 }
 ?>
 <!DOCTYPE html>

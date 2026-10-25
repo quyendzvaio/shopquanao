@@ -18,6 +18,16 @@ final class ReviewService
         return $this->reviews->forProductWithUsername($productId);
     }
 
+    /**
+     * The reviews list of public/product.php. Known bug kept for byte identity (Part B plan D4); fix in follow-up.
+     *
+     * @return list<array<int|string,mixed>> reviews joined on r.id = u.id, newest first
+     */
+    public function forProductLegacyJoin(int $productId): array
+    {
+        return $this->reviews->forProductLegacyJoin($productId);
+    }
+
     /** @return array{avg_rating:?float,total_reviews:int} the average (one decimal, null when unrated) and the count */
     public function ratingSummary(int $productId): array
     {

@@ -24,6 +24,20 @@ final class ReviewRepository
         return $stmt->fetchAll();
     }
 
+    /**
+     * public/product.php: the reviews list of the product page.
+     * Known bug kept for byte identity (Part B plan D4); fix in follow-up.
+     * The join compares r.id with u.id instead of r.user_id with u.id.
+     *
+     * @return list<array<int|string,mixed>> (PDO default fetch mode)
+     */
+    public function forProductLegacyJoin(int $productId): array
+    {
+        $stmt = $this->pdo->prepare("SELECT r.*, u.username FROM reviews r JOIN users u ON r.id = u.id WHERE r.product_id = ? ORDER BY r.created_at DESC");
+        $stmt->execute([$productId]);
+        return $stmt->fetchAll();
+    }
+
     public function add(int $productId, int $userId, int $rating, string $comment): void
     {
         $stmt = $this->pdo->prepare("INSERT INTO reviews (product_id, user_id, rating, comment) VALUES (?, ?, ?, ?)");

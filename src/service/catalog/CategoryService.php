@@ -16,6 +16,12 @@ final class CategoryService
         return $this->categories->allOrdered();
     }
 
+    /** @return list<array<int|string,mixed>> every categories row in table order (the home page filter bar) */
+    public function homeFilter(): array
+    {
+        return $this->categories->allForHomeFilter();
+    }
+
     /** @return list<array{id:int,name:string,canonical_key:string,family:string}> typed taxonomy, by id */
     public function taxonomy(): array
     {

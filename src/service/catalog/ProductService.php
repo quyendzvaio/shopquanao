@@ -187,6 +187,21 @@ final class ProductService
         return $enriched[0] ?? $product;
     }
 
+    /** public/index.php: the home page grid (name LIKE, optional category); raw query-string values. */
+    public function homeListing(mixed $search, mixed $category): array {
+        return $this->productRows->homeListing($search, $category);
+    }
+
+    /** public/product.php: the raw products row of the product page, or null when it does not exist. */
+    public function pageRow(int $id): ?array {
+        return $this->productRows->findById($id);
+    }
+
+    /** public/product.php: the legacy product_sizes rows of the product page. */
+    public function pageSizes(int $id): array {
+        return $this->sizeRows->sizesForProduct($id);
+    }
+
     /** Parses the list query string into the filter values Products/list.php has always used. */
     private function listFilter(array $query): ProductListFilter {
         $normalizedSearch = CatalogTaxonomy::normalizeSearchArguments([

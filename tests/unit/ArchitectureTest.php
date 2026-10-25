@@ -91,16 +91,13 @@ final class ArchitectureTest extends TestCase
         'public/admin/manage_users.php',
         'public/cart.php',
         'public/checkout.php',
-        'public/index.php',
         'public/login.php',
         'public/order_details.php',
         'public/process_checkout.php',
-        'public/product.php',
         'public/profile.php',
         'public/register.php',
         'public/submit_review.php',
         'public/update_cart.php',
-        'templates/partials/header.php',
     ];
 
     /**

@@ -16,6 +16,27 @@ final class ProductRepository
         return $row === false ? null : $row;
     }
 
+    /**
+     * public/index.php: the home page grid, a name LIKE filter plus an optional category.
+     * $search and $category are the raw query-string values, bound exactly as the page always did.
+     *
+     * @return list<array<int|string,mixed>> every products column (PDO default fetch mode)
+     */
+    public function homeListing(mixed $search, mixed $category): array
+    {
+        $sql = "SELECT * FROM products WHERE name LIKE ?";
+        $params = ["%$search%"];
+
+        if ($category) {
+            $sql .= " AND category_id = ?";
+            $params[] = $category;
+        }
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll();
+    }
+
     /** @return array<string,mixed>|null every product column plus category/subcategory keys and names */
     public function findWithTaxonomy(int $id): ?array
     {

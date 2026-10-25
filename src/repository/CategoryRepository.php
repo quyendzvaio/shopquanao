@@ -14,6 +14,17 @@ final class CategoryRepository
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    /**
+     * public/index.php: the home page filter bar. Unordered on purpose, exactly as the page has always read it.
+     *
+     * @return list<array<int|string,mixed>> every categories column (PDO default fetch mode)
+     */
+    public function allForHomeFilter(): array
+    {
+        $stmt = $this->pdo->query("SELECT * FROM categories");
+        return $stmt->fetchAll();
+    }
+
     /** @return list<array<string,mixed>> id, name, canonical_key and family of every category, by id */
     public function taxonomyList(): array
     {
