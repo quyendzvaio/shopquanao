@@ -111,11 +111,6 @@ final class ArchitectureTest extends TestCase
     private const LEGACY_ENV = [
         'public/admin/login.php',
         'public/login.php',
-        'src/app/api/controllers/Internal/mcp.php',
-        'src/app/api/support/ChatStreamProtocol.php',
-        'src/model/FreeShippingPolicy.php',
-        'src/service/catalog/ProductReranker.php',
-        'src/service/knowledge/KnowledgeRetriever.php',
     ];
 
     /**
@@ -123,9 +118,7 @@ final class ArchitectureTest extends TestCase
      *
      * @var array<string,list<string>>
      */
-    private const LEGACY_EDGES = [
-        'src/app/api/controllers/Internal/mcp.php' => ['ToolApplicationService'],
-    ];
+    private const LEGACY_EDGES = [];
 
     /** @var array<string,string>|null class => component */
     private static ?array $components = null;

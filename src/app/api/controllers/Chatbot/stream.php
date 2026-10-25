@@ -16,7 +16,7 @@ $data = getJsonInput();
 $message = trim((string)($data['message'] ?? ''));
 $sessionToken = trim((string)($data['session_token'] ?? ''));
 if ($message === '') errorResponse('Message is required', 400);
-$rejection = ChatStreamProtocol::rejectBrowserRequest($message, $_SERVER);
+$rejection = ChatStreamProtocol::rejectBrowserRequest($message, $_SERVER, AppConfig::fromEnvironment());
 if ($rejection !== null) errorResponse($rejection['message'], $rejection['status']);
 
 header('Content-Type: text/event-stream; charset=utf-8');

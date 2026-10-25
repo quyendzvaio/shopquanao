@@ -5,7 +5,7 @@ $id = (int)($route_params['id'] ?? 0);
 
 if (!$id) errorResponse('Product ID required', 400);
 
-$product = (new ProductService($pdo))->detailWithSizes($id);
+$product = (new ProductService($pdo, null, ServiceConfig::fromEnvironment()->rerankerUrl))->detailWithSizes($id);
 
 if (!$product) errorResponse('Product not found', 404);
 

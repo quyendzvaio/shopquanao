@@ -11,7 +11,6 @@ class KnowledgeRetriever {
     public const COLLECTION = 'shop_knowledge_v2';
     public const VECTOR_SIZE = 768;
     private const PREPROCESS_VERSION = 'v1';
-    private const DEFAULT_HYBRID_CANDIDATES = 12;
 
     private PDO $pdo;
     private string $rootDir;
@@ -21,24 +20,20 @@ class KnowledgeRetriever {
     private string $embeddingProvider;
     private string $embeddingModel;
     private int $hybridCandidates;
+    private ServiceConfig $config;
     private array $cacheMetrics = [];
     private array $spans = [];
 
-    public function __construct(PDO $pdo, ?string $rootDir = null, ?string $qdrantUrl = null, ?string $ragMlUrl = null) {
+    public function __construct(PDO $pdo, ServiceConfig $config, ?string $rootDir = null) {
         $this->pdo = $pdo;
+        $this->config = $config;
         $this->rootDir = $rootDir ?: dirname(__DIR__, 3);
-        $envUrl = getenv('QDRANT_URL');
-        $this->qdrantUrl = $qdrantUrl ?? (($envUrl !== false && $envUrl !== '') ? rtrim($envUrl, '/') : null);
-        $envRagMlUrl = getenv('RAG_ML_URL');
-        $this->ragMlUrl = $ragMlUrl ?? (($envRagMlUrl !== false && $envRagMlUrl !== '') ? rtrim($envRagMlUrl, '/') : null);
-        $envCollection = getenv('KNOWLEDGE_COLLECTION');
-        $this->collection = ($envCollection !== false && $envCollection !== '') ? $envCollection : self::COLLECTION;
-        $envProvider = getenv('EMBEDDING_PROVIDER');
-        $this->embeddingProvider = ($envProvider !== false && $envProvider !== '') ? $envProvider : 'rag_ml';
-        $envModel = getenv('EMBEDDING_MODEL');
-        $this->embeddingModel = ($envModel !== false && $envModel !== '') ? $envModel : 'bkai-foundation-models/vietnamese-bi-encoder';
-        $envCandidates = getenv('KNOWLEDGE_HYBRID_CANDIDATES');
-        $this->hybridCandidates = max(5, min(20, (int)(($envCandidates !== false && $envCandidates !== '') ? $envCandidates : self::DEFAULT_HYBRID_CANDIDATES)));
+        $this->qdrantUrl = $config->qdrantUrl;
+        $this->ragMlUrl = $config->ragMlUrl;
+        $this->collection = $config->knowledgeCollection;
+        $this->embeddingProvider = $config->embeddingProvider;
+        $this->embeddingModel = $config->embeddingModel;
+        $this->hybridCandidates = max(5, min(20, $config->knowledgeHybridCandidates));
     }
 
     public function search(string $query, ?string $category = null, int $limit = 5): array {
@@ -66,7 +61,7 @@ class KnowledgeRetriever {
             'limit' => $limit,
             'collection' => $this->collection,
             'embedding_model' => $this->embeddingModel,
-            'knowledge_version' => getenv('KNOWLEDGE_VERSION') ?: 'v1',
+            'knowledge_version' => $this->config->knowledgeVersion,
             'preprocess' => self::PREPROCESS_VERSION,
             'v' => 4,
         ];
@@ -349,8 +344,8 @@ class KnowledgeRetriever {
         $rerankCacheParams = [
             'query_hash' => hash('sha256', $query),
             'candidate_ids_hash' => hash('sha256', implode('|', $candidateIds)),
-            'model' => getenv('KNOWLEDGE_RERANKER_MODEL') ?: 'itdainb/PhoRanker',
-            'knowledge_version' => getenv('KNOWLEDGE_VERSION') ?: 'v1',
+            'model' => $this->config->knowledgeRerankerModel,
+            'knowledge_version' => $this->config->knowledgeVersion,
             'limit' => $limit,
         ];
         $response = Cache::getRerank($rerankCacheParams);
@@ -359,7 +354,7 @@ class KnowledgeRetriever {
         } else {
             $payload = ['query' => $query, 'texts' => $texts];
             $start = microtime(true);
-            $response = $this->requestRagMl('/rerank', $payload, $this->ragMlTimeout('RAG_RERANK_TIMEOUT', 6));
+            $response = $this->requestRagMl('/rerank', $payload, $this->config->ragRerankTimeout);
             $this->spans['rerank_ms'] = (int)((microtime(true) - $start) * 1000);
             if (is_array($response) && isset($response['sorted_indices'])) {
                 Cache::setRerank($rerankCacheParams, $response);
@@ -412,7 +407,7 @@ class KnowledgeRetriever {
             return array_map('floatval', $cached);
         }
         $start = microtime(true);
-        $response = $this->requestRagMl('/embed', ['texts' => [$text]], $this->ragMlTimeout('RAG_EMBED_TIMEOUT', 8));
+        $response = $this->requestRagMl('/embed', ['texts' => [$text]], $this->config->ragEmbedTimeout);
         $this->spans['embedding_ms'] = (int)((microtime(true) - $start) * 1000);
         if (!is_array($response) || empty($response['embeddings'][0]) || !is_array($response['embeddings'][0])) {
             return null;
@@ -440,12 +435,6 @@ class KnowledgeRetriever {
         if ($raw === false || $raw === '' || $httpCode >= 400) return null;
         $data = json_decode($raw, true);
         return is_array($data) ? $data : null;
-    }
-
-    private function ragMlTimeout(string $key, int $default): int {
-        $value = getenv($key);
-        if ($value === false || $value === '') return $default;
-        return max(1, (int)$value);
     }
 
     private function documentKey(array $doc): string {

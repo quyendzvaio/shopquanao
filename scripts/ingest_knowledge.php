@@ -10,7 +10,7 @@
  */
 require_once dirname(__DIR__) . '/src/bootstrap.php';
 
-$retriever = new KnowledgeRetriever($pdo, dirname(__DIR__));
+$retriever = new KnowledgeRetriever($pdo, ServiceConfig::fromEnvironment(), dirname(__DIR__));
 $documents = $retriever->getDocuments();
 $result = $retriever->upsertToQdrant($documents);
 

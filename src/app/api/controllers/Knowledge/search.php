@@ -9,7 +9,7 @@ if ($query === '') {
 }
 
 global $pdo;
-$retriever = new KnowledgeRetriever($pdo);
+$retriever = new KnowledgeRetriever($pdo, ServiceConfig::fromEnvironment());
 $result = $retriever->search($query, $category !== '' ? $category : null, $limit);
 
 jsonResponse($result);

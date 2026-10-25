@@ -23,7 +23,7 @@ $sessionToken = trim($data['session_token'] ?? '');
 if (!$message) {
     errorResponse('Message is required', 400);
 }
-$rejection = ChatStreamProtocol::rejectBrowserRequest($message, $_SERVER);
+$rejection = ChatStreamProtocol::rejectBrowserRequest($message, $_SERVER, AppConfig::fromEnvironment());
 if ($rejection !== null) errorResponse($rejection['message'], $rejection['status']);
 
 // The PHP service persists messages and tool diagnostics while keeping

@@ -11,7 +11,7 @@ final class ProductService
 
     private const SEARCH_CACHE_VERSION = 4;
 
-    public function __construct(private PDO $pdo, private ?int $userId = null)
+    public function __construct(private PDO $pdo, private ?int $userId = null, private ?string $rerankerUrl = null)
     {
         $this->catalogVariants = new CatalogVariantHydrator($pdo);
         $this->productRows = new ProductRepository($pdo);
@@ -73,7 +73,7 @@ final class ProductService
         $result = $this->executeSearchProductsDirect($args);
 
         if (!isset($result['error']) && !empty($result['products'])) {
-            $result = (new ProductReranker())->apply($args['search'] ?? '', $result);
+            $result = (new ProductReranker($this->rerankerUrl))->apply($args['search'] ?? '', $result);
         }
 
         if (!isset($result['error'])) {

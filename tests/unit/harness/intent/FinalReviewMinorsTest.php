@@ -29,7 +29,7 @@ final class FinalReviewMinorsTest extends TestCase
         putenv('FREE_SHIPPING_THRESHOLD=abc');
         putenv('FREESHIP_NUDGE_MAX_GAP=200k');
         try {
-            $policy = FreeShippingPolicy::fromEnvironment();
+            $policy = HarnessConfig::fromEnvironment()->freeShipping;
         } finally {
             putenv($threshold === false ? 'FREE_SHIPPING_THRESHOLD' : "FREE_SHIPPING_THRESHOLD=$threshold");
             putenv($gap === false ? 'FREESHIP_NUDGE_MAX_GAP' : "FREESHIP_NUDGE_MAX_GAP=$gap");
@@ -44,7 +44,7 @@ final class FinalReviewMinorsTest extends TestCase
         $threshold = getenv('FREE_SHIPPING_THRESHOLD');
         putenv('FREE_SHIPPING_THRESHOLD=300000');
         try {
-            $this->assertSame(300000, FreeShippingPolicy::fromEnvironment()->threshold);
+            $this->assertSame(300000, HarnessConfig::fromEnvironment()->freeShipping->threshold);
         } finally {
             putenv($threshold === false ? 'FREE_SHIPPING_THRESHOLD' : "FREE_SHIPPING_THRESHOLD=$threshold");
         }

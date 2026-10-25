@@ -6,4 +6,4 @@
 
 global $pdo;
 
-jsonResponse((new ProductService($pdo))->listPage($_GET));
+jsonResponse((new ProductService($pdo, null, ServiceConfig::fromEnvironment()->rerankerUrl))->listPage($_GET));
