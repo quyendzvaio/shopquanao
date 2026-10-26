@@ -41,6 +41,33 @@ final class UpdateCartActionTest extends TestCase
         $this->assertSame('99', (string) $pdo->query('SELECT quantity FROM cart WHERE id = 1')->fetchColumn());
     }
 
+    /** @return array<string,array{0:string|int}> */
+    public static function badQuantities(): array
+    {
+        return ['negative' => ['-5'], 'zero' => ['0'], 'text' => ['abc'], 'decimal' => ['2.5'], 'padded' => [' 3'], 'signed' => ['+3'], 'huge' => ['99999999999999999999']];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('badQuantities')]
+    public function testANonPositiveOrNonIntegerQuantityIsANoOpThatStillRedirects(string $value): void
+    {
+        $pdo = $this->shop();
+
+        $result = $this->visit($pdo, ['id' => '1', 'value' => $value, 'type' => 'qty'], ['user_id' => 5]);
+
+        $this->assertSame('redirect', $result->kind());
+        $this->assertSame('cart.php', $result->payload());
+        $this->assertSame(['quantity' => 2, 'size' => 'M'], $this->line($pdo, 1));
+    }
+
+    public function testAPositiveIntegerQuantityIsWritten(): void
+    {
+        $pdo = $this->shop();
+
+        $this->visit($pdo, ['id' => '1', 'value' => '3', 'type' => 'qty'], ['user_id' => 5]);
+
+        $this->assertSame(['quantity' => 3, 'size' => 'M'], $this->line($pdo, 1));
+    }
+
     public function testAnyOtherTypeUpdatesTheSize(): void
     {
         $pdo = $this->shop();

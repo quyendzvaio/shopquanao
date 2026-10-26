@@ -12,12 +12,12 @@ final class PlaceOrderAction
 
     public function handle(WebRequest $request, array $session): PageResult
     {
-        if (!isset($session['user_id'])) {
-            return PageResult::redirect('index.php');
-        }
-        // An admin with no user row (the env admin) does not shop; this comes before any write
+        // An admin with no user row (the env admin, who has no user_id key) does not shop: checked first so they never read the guest outcome
         if (AdminGuard::isEnvAdmin($session)) {
             return PageResult::halt('Tài khoản quản trị không dùng để mua hàng.');
+        }
+        if (!isset($session['user_id'])) {
+            return PageResult::redirect('index.php');
         }
         if ($request->method !== 'POST' || !Csrf::valid($session, $request->post[Csrf::FIELD] ?? null)) {
             return PageResult::redirect('index.php');
@@ -30,7 +30,7 @@ final class PlaceOrderAction
         } catch (EmptyCartException) {
             return PageResult::halt('Lỗi đặt hàng: Giỏ hàng của bạn đang trống.');
         } catch (PDOException $e) {
-            return PageResult::systemError($e);
+            return PageResult::systemError($e, self::class);
         } catch (Throwable $e) {
             error_log(self::class . ' unexpected error: ' . $e->getMessage());
 

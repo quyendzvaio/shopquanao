@@ -2,8 +2,8 @@
 
 /**
  * public/admin/manage_users.php: the member list with lock/unlock and role toggling, all through POST forms.
- * The template reads the session's user_id itself (the `session` view variable) to hide the actions on one's
- * own row. An env admin has no user_id, so both places compare against null.
+ * The view gets only `current_user_id` (the session's user_id) to hide the actions on one's own row, never the
+ * whole session with its CSRF and API tokens. An env admin has no user_id, so both places compare against null.
  */
 final class AdminUsersPage
 {
@@ -38,7 +38,7 @@ final class AdminUsersPage
                     }
                     return PageResult::redirect("manage_users.php?msg=$msg");
                 } catch (PDOException $e) {
-                    return PageResult::systemError($e);
+                    return PageResult::systemError($e, self::class);
                 }
             }
         }
@@ -55,7 +55,7 @@ final class AdminUsersPage
         return PageResult::view([
             'users' => $this->users->adminList(),
             'msg' => $request->query['msg'] ?? null,
-            'session' => $session,
+            'current_user_id' => $session['user_id'] ?? null,
         ]);
     }
 }

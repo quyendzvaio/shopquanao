@@ -52,7 +52,7 @@ ChatbotService (src/agent facade) -> TurnRunner::run(), one turn:
 - Middleware (`config/harness.php`, order = run order): `CheckoutGuardrail` and `AnswerTemplateFallback` are required (`AgentFactory::REQUIRED_MIDDLEWARE`; without them `AgentFactory` throws a `LogicException` when it builds the middleware stack / turn runner for a turn); `FreeShippingNudge` and `TraceOutbox` are optional. Add one = class extending `BaseMiddleware` + `AgentFactory::makeMiddleware` arm + config entry (required: also `REQUIRED = true` and `REQUIRED_MIDDLEWARE`).
 - `tests/unit/ArchitectureTest.php` enforces the harness component table (`src/harness/README.md`): no env reads, no `app`/`agent`/`llm_providers` references, functions <= 80 lines.
 
-- Adding an intent/tool = one manifest entry (`config/chatbot_tools.php`) + planner builder + validator rule + scorer facts + normalizer/answer; tool contracts live in `ToolDefinitionCatalog` and `mcp-server/src/tools.ts` (keep both in sync; `contract.test.ts` checks the list).
+- Adding an intent/tool = one manifest entry (`config/chatbot_tools.php`) + planner builder + validator rule + scorer facts + normalizer/answer; tool contracts live in `ToolDefinitionCatalog` (the allow-list the PHP bridge enforces) and `mcp-server/src/tools.ts`; `contract.test.ts` checks the list. `tools.ts` still registers seven cart/order tools that the bridge rejects, until they are removed.
 - **UC-A `build_outfit`**: `products.style_tags` (1-3 of the 10 `StyleTag::ALL` tags, curated in migration `2026_10_15_product_style_tags.sql`) → `OutfitBuilder` composes top+bottom or dress (+ accessory) within budget, size and the one-statement-piece palette rule. Ranking ties: with a budget the higher total wins, without one the lower (accessory ties too), then lower ids. "có <amount><unit>" is a budget only in outfit context; "ngân sách/budget <amount>" is global.
 - **UC-C `freeship_gap`** + proactive nudge: `FreeShippingGapAdvisor` picks in-stock items with the smallest overshoot of `FREE_SHIPPING_THRESHOLD`; the nudge's last cart fingerprint is stored in `chat_session_memory.slots`.
 - MCP is a private stdio child; nginx 404s `/api/internal/mcp`; it is authed by `X-MCP-SERVICE-TOKEN` (`hash_equals`).
@@ -63,7 +63,7 @@ ChatbotService (src/agent facade) -> TurnRunner::run(), one turn:
 - Never auto-checkout, add to cart, or take payment from the chatbot (guardrail intent `unsupported_checkout`).
 - Product cards come only from the private catalog and must pass `ProductConstraintVerifier`.
 - `.env`, reports, model caches and local DB artifacts stay out of git.
-- State-changing web actions are POST with a CSRF token (`src/core/http/Csrf.php`); never a GET link.
+- State-changing web actions are POST with a CSRF token (`src/core/http/Csrf.php`); never a GET link. Login, register and logout are the exceptions.
 - Re-adding a product to the cart without a size keeps that line's size (web and API, `CartService::add`); a new line defaults to `S`.
 - An env admin (no real `user_id`) cannot add to cart or check out.
 - The MCP bridge (`AgentFactory::executeTool`) only runs tools listed in `ToolDefinitionCatalog`, so cart and checkout tools run through neither MCP nor in-process.

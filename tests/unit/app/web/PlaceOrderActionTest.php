@@ -142,6 +142,25 @@ final class PlaceOrderActionTest extends TestCase
         $this->assertSame(0, $this->rows($pdo, 'orders'));
     }
 
+    public function testANegativeQuantityLineHaltsGenericallyAndLeavesStockAndOrdersAlone(): void
+    {
+        $pdo = $this->shop();
+        $pdo->exec("INSERT INTO cart (user_id, product_id, quantity, size) VALUES (5, 7, -3, 'S')");
+        $log = tempnam(sys_get_temp_dir(), 'phplog');
+        $previous = ini_set('error_log', $log);
+        try {
+            $result = $this->visit($pdo, 'POST', ['user_id' => 5]);
+        } finally {
+            ini_set('error_log', (string) $previous);
+            unlink($log);
+        }
+
+        $this->assertSame('halt', $result->kind());
+        $this->assertSame(PageResult::SYSTEM_ERROR, $result->payload());
+        $this->assertSame(0, $this->rows($pdo, 'orders'));
+        $this->assertSame(5, (int) $pdo->query('SELECT stock FROM products WHERE id = 7')->fetchColumn());
+    }
+
     public function testEnvAdminHaltsWithTheAdminMessageAndNothingIsWritten(): void
     {
         $pdo = $this->shop();
@@ -167,6 +186,24 @@ final class PlaceOrderActionTest extends TestCase
         $this->assertSame(0, $this->rows($pdo, 'order_items'));
         $this->assertSame(5, (int) $pdo->query('SELECT stock FROM products WHERE id = 7')->fetchColumn());
         $this->assertSame(1, $this->rows($pdo, 'cart'));
+    }
+
+    public function testAnEnvAdminWithNoUserIdKeyGetsTheAdminMessageNotAHomeRedirect(): void
+    {
+        $pdo = $this->shop();
+        $pdo->exec("INSERT INTO cart (user_id, product_id, quantity, size) VALUES (0, 7, 1, 'S')");
+
+        foreach ([['role' => 'admin', 'admin_logged_in' => true], ['admin_logged_in' => true], ['role' => 'admin']] as $session) {
+            foreach (['POST', 'GET'] as $method) {
+                $result = $this->visit($pdo, $method, $session);
+
+                $this->assertSame('halt', $result->kind());
+                $this->assertSame('Tài khoản quản trị không dùng để mua hàng.', $result->payload());
+            }
+        }
+        $this->assertSame(0, $this->rows($pdo, 'orders'));
+        $this->assertSame(1, $this->rows($pdo, 'cart'));
+        $this->assertSame(5, (int) $pdo->query('SELECT stock FROM products WHERE id = 7')->fetchColumn());
     }
 
     public function testDatabaseAdminWithARealUserIdCanStillCheckOut(): void

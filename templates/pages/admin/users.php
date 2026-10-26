@@ -73,7 +73,7 @@
                     ?>
                 </td>
                 <td>
-                    <?php if ($user['id'] != ($session['user_id'] ?? null)): ?>
+                    <?php if ($user['id'] != ($current_user_id ?? null)): ?>
                         <form method="POST" style="display: inline;">
                             <?php include __DIR__ . '/../../partials/csrf_field.php'; ?>
                             <input type="hidden" name="id" value="<?= $user['id'] ?>">

@@ -103,6 +103,42 @@ final class AdminUsersPageTest extends TestCase
         $this->assertStringContainsString('toggle_role', $html);
     }
 
+    public function testTheViewGetsOnlyTheCurrentUserIdNeverTheSessionSecrets(): void
+    {
+        $page = new AdminUsersPage(new UserService($this->db()));
+        $session = ['role' => 'admin', 'user_id' => 3, 'csrf_token' => 'secret-csrf', 'api_token' => 'secret-api'];
+
+        $data = $page->handle(new WebRequest('GET', [], [], []), $session)->data();
+
+        $this->assertArrayNotHasKey('session', $data);
+        $this->assertSame(3, $data['current_user_id']);
+        $this->assertStringNotContainsString('secret-api', (string) json_encode($data));
+        $this->assertStringNotContainsString('secret-csrf', (string) json_encode($data));
+
+        $env = $page->handle(new WebRequest('GET', [], [], []), ['role' => 'admin'])->data();
+        $this->assertNull($env['current_user_id']);
+    }
+
+    public function testTheListHidesTheActionsOnTheSignedInMembersOwnRow(): void
+    {
+        $page = new AdminUsersPage(new UserService($this->db()));
+        $data = $page->handle(new WebRequest('GET', [], [], []), ['role' => 'admin', 'user_id' => 3])->data();
+
+        $html = $this->strict(function () use ($data): string {
+            ob_start();
+            try {
+                extract($data);
+                include ROOT_DIR . '/templates/pages/admin/users.php';
+            } finally {
+                $out = ob_get_clean();
+            }
+            return (string) $out;
+        });
+
+        $this->assertSame(1, substr_count($html, 'Đang online'));
+        $this->assertSame(1, substr_count($html, 'toggle_role'));
+    }
+
     private function statusAndRole(PDO $pdo, int $id): array
     {
         return $pdo->query("SELECT status, role FROM users WHERE id = {$id}")->fetch();

@@ -172,11 +172,32 @@ final class AddToCartActionTest extends TestCase
         $this->assertSame([['product_id' => 7, 'quantity' => 1, 'size' => 'S']], $this->lines($pdo));
     }
 
-    public function testGuestCheckStillComesBeforeTheAdminCheck(): void
+    public function testAnEnvAdminWithNoUserIdKeyGetsTheAdminMessageNotTheGuestOne(): void
     {
-        $result = $this->visit($this->shop(), 'POST', ['product_id' => '7'], ['role' => 'admin', 'admin_logged_in' => true]);
+        $pdo = $this->shop();
 
-        $this->assertStringContainsString('login.php', $result->payload());
+        // The env admin who signed in through public/admin/login.php has no user_id key at all
+        foreach ([['role' => 'admin', 'admin_logged_in' => true], ['admin_logged_in' => true], ['role' => 'admin']] as $session) {
+            foreach (['POST', 'GET'] as $method) {
+                $result = $this->visit($pdo, $method, ['product_id' => '7'], $session);
+
+                $this->assertSame('output', $result->kind());
+                $this->assertSame($this->adminScript(), $result->payload());
+            }
+        }
+        $this->assertSame([], $this->lines($pdo));
+    }
+
+    public function testARealGuestStillGetsTheLoginMessageAndNothingIsWritten(): void
+    {
+        $pdo = $this->shop();
+
+        foreach ([[], ['role' => 'user']] as $session) {
+            $result = $this->visit($pdo, 'POST', ['product_id' => '7'], $session);
+
+            $this->assertStringContainsString('login.php', $result->payload());
+        }
+        $this->assertSame([], $this->lines($pdo));
     }
 
     public function testSecondAddMergesQuantityAndKeepsOneLine(): void

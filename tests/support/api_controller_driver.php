@@ -11,6 +11,8 @@ declare(strict_types=1);
  *   controller   path under src/app/api/controllers, e.g. "Cart/add.php"
  *   route_params e.g. {"id": 1}            body  the JSON request body (array)        query  $_GET
  *   setup        SQL statements run after the fixture, e.g. DROP TABLE cart
+ *   env          environment variables to set, e.g. {"MCP_SERVICE_TOKEN": "t"}
+ *   headers      request headers as $_SERVER keys, e.g. {"HTTP_X_MCP_SERVICE_TOKEN": "t"}
  *
  * helpers.php is evaluated without its bootstrap.php line (that opens the MariaDB connection) and with php://input
  * pointed at the scenario body (php://input is empty on the CLI); authenticate() is a stub for user 5.
@@ -52,6 +54,12 @@ foreach ($scenario['setup'] ?? [] as $sql) {
 $GLOBALS['route_params'] = $scenario['route_params'] ?? [];
 $_GET = $scenario['query'] ?? [];
 $_SERVER['REQUEST_METHOD'] = $scenario['method'] ?? 'GET';
+foreach ($scenario['env'] ?? [] as $name => $value) {
+    putenv($name . '=' . $value);
+}
+foreach ($scenario['headers'] ?? [] as $name => $value) {
+    $_SERVER[$name] = $value;
+}
 
 register_shutdown_function(static function () use ($bodyFile): void {
     unlink($bodyFile);

@@ -44,6 +44,26 @@ final class ApiControllerDatabaseErrorTest extends TestCase
             'order create' => [['controller' => 'Orders/create.php', 'method' => 'POST', 'setup' => ['DROP TABLE order_items']], 'order_items'],
             'order detail' => [['controller' => 'Orders/detail.php', 'route_params' => ['id' => 3], 'setup' => ['DROP TABLE orders']], 'orders'],
             'order list' => [['controller' => 'Orders/list.php', 'setup' => ['DROP TABLE orders']], 'orders'],
+            'internal mcp tool call' => [self::mcpCall(['tool' => 'get_order_status', 'user_id' => 5, 'arguments' => ['order_id' => 3]], ['DROP TABLE orders']), 'orders'],
+        ];
+    }
+
+    /**
+     * The internal MCP endpoint with a valid service token; $call is the JSON body (operation tool.call by default).
+     *
+     * @param array<string,mixed> $call
+     * @param list<string> $setup
+     * @return array<string,mixed>
+     */
+    private static function mcpCall(array $call, array $setup = [], string $token = 'test-mcp-token'): array
+    {
+        return [
+            'controller' => 'Internal/mcp.php',
+            'method' => 'POST',
+            'body' => $call + ['operation' => 'tool.call'],
+            'setup' => $setup,
+            'env' => ['MCP_SERVICE_TOKEN' => 'test-mcp-token'],
+            'headers' => ['HTTP_X_MCP_SERVICE_TOKEN' => $token],
         ];
     }
 
@@ -76,10 +96,15 @@ final class ApiControllerDatabaseErrorTest extends TestCase
             'cart list: ok' => [['controller' => 'Cart/list.php'], 200, null],
             'order create: empty cart' => [['controller' => 'Orders/create.php', 'method' => 'POST', 'setup' => ['DELETE FROM cart']], 400, 'Cart is empty'],
             'order create: not enough stock' => [['controller' => 'Orders/create.php', 'method' => 'POST', 'setup' => ['UPDATE cart SET quantity = 9']], 409, null],
+            'order create: non-positive quantity' => [['controller' => 'Orders/create.php', 'method' => 'POST', 'setup' => ['UPDATE cart SET quantity = -1']], 409, 'Invalid quantity for product 7'],
             'order create: ok' => [['controller' => 'Orders/create.php', 'method' => 'POST'], 201, null],
             'order detail: unknown order' => [['controller' => 'Orders/detail.php', 'route_params' => ['id' => 99]], 404, 'Order not found'],
             'order detail: ok' => [['controller' => 'Orders/detail.php', 'route_params' => ['id' => 3]], 200, null],
             'order list: ok' => [['controller' => 'Orders/list.php'], 200, null],
+            'mcp: wrong token' => [self::mcpCall(['tool' => 'get_categories'], [], 'wrong'), 403, 'Forbidden'],
+            'mcp: unknown operation' => [self::mcpCall(['operation' => 'nope']), 400, 'Unknown internal operation'],
+            'mcp: tool outside the catalog' => [self::mcpCall(['tool' => 'add_to_cart']), 400, 'Unknown tool: add_to_cart'],
+            'mcp: ok' => [self::mcpCall(['tool' => 'get_order_status', 'user_id' => 5, 'arguments' => ['order_id' => 3]]), 200, null],
         ];
     }
 

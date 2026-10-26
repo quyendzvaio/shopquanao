@@ -17,7 +17,7 @@ final class AdminDashboardPage
         try {
             $stats = $this->dashboard->stats();
         } catch (PDOException $e) {
-            return PageResult::systemError($e);
+            return PageResult::systemError($e, self::class);
         }
 
         return PageResult::view($stats);

@@ -79,6 +79,10 @@ final class OrderService
             }
             $total = 0.0;
             foreach ($items as $item) {
+                if ((int) $item['quantity'] < 1) {
+                    // A stored quantity of 0 or less would add stock back and write a negative total
+                    throw new RuntimeException('Invalid quantity for product ' . (int) $item['product_id']);
+                }
                 if ((int) $item['quantity'] > (int) $item['stock']) {
                     throw new InsufficientStockException((int) $item['product_id']);
                 }
@@ -110,7 +114,7 @@ final class OrderService
     }
 
     /**
-     * $status is the raw posted value (public/admin/manage_orders.php has no whitelist).
+     * $status is the raw value the caller passes: callers validate it against OrderService::STATUSES first.
      *
      * @return int rows changed: 1, or 0 when the order is missing or already has that status (admin)
      */
