@@ -3,7 +3,7 @@
 /**
  * public/admin/manage_users.php: the member list with lock/unlock and role toggling, all through GET links.
  * The template reads the session's user_id itself (the `session` view variable) to hide the actions on one's
- * own row, so a missing user_id still warns once per row, as before.
+ * own row. An env admin has no user_id, so both places compare against null.
  */
 final class AdminUsersPage
 {
@@ -24,7 +24,7 @@ final class AdminUsersPage
             $action = $request->query['action'];
             $msg = ''; // an unknown action redirects to `?msg=` (the old page logged an undefined-variable warning there)
 
-            if ($id != $session['user_id']) {
+            if ($id != ($session['user_id'] ?? null)) {
                 try {
                     if ($action === 'lock') {
                         $this->users->setStatus($id, 0);

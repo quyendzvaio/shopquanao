@@ -1,8 +1,8 @@
 <?php
 
 /**
- * public/checkout.php: the shipping form with the cart summary. public/checkout.php includes the header before
- * calling this (Part B plan D4), so a guest redirect is sent after the header markup, as it always was.
+ * public/checkout.php: the shipping form with the cart summary. A guest gets a redirect result, which
+ * public/checkout.php sends before it includes the header, so the response is a real 302.
  */
 final class CheckoutPage
 {

@@ -1,8 +1,8 @@
 <?php
 
 /**
- * public/admin/manage_orders.php: the order list and the status update. The posted status is stored as given;
- * the page has never had a whitelist.
+ * public/admin/manage_orders.php: the order list and the status update. Only a status in OrderService::STATUSES
+ * (the REST API's list) is stored; any other redirects without a write.
  */
 final class AdminOrdersPage
 {
@@ -20,7 +20,11 @@ final class AdminOrdersPage
         // 1. Update the status
         if (isset($request->post['update_status'])) {
             $order_id = (int)$request->post['order_id'];
-            $new_status = $request->post['status'];
+            $new_status = $request->post['status'] ?? null;
+
+            if (!in_array($new_status, OrderService::STATUSES, true)) {
+                return PageResult::redirect('manage_orders.php');
+            }
 
             $this->orders->updateStatus($order_id, $new_status);
             return PageResult::redirect('manage_orders.php?msg=updated');

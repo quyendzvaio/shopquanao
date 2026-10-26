@@ -73,7 +73,7 @@
                     ?>
                 </td>
                 <td>
-                    <?php if ($user['id'] != $session['user_id']): ?>
+                    <?php if ($user['id'] != ($session['user_id'] ?? null)): ?>
                         <a href="?id=<?= $user['id'] ?>&toggle_role=<?= ($user['role'] == 'admin') ? 'user' : 'admin' ?>" class="btn btn-role">Đổi quyền</a>
                         
                         <?php if ($user['status'] == 1): ?>

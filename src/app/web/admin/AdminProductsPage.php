@@ -33,9 +33,10 @@ final class AdminProductsPage
             $subcategoryId = (int)($request->post['subcategory_id'] ?? 0);
             $description = $request->post['description'];
 
-            $image_name = $request->files['image']['name'];
-            $tmp_name = $request->files['image']['tmp_name'];
-            $error = $request->files['image']['error'];
+            // A form without the file part has no image: $error stays null and the upload-error message shows.
+            $image_name = $request->files['image']['name'] ?? null;
+            $tmp_name = $request->files['image']['tmp_name'] ?? null;
+            $error = $request->files['image']['error'] ?? null;
 
             if ($error === 0) {
                 $img_ex = pathinfo($image_name, PATHINFO_EXTENSION); // the file extension

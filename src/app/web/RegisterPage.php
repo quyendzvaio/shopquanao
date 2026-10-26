@@ -1,8 +1,8 @@
 <?php
 
 /**
- * public/register.php: the sign-up form and its POST. public/register.php keeps its header-before-redirect order
- * (Part B plan D4), so the redirect result is sent after the header partial.
+ * public/register.php: the sign-up form and its POST. A successful sign-up returns a redirect result, which
+ * public/register.php sends before it includes the header, so the response is a real 302.
  */
 final class RegisterPage
 {

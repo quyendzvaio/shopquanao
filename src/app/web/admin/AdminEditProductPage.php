@@ -4,8 +4,8 @@
  * public/admin/edit_product.php: the edit form and its UPDATE. The upload (non-strict extension check,
  * server-made name, move_uploaded_file, unlink of the old image) stays here; the service only receives the final
  * file name. A new file that is rejected or cannot be moved leaves $image_to_save at NULL, so NULL is written to the
- * image column: the page has always done that and it is kept (the old "Undefined variable" log warning on that
- * path is gone; the written value is the same).
+ * image column: the page has always done that and it is kept. A form without any `image` part counts as no new
+ * image and keeps the old file name.
  */
 final class AdminEditProductPage
 {
@@ -42,7 +42,7 @@ final class AdminEditProductPage
             $description = $request->post['description'];
             $categoryId = (int)($request->post['category_id'] ?? 0);
             $subcategoryId = (int)($request->post['subcategory_id'] ?? 0);
-            $new_image = $request->files['image']['name'];
+            $new_image = $request->files['image']['name'] ?? null; // no file part: keep the old image
             $image_to_save = null; // stays NULL when a new file is rejected or cannot be moved (the page's old behavior)
 
             if (!empty($new_image)) {

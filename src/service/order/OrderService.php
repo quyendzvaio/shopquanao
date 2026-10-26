@@ -2,6 +2,9 @@
 
 final class OrderService
 {
+    /** The order statuses the admin may set (web page and REST API). */
+    public const STATUSES = ['Chờ xử lý', 'Đang giao', 'Đã hoàn thành', 'Đã hủy'];
+
     private OrderRepository $orderRows;
     private CartRepository $cartRows;
     private ProductRepository $products;
