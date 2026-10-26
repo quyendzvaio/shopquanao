@@ -107,6 +107,78 @@ final class AddToCartActionTest extends TestCase
         $this->assertSame([['product_id' => 7, 'quantity' => 1, 'size' => 'S']], $this->lines($pdo));
     }
 
+    public function testReAddWithoutSizeKeepsTheLineSizeAndMergesQuantity(): void
+    {
+        $pdo = $this->shop();
+
+        $this->visit($pdo, 'POST', ['product_id' => '7', 'quantity' => '1', 'selected_size' => 'M'], ['user_id' => 5]);
+        $this->visit($pdo, 'POST', ['product_id' => '7', 'quantity' => '2'], ['user_id' => 5]);
+
+        $this->assertSame([['product_id' => 7, 'quantity' => 3, 'size' => 'M']], $this->lines($pdo));
+    }
+
+    public function testReAddWithoutSizeStillRefusesAboveStockAndKeepsTheLine(): void
+    {
+        $pdo = $this->shop(3);
+        $this->visit($pdo, 'POST', ['product_id' => '7', 'quantity' => '2', 'selected_size' => 'M'], ['user_id' => 5]);
+
+        $result = $this->visit($pdo, 'POST', ['product_id' => '7', 'quantity' => '2'], ['user_id' => 5]);
+
+        $this->assertSame($this->soldOutScript(7), $result->payload());
+        $this->assertSame([['product_id' => 7, 'quantity' => 2, 'size' => 'M']], $this->lines($pdo));
+    }
+
+    private function adminScript(): string
+    {
+        return "<script>alert('Tài khoản quản trị không dùng để mua hàng.'); window.location.href='index.php';</script>";
+    }
+
+    public function testEnvAdminGetsTheAdminMessageAndNothingIsWritten(): void
+    {
+        $pdo = $this->shop();
+        $sessions = [
+            ['user_id' => 0, 'role' => 'admin', 'admin_logged_in' => true],
+            ['user_id' => 0, 'role' => 'admin'],
+            ['user_id' => 0, 'admin_logged_in' => true],
+            ['user_id' => -1, 'role' => 'admin'],
+        ];
+
+        foreach ($sessions as $session) {
+            // Whatever the method or token: the admin check comes before them, so even a valid POST is refused
+            foreach (['POST', 'GET'] as $method) {
+                foreach (['tok', null] as $token) {
+                    $result = $this->visit($pdo, $method, ['product_id' => '7', 'quantity' => '1'], $session, $token);
+
+                    $this->assertSame('output', $result->kind());
+                    $this->assertSame($this->adminScript(), $result->payload());
+                }
+            }
+        }
+        $this->assertSame([], $this->lines($pdo));
+    }
+
+    public function testDatabaseAdminWithARealUserIdCanStillShop(): void
+    {
+        $pdo = $this->shop();
+
+        $result = $this->visit(
+            $pdo,
+            'POST',
+            ['product_id' => '7', 'quantity' => '1'],
+            ['user_id' => 5, 'role' => 'admin', 'admin_logged_in' => true]
+        );
+
+        $this->assertSame('cart.php', $result->payload());
+        $this->assertSame([['product_id' => 7, 'quantity' => 1, 'size' => 'S']], $this->lines($pdo));
+    }
+
+    public function testGuestCheckStillComesBeforeTheAdminCheck(): void
+    {
+        $result = $this->visit($this->shop(), 'POST', ['product_id' => '7'], ['role' => 'admin', 'admin_logged_in' => true]);
+
+        $this->assertStringContainsString('login.php', $result->payload());
+    }
+
     public function testSecondAddMergesQuantityAndKeepsOneLine(): void
     {
         $pdo = $this->shop();

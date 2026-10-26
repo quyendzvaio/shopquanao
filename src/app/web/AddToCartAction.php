@@ -15,6 +15,10 @@ final class AddToCartAction
         if (!isset($session['user_id'])) {
             return PageResult::output("<script>alert('Vui lòng đăng nhập để mua hàng!'); window.location.href='login.php';</script>");
         }
+        // An admin with no user row (the env admin) does not shop; this comes before any write
+        if (AdminGuard::isEnvAdmin($session)) {
+            return PageResult::output("<script>alert('Tài khoản quản trị không dùng để mua hàng.'); window.location.href='index.php';</script>");
+        }
         // Only a POST with the session's CSRF token adds; anything else is the old no-op (an empty view)
         if ($request->method !== 'POST' || !Csrf::valid($session, $request->post[Csrf::FIELD] ?? null)) {
             return PageResult::view();
@@ -26,7 +30,7 @@ final class AddToCartAction
             $this->cart->add((int) $session['user_id'], [
                 'product_id' => $productId,
                 'quantity' => isset($post['quantity']) ? (int) $post['quantity'] : 1,
-                'size' => $post['selected_size'] ?? 'S',
+                'size' => $post['selected_size'] ?? null,
             ]);
         } catch (RuntimeException | InvalidArgumentException) {
             return PageResult::output("<script>alert('Sản phẩm đã hết hàng!'); window.location.href='product.php?id={$productId}';</script>");

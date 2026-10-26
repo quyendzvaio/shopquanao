@@ -12,10 +12,14 @@ final class PlaceOrderAction
 
     public function handle(WebRequest $request, array $session): PageResult
     {
-        if (
-            !isset($session['user_id']) || $request->method !== 'POST'
-            || !Csrf::valid($session, $request->post[Csrf::FIELD] ?? null)
-        ) {
+        if (!isset($session['user_id'])) {
+            return PageResult::redirect('index.php');
+        }
+        // An admin with no user row (the env admin) does not shop; this comes before any write
+        if (AdminGuard::isEnvAdmin($session)) {
+            return PageResult::halt('Tài khoản quản trị không dùng để mua hàng.');
+        }
+        if ($request->method !== 'POST' || !Csrf::valid($session, $request->post[Csrf::FIELD] ?? null)) {
             return PageResult::redirect('index.php');
         }
 

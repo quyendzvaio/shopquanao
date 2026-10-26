@@ -109,6 +109,44 @@ final class PlaceOrderActionTest extends TestCase
         $this->assertSame(1, $this->rows($pdo, 'cart'));
     }
 
+    public function testEnvAdminHaltsWithTheAdminMessageAndNothingIsWritten(): void
+    {
+        $pdo = $this->shop();
+        $pdo->exec("INSERT INTO cart (user_id, product_id, quantity, size) VALUES (0, 7, 1, 'S')");
+        $sessions = [
+            ['user_id' => 0, 'role' => 'admin', 'admin_logged_in' => true],
+            ['user_id' => 0, 'role' => 'admin'],
+            ['user_id' => 0, 'admin_logged_in' => true],
+            ['user_id' => -1, 'role' => 'admin'],
+        ];
+
+        foreach ($sessions as $session) {
+            foreach (['POST', 'GET'] as $method) {
+                foreach (['tok', null] as $token) {
+                    $result = $this->visit($pdo, $method, $session, $token);
+
+                    $this->assertSame('halt', $result->kind());
+                    $this->assertSame('Tài khoản quản trị không dùng để mua hàng.', $result->payload());
+                }
+            }
+        }
+        $this->assertSame(0, $this->rows($pdo, 'orders'));
+        $this->assertSame(0, $this->rows($pdo, 'order_items'));
+        $this->assertSame(5, (int) $pdo->query('SELECT stock FROM products WHERE id = 7')->fetchColumn());
+        $this->assertSame(1, $this->rows($pdo, 'cart'));
+    }
+
+    public function testDatabaseAdminWithARealUserIdCanStillCheckOut(): void
+    {
+        $pdo = $this->shop();
+        $pdo->exec("INSERT INTO cart (user_id, product_id, quantity, size) VALUES (5, 7, 1, 'S')");
+
+        $result = $this->visit($pdo, 'POST', ['user_id' => 5, 'role' => 'admin', 'admin_logged_in' => true]);
+
+        $this->assertSame('output', $result->kind());
+        $this->assertSame(1, $this->rows($pdo, 'orders'));
+    }
+
     public function testMissingOrWrongTokenGoesHomeWithoutWriting(): void
     {
         $pdo = $this->shop();

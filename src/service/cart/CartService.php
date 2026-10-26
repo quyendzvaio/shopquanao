@@ -31,7 +31,9 @@ final class CartService
     {
         $productId = (int) ($arguments['product_id'] ?? 0);
         $quantity = (int) ($arguments['quantity'] ?? 1);
-        $size = strtoupper(trim((string) ($arguments['size'] ?? 'S')));
+        // No size (absent, null or blank): a re-add keeps the line's size and a new line gets 'S'; a size replaces it
+        $size = strtoupper(trim((string) ($arguments['size'] ?? '')));
+        $sizeGiven = $size !== '';
         if ($productId <= 0 || $quantity <= 0) {
             throw new InvalidArgumentException('product_id and a positive quantity are required');
         }
@@ -56,10 +58,14 @@ final class CartService
                 if ($newQuantity > (int) $product['stock']) {
                     throw new RuntimeException('Insufficient product stock');
                 }
-                $this->cartRows->updateQuantityAndSize((int) $existing['id'], $newQuantity, $size);
+                if ($sizeGiven) {
+                    $this->cartRows->updateQuantityAndSize((int) $existing['id'], $newQuantity, $size);
+                } else {
+                    $this->cartRows->setQuantity((int) $existing['id'], $newQuantity);
+                }
                 $cartId = (int) $existing['id'];
             } else {
-                $cartId = $this->cartRows->insertLineWithSize($userId, $productId, $quantity, $size);
+                $cartId = $this->cartRows->insertLineWithSize($userId, $productId, $quantity, $sizeGiven ? $size : 'S');
             }
             if ($transactionStarted) {
                 $this->pdo->commit();
