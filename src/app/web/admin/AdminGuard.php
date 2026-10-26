@@ -1,22 +1,19 @@
 <?php
 
 /**
- * The admin pages' access check. Each page keeps its own condition and its own redirect target (they are
- * not consistent, and that is preserved): index and manage_orders accept the admin flag as well as the role,
- * every other page checks the role only.
+ * The admin pages' single access check: the env admin (`admin_logged_in`) or a database admin (role `admin`)
+ * may enter; everyone else, guests and customers alike, is sent to the admin login (public/admin/login.php).
  */
 final class AdminGuard
 {
     /**
      * @param array<string,mixed> $session
-     * @param bool $acceptAdminFlag true: `admin_logged_in` OR role admin passes; false: only role admin passes
-     * @return PageResult|null a redirect to $loginUrl, or null when the visitor may see the page
+     * @return PageResult|null a redirect to the admin login, or null when the visitor may see the page
      */
-    public static function check(array $session, bool $acceptAdminFlag, string $loginUrl): ?PageResult
+    public static function check(array $session): ?PageResult
     {
-        $isAdminRole = isset($session['role']) && $session['role'] === 'admin';
-        $allowed = $acceptAdminFlag ? (isset($session['admin_logged_in']) || $isAdminRole) : $isAdminRole;
+        $allowed = !empty($session['admin_logged_in']) || ($session['role'] ?? null) === 'admin';
 
-        return $allowed ? null : PageResult::redirect($loginUrl);
+        return $allowed ? null : PageResult::redirect('login.php');
     }
 }

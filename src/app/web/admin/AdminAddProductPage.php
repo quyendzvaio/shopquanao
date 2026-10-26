@@ -13,7 +13,7 @@ final class AdminAddProductPage
 
     public function handle(WebRequest $request, array $session): PageResult
     {
-        $denied = AdminGuard::check($session, false, 'login.php');
+        $denied = AdminGuard::check($session);
         if ($denied !== null) {
             return $denied;
         }

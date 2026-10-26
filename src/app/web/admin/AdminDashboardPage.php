@@ -9,7 +9,7 @@ final class AdminDashboardPage
 
     public function handle(WebRequest $request, array $session): PageResult
     {
-        $denied = AdminGuard::check($session, true, 'login.php');
+        $denied = AdminGuard::check($session);
         if ($denied !== null) {
             return $denied;
         }
