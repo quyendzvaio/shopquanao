@@ -95,18 +95,51 @@ final class PlaceOrderActionTest extends TestCase
         $this->assertSame(0, $this->rows($pdo, 'orders'));
     }
 
-    public function testAnyOtherErrorHaltsWithItsMessage(): void
+    public function testDatabaseErrorHaltsWithTheGenericMessageAndNoSqlText(): void
+    {
+        $log = tempnam(sys_get_temp_dir(), 'phplog');
+        $previous = ini_set('error_log', $log);
+        try {
+            $pdo = $this->shop();
+            $pdo->exec("INSERT INTO cart (user_id, product_id, quantity, size) VALUES (5, 7, 1, 'S')");
+            $pdo->exec('DROP TABLE order_items');
+
+            $result = $this->visit($pdo, 'POST', ['user_id' => 5]);
+        } finally {
+            ini_set('error_log', (string) $previous);
+        }
+
+        $this->assertSame('halt', $result->kind());
+        $this->assertSame('Lỗi hệ thống, vui lòng thử lại sau.', $result->payload());
+        $this->assertStringNotContainsStringIgnoringCase('SQLSTATE', $result->payload());
+        $this->assertStringNotContainsString('order_items', $result->payload());
+        $this->assertStringContainsString('no such table', (string) file_get_contents($log));
+        unlink($log);
+        $this->assertSame(0, $this->rows($pdo, 'orders'));
+        $this->assertSame(1, $this->rows($pdo, 'cart'));
+    }
+
+    public function testAnyOtherUnexpectedErrorAlsoHaltsWithTheGenericMessage(): void
     {
         $pdo = $this->shop();
         $pdo->exec("INSERT INTO cart (user_id, product_id, quantity, size) VALUES (5, 7, 1, 'S')");
-        $pdo->exec('DROP TABLE order_items');
+        // A concurrent writer wins: the stock update touches no row, so OrderService throws 'Stock changed ...'
+        $pdo->exec('CREATE TRIGGER skip_stock BEFORE UPDATE ON products BEGIN SELECT RAISE(IGNORE); END');
 
-        $result = $this->visit($pdo, 'POST', ['user_id' => 5]);
+        $log = tempnam(sys_get_temp_dir(), 'phplog');
+        $previous = ini_set('error_log', $log);
+        try {
+            $result = $this->visit($pdo, 'POST', ['user_id' => 5]);
+        } finally {
+            ini_set('error_log', (string) $previous);
+        }
 
         $this->assertSame('halt', $result->kind());
-        $this->assertStringStartsWith('Lỗi đặt hàng: ', $result->payload());
+        $this->assertSame('Lỗi hệ thống, vui lòng thử lại sau.', $result->payload());
+        $this->assertStringNotContainsString('Stock changed', $result->payload());
+        $this->assertStringContainsString('Stock changed', (string) file_get_contents($log));
+        unlink($log);
         $this->assertSame(0, $this->rows($pdo, 'orders'));
-        $this->assertSame(1, $this->rows($pdo, 'cart'));
     }
 
     public function testEnvAdminHaltsWithTheAdminMessageAndNothingIsWritten(): void

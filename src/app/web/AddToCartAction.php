@@ -32,6 +32,8 @@ final class AddToCartAction
                 'quantity' => isset($post['quantity']) ? (int) $post['quantity'] : 1,
                 'size' => $post['selected_size'] ?? null,
             ]);
+        } catch (PDOException $e) {
+            return PageResult::systemError($e);
         } catch (RuntimeException | InvalidArgumentException) {
             return PageResult::output("<script>alert('Sản phẩm đã hết hàng!'); window.location.href='product.php?id={$productId}';</script>");
         }

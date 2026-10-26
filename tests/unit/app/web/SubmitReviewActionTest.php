@@ -62,10 +62,20 @@ final class SubmitReviewActionTest extends TestCase
         $pdo = new PDO('sqlite::memory:');
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-        $result = $this->visit($pdo, 'POST', ['product_id' => '50', 'rating' => '5', 'comment' => 'ok'], ['user_id' => 5]);
+        $log = tempnam(sys_get_temp_dir(), 'phplog');
+        $previous = ini_set('error_log', $log);
+        try {
+            $result = $this->visit($pdo, 'POST', ['product_id' => '50', 'rating' => '5', 'comment' => 'ok'], ['user_id' => 5]);
+        } finally {
+            ini_set('error_log', (string) $previous);
+        }
 
         $this->assertSame('halt', $result->kind());
-        $this->assertStringStartsWith('Lỗi hệ thống: ', $result->payload());
+        $this->assertSame('Lỗi hệ thống, vui lòng thử lại sau.', $result->payload());
+        $this->assertStringNotContainsStringIgnoringCase('SQLSTATE', $result->payload());
+        $this->assertStringNotContainsString('no such table', $result->payload());
+        $this->assertStringContainsString('no such table', (string) file_get_contents($log));
+        unlink($log);
     }
 
     public function testMissingOrWrongTokenGoesHomeWithoutWriting(): void

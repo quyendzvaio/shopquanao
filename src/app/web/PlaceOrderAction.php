@@ -27,10 +27,14 @@ final class PlaceOrderAction
             $this->orders->create((int) $session['user_id']);
         } catch (InsufficientStockException $e) {
             return PageResult::halt("Lỗi đặt hàng: Sản phẩm ID {$e->productId} đã hết hàng!");
+        } catch (EmptyCartException) {
+            return PageResult::halt('Lỗi đặt hàng: Giỏ hàng của bạn đang trống.');
+        } catch (PDOException $e) {
+            return PageResult::systemError($e);
         } catch (Throwable $e) {
-            return PageResult::halt('Lỗi đặt hàng: ' . ($e->getMessage() === 'Cart is empty'
-                ? 'Giỏ hàng của bạn đang trống.'
-                : $e->getMessage()));
+            error_log(self::class . ' unexpected error: ' . $e->getMessage());
+
+            return PageResult::halt(PageResult::SYSTEM_ERROR);
         }
 
         return PageResult::output("<script>alert('Đặt hàng thành công! Fashion Shop sẽ liên hệ bạn sớm nhất.'); window.location.href='index.php';</script>");

@@ -263,4 +263,26 @@ final class AddToCartActionTest extends TestCase
         $this->assertTrue($result->isView());
         $this->assertSame([], $this->lines($pdo));
     }
+
+    public function testDatabaseErrorShowsTheGenericMessageNotTheSoldOutAlert(): void
+    {
+        $log = tempnam(sys_get_temp_dir(), 'phplog');
+        $previous = ini_set('error_log', $log);
+        try {
+            $pdo = $this->shop();
+            $pdo->exec('DROP TABLE cart');
+
+            $result = $this->visit($pdo, 'POST', ['product_id' => '7'], ['user_id' => 5]);
+        } finally {
+            ini_set('error_log', (string) $previous);
+        }
+
+        $this->assertSame('halt', $result->kind());
+        $this->assertSame('Lỗi hệ thống, vui lòng thử lại sau.', $result->payload());
+        $this->assertStringNotContainsString('hết hàng', $result->payload());
+        $this->assertStringNotContainsStringIgnoringCase('SQLSTATE', $result->payload());
+        $this->assertStringNotContainsString('cart', $result->payload());
+        $this->assertStringContainsString('no such table', (string) file_get_contents($log));
+        unlink($log);
+    }
 }

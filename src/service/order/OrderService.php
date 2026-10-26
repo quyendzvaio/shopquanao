@@ -26,6 +26,8 @@ final class OrderService
             try {
                 $detail = $this->detail($userId, $orderId);
                 return ['orders' => [$detail['order']]];
+            } catch (PDOException $error) {
+                throw $error; // a database failure is not "no such order"
             } catch (RuntimeException) {
                 return ['orders' => [], 'message' => 'Không tìm thấy đơn hàng này trong tài khoản của bạn.'];
             }
@@ -73,7 +75,7 @@ final class OrderService
             $forUpdate = $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
             $items = $this->orderRows->cartLinesForCheckout($userId, $forUpdate);
             if ($items === []) {
-                throw new RuntimeException('Cart is empty');
+                throw new EmptyCartException();
             }
             $total = 0.0;
             foreach ($items as $item) {

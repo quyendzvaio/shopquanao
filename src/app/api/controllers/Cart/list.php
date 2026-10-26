@@ -4,4 +4,8 @@ $user = authenticate();
 $userId = (int)$user['id'];
 
 global $pdo;
-jsonResponse((new CartService($pdo))->list($userId));
+try {
+    jsonResponse((new CartService($pdo))->list($userId));
+} catch (PDOException $error) {
+    databaseErrorResponse($error);
+}

@@ -45,6 +45,30 @@ final class AdminUsersPageTest extends TestCase
         $this->assertSame(0, (int) $pdo->query('SELECT status FROM users WHERE id = 3')->fetchColumn());
     }
 
+    public function testDatabaseErrorOnLockHaltsWithTheGenericMessageAndNoSqlText(): void
+    {
+        $log = tempnam(sys_get_temp_dir(), 'phplog');
+        $previous = ini_set('error_log', $log);
+        try {
+            $pdo = $this->db();
+            $pdo->exec('DROP TABLE users');
+
+            $result = (new AdminUsersPage(new UserService($pdo)))->handle(
+                new WebRequest('POST', [], ['action' => 'lock', 'id' => '3', 'csrf_token' => 'tok'], []),
+                ['role' => 'admin', 'csrf_token' => 'tok']
+            );
+        } finally {
+            ini_set('error_log', (string) $previous);
+        }
+
+        $this->assertSame('halt', $result->kind());
+        $this->assertSame('Lỗi hệ thống, vui lòng thử lại sau.', $result->payload());
+        $this->assertStringNotContainsStringIgnoringCase('SQLSTATE', $result->payload());
+        $this->assertStringNotContainsString('users', $result->payload());
+        $this->assertStringContainsString('no such table', (string) file_get_contents($log));
+        unlink($log);
+    }
+
     public function testAMemberCannotLockTheirOwnRow(): void
     {
         $pdo = $this->db();

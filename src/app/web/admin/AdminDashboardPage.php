@@ -17,7 +17,7 @@ final class AdminDashboardPage
         try {
             $stats = $this->dashboard->stats();
         } catch (PDOException $e) {
-            return PageResult::halt("Lỗi kết nối dữ liệu: " . $e->getMessage());
+            return PageResult::systemError($e);
         }
 
         return PageResult::view($stats);

@@ -38,7 +38,7 @@ final class AdminUsersPage
                     }
                     return PageResult::redirect("manage_users.php?msg=$msg");
                 } catch (PDOException $e) {
-                    return PageResult::halt("Lỗi hệ thống: " . $e->getMessage());
+                    return PageResult::systemError($e);
                 }
             }
         }

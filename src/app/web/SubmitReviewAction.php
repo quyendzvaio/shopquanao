@@ -24,7 +24,7 @@ final class SubmitReviewAction
 
                     return PageResult::redirect("product.php?id=" . $product_id . "&msg=success");
                 } catch (PDOException $e) {
-                    return PageResult::halt("Lỗi hệ thống: " . $e->getMessage());
+                    return PageResult::systemError($e);
                 }
             }
         }
