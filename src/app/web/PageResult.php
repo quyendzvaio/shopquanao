@@ -35,6 +35,21 @@ final class PageResult
         return new self('halt', [], $message);
     }
 
+    /** What the visitor reads when the database fails: never the SQL or the driver text, which only go to the log. */
+    public const SYSTEM_ERROR = 'Lỗi hệ thống, vui lòng thử lại sau.';
+
+    /**
+     * Logs a database failure and halts with the generic message.
+     *
+     * @param string $context the calling handler's name (its `self::class`), so the log says which page failed
+     */
+    public static function systemError(PDOException $error, string $context): self
+    {
+        error_log($context . ' database error: ' . $error->getMessage());
+
+        return self::halt(self::SYSTEM_ERROR);
+    }
+
     public function isView(): bool
     {
         return $this->kind === 'view';

@@ -13,7 +13,7 @@
         .user-table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .user-table th, .user-table td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
         .user-table th { background: #000; color: white; text-transform: uppercase; font-size: 13px; }
-        .btn { padding: 6px 12px; border-radius: 4px; text-decoration: none; font-size: 12px; display: inline-block; font-weight: bold; color: white; }
+        .btn { padding: 6px 12px; border-radius: 4px; text-decoration: none; font-size: 12px; display: inline-block; font-weight: bold; color: white; border: none; cursor: pointer; }
         .btn-lock { background: #e67e22; } /* Màu cam cho nút Khóa */
         .btn-unlock { background: #27ae60; } /* Màu xanh cho nút Mở khóa */
         .btn-role { background: #2f3542; margin-right: 5px; }
@@ -73,19 +73,28 @@
                     ?>
                 </td>
                 <td>
-                    <?php if ($user['id'] != $session['user_id']): ?>
-                        <a href="?id=<?= $user['id'] ?>&toggle_role=<?= ($user['role'] == 'admin') ? 'user' : 'admin' ?>" class="btn btn-role">Đổi quyền</a>
-                        
+                    <?php if ($user['id'] != ($current_user_id ?? null)): ?>
+                        <form method="POST" style="display: inline;">
+                            <?php include __DIR__ . '/../../partials/csrf_field.php'; ?>
+                            <input type="hidden" name="id" value="<?= $user['id'] ?>">
+                            <input type="hidden" name="toggle_role" value="<?= ($user['role'] == 'admin') ? 'user' : 'admin' ?>">
+                            <button type="submit" class="btn btn-role">Đổi quyền</button>
+                        </form>
+
                         <?php if ($user['status'] == 1): ?>
-                            <a href="?action=lock&id=<?= $user['id'] ?>" 
-                               class="btn btn-lock" 
-                               onclick="return confirm('Bạn có chắc chắn muốn KHÓA tài khoản này?')">
-                               Khóa
-                            </a>
+                            <form method="POST" style="display: inline;" onsubmit="return confirm('Bạn có chắc chắn muốn KHÓA tài khoản này?')">
+                                <?php include __DIR__ . '/../../partials/csrf_field.php'; ?>
+                                <input type="hidden" name="id" value="<?= $user['id'] ?>">
+                                <input type="hidden" name="action" value="lock">
+                                <button type="submit" class="btn btn-lock">Khóa</button>
+                            </form>
                         <?php else: ?>
-                            <a href="?action=unlock&id=<?= $user['id'] ?>" class="btn btn-unlock">
-                               Mở khóa
-                            </a>
+                            <form method="POST" style="display: inline;">
+                                <?php include __DIR__ . '/../../partials/csrf_field.php'; ?>
+                                <input type="hidden" name="id" value="<?= $user['id'] ?>">
+                                <input type="hidden" name="action" value="unlock">
+                                <button type="submit" class="btn btn-unlock">Mở khóa</button>
+                            </form>
                         <?php endif; ?>
                     <?php else: ?>
                         <span style="color: #999; font-style: italic;">Đang online</span>

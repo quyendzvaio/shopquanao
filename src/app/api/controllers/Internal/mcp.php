@@ -23,6 +23,9 @@ try {
     jsonResponse(['result' => $result]);
 } catch (InvalidArgumentException $error) {
     errorResponse($error->getMessage(), 400);
+} catch (PDOException $error) {
+    // A database failure is a generic 500 (driver text goes to the log only), never a 409 with SQL in the body
+    databaseErrorResponse($error);
 } catch (RuntimeException $error) {
     $status = str_contains(strtolower($error->getMessage()), 'auth') ? 401 : 409;
     errorResponse($error->getMessage(), $status);

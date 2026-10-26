@@ -66,4 +66,23 @@ final class PageResultTest extends TestCase
         $this->assertSame(['name' => 'x'], $request->post);
         $this->assertSame([], $request->files);
     }
+
+    public function testSystemErrorLogsTheCallersContextAndHaltsGenerically(): void
+    {
+        $log = tempnam(sys_get_temp_dir(), 'phplog');
+        $previous = ini_set('error_log', $log);
+        try {
+            $result = PageResult::systemError(new PDOException('SQLSTATE[HY000]: no such table: orders'), 'SomePage');
+        } finally {
+            ini_set('error_log', (string) $previous);
+        }
+
+        $this->assertSame('halt', $result->kind());
+        $this->assertSame(PageResult::SYSTEM_ERROR, $result->payload());
+        $logged = (string) file_get_contents($log);
+        unlink($log);
+        $this->assertStringContainsString('SomePage database error: SQLSTATE[HY000]: no such table: orders', $logged);
+        $this->assertStringNotContainsString('PageResult database error', $logged);
+    }
 }
+

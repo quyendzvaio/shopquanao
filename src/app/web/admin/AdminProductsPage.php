@@ -1,7 +1,7 @@
 <?php
 
 /**
- * public/admin/manage_products.php: the product list, the add form's upload and the GET delete link. The upload
+ * public/admin/manage_products.php: the product list, the add form's upload and the delete form (both POST with a CSRF token). The upload
  * (non-strict extension check, server-made name, move_uploaded_file) and the unlink of a deleted product's image
  * stay here; the service only receives the final file name.
  */
@@ -16,7 +16,7 @@ final class AdminProductsPage
 
     public function handle(WebRequest $request, array $session): PageResult
     {
-        $denied = AdminGuard::check($session, false, '../login.php');
+        $denied = AdminGuard::check($session);
         if ($denied !== null) {
             return $denied;
         }
@@ -24,8 +24,11 @@ final class AdminProductsPage
         $categories = $this->categories->idAndNames();
         $subcategories = $this->categories->withSubcategories();
 
+        // Add and delete are state changes: a POST with the session's CSRF token, else the page is just the list
+        $trusted = $request->method === 'POST' && Csrf::valid($session, $request->post[Csrf::FIELD] ?? null);
+
         // 2. Add a product (several image formats allowed)
-        if (isset($request->post['add_product'])) {
+        if ($trusted && isset($request->post['add_product'])) {
             $name = $request->post['name'];
             $price = $request->post['price'];
             $stock = (int)($request->post['stock'] ?? 0);
@@ -33,9 +36,10 @@ final class AdminProductsPage
             $subcategoryId = (int)($request->post['subcategory_id'] ?? 0);
             $description = $request->post['description'];
 
-            $image_name = $request->files['image']['name'];
-            $tmp_name = $request->files['image']['tmp_name'];
-            $error = $request->files['image']['error'];
+            // A form without the file part has no image: $error stays null and the upload-error message shows.
+            $image_name = $request->files['image']['name'] ?? null;
+            $tmp_name = $request->files['image']['tmp_name'] ?? null;
+            $error = $request->files['image']['error'] ?? null;
 
             if ($error === 0) {
                 $img_ex = pathinfo($image_name, PATHINFO_EXTENSION); // the file extension
@@ -73,8 +77,8 @@ final class AdminProductsPage
         }
 
         // 3. Delete a product
-        if (isset($request->query['delete_id'])) {
-            $id = (int)$request->query['delete_id'];
+        if ($trusted && isset($request->post['delete_id'])) {
+            $id = (int)$request->post['delete_id'];
             $img_name = $this->products->imageOf($id);
 
             if ($img_name && file_exists($this->imagesDir . $img_name)) {

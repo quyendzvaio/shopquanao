@@ -13,8 +13,14 @@ final class AddToCartActionTest extends TestCase
         return $pdo;
     }
 
-    private function visit(PDO $pdo, string $method, array $post, array $session): PageResult
+    /** Posts with the session's CSRF token by default; pass $token = null for none, or another value for a wrong one. */
+    private function visit(PDO $pdo, string $method, array $post, array $session, ?string $token = 'tok'): PageResult
     {
+        $session['csrf_token'] = 'tok';
+        if ($token !== null) {
+            $post['csrf_token'] = $token;
+        }
+
         return (new AddToCartAction(new CartService($pdo)))->handle(new WebRequest($method, [], $post, []), $session);
     }
 
@@ -101,6 +107,99 @@ final class AddToCartActionTest extends TestCase
         $this->assertSame([['product_id' => 7, 'quantity' => 1, 'size' => 'S']], $this->lines($pdo));
     }
 
+    public function testReAddWithoutSizeKeepsTheLineSizeAndMergesQuantity(): void
+    {
+        $pdo = $this->shop();
+
+        $this->visit($pdo, 'POST', ['product_id' => '7', 'quantity' => '1', 'selected_size' => 'M'], ['user_id' => 5]);
+        $this->visit($pdo, 'POST', ['product_id' => '7', 'quantity' => '2'], ['user_id' => 5]);
+
+        $this->assertSame([['product_id' => 7, 'quantity' => 3, 'size' => 'M']], $this->lines($pdo));
+    }
+
+    public function testReAddWithoutSizeStillRefusesAboveStockAndKeepsTheLine(): void
+    {
+        $pdo = $this->shop(3);
+        $this->visit($pdo, 'POST', ['product_id' => '7', 'quantity' => '2', 'selected_size' => 'M'], ['user_id' => 5]);
+
+        $result = $this->visit($pdo, 'POST', ['product_id' => '7', 'quantity' => '2'], ['user_id' => 5]);
+
+        $this->assertSame($this->soldOutScript(7), $result->payload());
+        $this->assertSame([['product_id' => 7, 'quantity' => 2, 'size' => 'M']], $this->lines($pdo));
+    }
+
+    private function adminScript(): string
+    {
+        return "<script>alert('Tài khoản quản trị không dùng để mua hàng.'); window.location.href='index.php';</script>";
+    }
+
+    public function testEnvAdminGetsTheAdminMessageAndNothingIsWritten(): void
+    {
+        $pdo = $this->shop();
+        $sessions = [
+            ['user_id' => 0, 'role' => 'admin', 'admin_logged_in' => true],
+            ['user_id' => 0, 'role' => 'admin'],
+            ['user_id' => 0, 'admin_logged_in' => true],
+            ['user_id' => -1, 'role' => 'admin'],
+        ];
+
+        foreach ($sessions as $session) {
+            // Whatever the method or token: the admin check comes before them, so even a valid POST is refused
+            foreach (['POST', 'GET'] as $method) {
+                foreach (['tok', null] as $token) {
+                    $result = $this->visit($pdo, $method, ['product_id' => '7', 'quantity' => '1'], $session, $token);
+
+                    $this->assertSame('output', $result->kind());
+                    $this->assertSame($this->adminScript(), $result->payload());
+                }
+            }
+        }
+        $this->assertSame([], $this->lines($pdo));
+    }
+
+    public function testDatabaseAdminWithARealUserIdCanStillShop(): void
+    {
+        $pdo = $this->shop();
+
+        $result = $this->visit(
+            $pdo,
+            'POST',
+            ['product_id' => '7', 'quantity' => '1'],
+            ['user_id' => 5, 'role' => 'admin', 'admin_logged_in' => true]
+        );
+
+        $this->assertSame('cart.php', $result->payload());
+        $this->assertSame([['product_id' => 7, 'quantity' => 1, 'size' => 'S']], $this->lines($pdo));
+    }
+
+    public function testAnEnvAdminWithNoUserIdKeyGetsTheAdminMessageNotTheGuestOne(): void
+    {
+        $pdo = $this->shop();
+
+        // The env admin who signed in through public/admin/login.php has no user_id key at all
+        foreach ([['role' => 'admin', 'admin_logged_in' => true], ['admin_logged_in' => true], ['role' => 'admin']] as $session) {
+            foreach (['POST', 'GET'] as $method) {
+                $result = $this->visit($pdo, $method, ['product_id' => '7'], $session);
+
+                $this->assertSame('output', $result->kind());
+                $this->assertSame($this->adminScript(), $result->payload());
+            }
+        }
+        $this->assertSame([], $this->lines($pdo));
+    }
+
+    public function testARealGuestStillGetsTheLoginMessageAndNothingIsWritten(): void
+    {
+        $pdo = $this->shop();
+
+        foreach ([[], ['role' => 'user']] as $session) {
+            $result = $this->visit($pdo, 'POST', ['product_id' => '7'], $session);
+
+            $this->assertStringContainsString('login.php', $result->payload());
+        }
+        $this->assertSame([], $this->lines($pdo));
+    }
+
     public function testSecondAddMergesQuantityAndKeepsOneLine(): void
     {
         $pdo = $this->shop();
@@ -141,5 +240,70 @@ final class AddToCartActionTest extends TestCase
         $this->assertSame($this->soldOutScript(7), $this->visit($pdo, 'POST', ['product_id' => '7', 'quantity' => '0'], ['user_id' => 5])->payload());
         $this->assertSame($this->soldOutScript(0), $this->visit($pdo, 'POST', [], ['user_id' => 5])->payload());
         $this->assertSame([], $this->lines($pdo));
+    }
+
+    public function testMissingTokenWritesNothingAndReturnsTheEmptyView(): void
+    {
+        $pdo = $this->shop();
+
+        $result = $this->visit($pdo, 'POST', ['product_id' => '7', 'quantity' => '1'], ['user_id' => 5], null);
+
+        $this->assertTrue($result->isView());
+        $this->assertSame([], $result->data());
+        $this->assertSame([], $this->lines($pdo));
+    }
+
+    public function testWrongTokenWritesNothingAndReturnsTheEmptyView(): void
+    {
+        $pdo = $this->shop();
+
+        $result = $this->visit($pdo, 'POST', ['product_id' => '7', 'quantity' => '1'], ['user_id' => 5], 'forged');
+
+        $this->assertTrue($result->isView());
+        $this->assertSame([], $this->lines($pdo));
+    }
+
+    public function testGetWithAValidTokenInTheQueryStillWritesNothing(): void
+    {
+        $pdo = $this->shop();
+        $request = new WebRequest('GET', ['product_id' => '7', 'csrf_token' => 'tok'], [], []);
+
+        $result = (new AddToCartAction(new CartService($pdo)))->handle($request, ['user_id' => 5, 'csrf_token' => 'tok']);
+
+        $this->assertTrue($result->isView());
+        $this->assertSame([], $this->lines($pdo));
+    }
+
+    public function testSessionWithoutATokenNeverAdds(): void
+    {
+        $pdo = $this->shop();
+        $request = new WebRequest('POST', [], ['product_id' => '7', 'csrf_token' => ''], []);
+
+        $result = (new AddToCartAction(new CartService($pdo)))->handle($request, ['user_id' => 5]);
+
+        $this->assertTrue($result->isView());
+        $this->assertSame([], $this->lines($pdo));
+    }
+
+    public function testDatabaseErrorShowsTheGenericMessageNotTheSoldOutAlert(): void
+    {
+        $log = tempnam(sys_get_temp_dir(), 'phplog');
+        $previous = ini_set('error_log', $log);
+        try {
+            $pdo = $this->shop();
+            $pdo->exec('DROP TABLE cart');
+
+            $result = $this->visit($pdo, 'POST', ['product_id' => '7'], ['user_id' => 5]);
+        } finally {
+            ini_set('error_log', (string) $previous);
+        }
+
+        $this->assertSame('halt', $result->kind());
+        $this->assertSame('Lỗi hệ thống, vui lòng thử lại sau.', $result->payload());
+        $this->assertStringNotContainsString('hết hàng', $result->payload());
+        $this->assertStringNotContainsStringIgnoringCase('SQLSTATE', $result->payload());
+        $this->assertStringNotContainsString('cart', $result->payload());
+        $this->assertStringContainsString('no such table', (string) file_get_contents($log));
+        unlink($log);
     }
 }

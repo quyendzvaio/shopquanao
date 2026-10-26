@@ -19,9 +19,9 @@ final class OrderDetailsPageTest extends TestCase
         return $pdo;
     }
 
-    private function visit(array $query, array $session): PageResult
+    private function visit(array $query, array $session, ?PDO $pdo = null): PageResult
     {
-        return (new OrderDetailsPage(new OrderService($this->shop())))->handle(new WebRequest('GET', $query, [], []), $session);
+        return (new OrderDetailsPage(new OrderService($pdo ?? $this->shop())))->handle(new WebRequest('GET', $query, [], []), $session);
     }
 
     public function testGuestOrMissingIdRedirectsToLogin(): void
@@ -51,5 +51,27 @@ final class OrderDetailsPageTest extends TestCase
             $this->assertSame('halt', $result->kind());
             $this->assertSame('Đơn hàng không tồn tại hoặc bạn không có quyền xem.', $result->payload());
         }
+    }
+
+    public function testDatabaseErrorHaltsWithTheGenericMessageNotNotFound(): void
+    {
+        $log = tempnam(sys_get_temp_dir(), 'phplog');
+        $previous = ini_set('error_log', $log);
+        try {
+            $pdo = $this->shop();
+            $pdo->exec('DROP TABLE orders');
+
+            $result = $this->visit(['id' => '3'], ['user_id' => 5], $pdo);
+        } finally {
+            ini_set('error_log', (string) $previous);
+        }
+
+        $this->assertSame('halt', $result->kind());
+        $this->assertSame('Lỗi hệ thống, vui lòng thử lại sau.', $result->payload());
+        $this->assertStringNotContainsString('không tồn tại', $result->payload());
+        $this->assertStringNotContainsStringIgnoringCase('SQLSTATE', $result->payload());
+        $this->assertStringNotContainsString('orders', $result->payload());
+        $this->assertStringContainsString('no such table', (string) file_get_contents($log));
+        unlink($log);
     }
 }

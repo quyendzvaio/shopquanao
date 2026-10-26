@@ -322,19 +322,27 @@ return [
     - `service/knowledge/KnowledgeRetriever` và `service/catalog/ProductReranker` vẫn đọc env. Resolved in Part B (website layers).
     - Controller trong `app/` (`app/api/controllers/Chatbot/index.php`, `stream.php`) tham chiếu thẳng class của harness (`ChatbotSessionContext`, `LLMTransportException`) thay vì đi qua `agent`. Resolved in Part B (website layers).
     - **Các lỗi trang có sẵn, giữ nguyên để khớp byte (known page bugs kept for byte identity)** cùng các việc tiếp theo, để sửa ở PR riêng:
-      - redirect sau khi đã có output ở `checkout.php` (khách) và `register.php` (thành công). Lỗi ngầm trên prod: PHP-FPM `output_buffering=4096` che lỗi này trừ khi output trước redirect vượt 4 KB;
-      - join `reviews r JOIN users u ON r.id = u.id` ở `product.php` (`ReviewRepository::forProductLegacyJoin`);
-      - đích redirect của đăng nhập admin không nhất quán;
-      - `admin/manage_orders.php` không có whitelist trạng thái;
-      - cập nhật giỏ hàng qua GET (`UpdateCartAction`);
-      - liên kết GET đổi trạng thái (chỉ admin, nhưng CSRF được): `admin/manage_products.php?delete_id=` (xóa dòng và `unlink` ảnh), `admin/manage_users.php?action=lock|unlock&id=`, `?toggle_role=`.
+      - redirect sau khi đã có output ở `checkout.php` (khách) và `register.php` (thành công). Lỗi ngầm trên prod: PHP-FPM `output_buffering=4096` che lỗi này trừ khi output trước redirect vượt 4 KB. Resolved in web follow-ups Task 1;
+      - join `reviews r JOIN users u ON r.id = u.id` ở `product.php` (`ReviewRepository::forProductLegacyJoin`). Resolved in web follow-ups Task 1 (join `r.user_id = u.id`);
+      - đích redirect của đăng nhập admin không nhất quán. Resolved in web follow-ups Task 2;
+      - `admin/manage_orders.php` không có whitelist trạng thái. Resolved in web follow-ups Task 1 (`OrderService::STATUSES`);
+      - cập nhật giỏ hàng qua GET (`UpdateCartAction`). Resolved in web follow-ups Task 3 (POST + CSRF);
+      - liên kết GET đổi trạng thái (chỉ admin, nhưng CSRF được): `admin/manage_products.php?delete_id=` (xóa dòng và `unlink` ảnh), `admin/manage_users.php?action=lock|unlock&id=`, `?toggle_role=`. Resolved in web follow-ups Task 3 (POST + CSRF, `src/core/http/Csrf.php`).
     - Phát hiện khi thực hiện:
-      - `admin/manage_users.php` đọc `$_SESSION['user_id']` cho admin từ env, vốn không có `user_id` (cảnh báo "Undefined array key");
-      - `admin/edit_product.php` / `manage_products.php` cảnh báo ở `$_FILES['image']` khi form được gửi không có phần file;
-      - admin từ env (`user_id=0`) POST `add_to_cart.php` giờ thấy alert hết hàng, trước đây là lỗi FK của DB;
-      - thêm sản phẩm không có size vào dòng giỏ đã có sẽ đặt lại size về `S`. API làm y hệt; cần một quyết định riêng;
-      - controller API `Cart/*` và `Orders/*` bắt `RuntimeException`, nuốt luôn cả `PDOException`. Hướng hội tụ là `ApiError` (`src/model/ApiError.php`). `OrderDetailsPage` cũng có vấn đề này;
-      - `/api/chatbot/stream` kết thúc bằng `chat.error` khi không có LLM và template mode tắt.
+      - `admin/manage_users.php` đọc `$_SESSION['user_id']` cho admin từ env, vốn không có `user_id` (cảnh báo "Undefined array key"). Resolved in web follow-ups Task 1;
+      - `admin/edit_product.php` / `manage_products.php` cảnh báo ở `$_FILES['image']` khi form được gửi không có phần file. Resolved in web follow-ups Task 1;
+      - admin từ env (`user_id=0`) POST `add_to_cart.php` giờ thấy alert hết hàng, trước đây là lỗi FK của DB. Resolved in web follow-ups Task 4 (admin từ env không mua hàng, thông báo riêng);
+      - thêm sản phẩm không có size vào dòng giỏ đã có sẽ đặt lại size về `S`. API làm y hệt; cần một quyết định riêng. Resolved in web follow-ups Task 4 (giữ size của dòng, `CartService::add`);
+      - controller API `Cart/*` và `Orders/*` bắt `RuntimeException`, nuốt luôn cả `PDOException`. Hướng hội tụ là `ApiError` (`src/model/ApiError.php`). `OrderDetailsPage` cũng có vấn đề này. Resolved in web follow-ups Task 5 (lỗi DB là 500 chung, không lộ thông báo domain hay text exception);
+      - `/api/chatbot/stream` kết thúc bằng `chat.error` khi không có LLM và template mode tắt. Resolved in web follow-ups Task 6 (stream câu trả lời template có căn cứ);
+      - cầu MCP (`AgentFactory::executeTool`, gọi từ `Internal/mcp.php`) chạy mọi tool của `ToolApplicationService`, gồm cả giỏ hàng và checkout, không lọc theo `ToolDefinitionCatalog` như `ToolRegistry::execute`. Resolved in web follow-ups Task 7 (tool ngoài catalog bị từ chối như tool không biết: `InvalidArgumentException`, HTTP 400).
+    - **Còn mở (still open), chưa sửa sau web follow-ups:**
+      - không có `session_regenerate_id` khi đăng nhập và cookie phiên không có SameSite;
+      - `authenticate()` và một số trang (`CartPage`, `CheckoutPage`, `UpdateCartAction`, `ProfilePage`) không xử lý `PDOException`;
+      - token CSRF hết hạn bị bỏ qua im lặng (no-op), người dùng không thấy thông báo;
+      - `mcp-server/src/tools.ts` vẫn đăng ký 7 tool giỏ hàng/đơn hàng mà bridge PHP từ chối.
+    - Đã sửa trong lượt review cuối: `Internal/mcp.php` trả 500 khi `PDOException`; đăng nhập admin từ env xoá `user_id`/`api_token` khỏi phiên.
+    - Quyết định (2026-10-27): admin trong DB đăng nhập qua trang login của cửa hàng được coi là admin (`user_id=0`) và không mua hàng; giữ nguyên hành vi này.
 12. **Tài liệu:** `CLAUDE.md`, `.claude/rules/*`, `README.md`, `docs/chatbot-spec.md`, `docs/technical-spec.md`, gồm mục "thêm intent/tool", "thêm middleware", "thêm trang/endpoint".
 
 Mỗi phần một PR vào `develop`. Phần A merge trước rồi mới mở nhánh phần B.

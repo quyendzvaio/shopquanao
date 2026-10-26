@@ -14,6 +14,10 @@
  * per server with its normalised PHP error log (empty when clean). Two runs against a fresh database must be
  * byte-identical; later refactor tasks diff against a stored baseline.
  *
+ * State-changing requests are POSTs with a CSRF token: a scenario reads the token from the form the page renders
+ * (`token()`, an unrecorded GET) and posts it. Every action also has a wrong-token scenario and, where it used to be
+ * a GET link, an old-GET scenario; `noChange()` checks the database did not move for those.
+ *
  * No image is ever uploaded, so nothing is written under public/assets/images/.
  */
 
@@ -193,6 +197,38 @@ final class SnapRunner
             return null;
         }
         return ['status' => $status, 'body' => $responseBody, 'location' => $location];
+    }
+
+    /**
+     * The CSRF token a page renders in its first `csrf_token` hidden input. An unrecorded GET: it neither numbers a
+     * scenario nor writes a file, so the scenario list only shows the real actions.
+     */
+    public function token(string $actor, string $path): string
+    {
+        $ch = $this->handle($actor);
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $this->baseUrl . snapEncodePath($path),
+            CURLOPT_CUSTOMREQUEST => 'GET',
+            CURLOPT_HTTPGET => true,
+            CURLOPT_HTTPHEADER => [],
+        ]);
+        $raw = curl_exec($ch);
+        $body = $raw === false ? '' : substr((string) $raw, (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE));
+        if (preg_match('/name="csrf_token" value="([0-9a-f]{64})"/', $body, $m) !== 1) {
+            $this->failures[] = sprintf('token (%s %s): no csrf_token field in the page', $actor, $path);
+            return '';
+        }
+        return $m[1];
+    }
+
+    /** Runs $do and records a failure when `$probe()` (a database dump) differs before and after. */
+    public function noChange(string $scenario, callable $probe, callable $do): void
+    {
+        $before = $probe();
+        $do();
+        if ($probe() !== $before) {
+            $this->failures[] = sprintf('%s: the database changed, but this request must change nothing', $scenario);
+        }
     }
 
     /** JSON request helper for the REST API; returns the decoded body. */
@@ -432,27 +468,49 @@ function snapCustomer(SnapRunner $s, PDO $pdo, array $ids): void
     $s->request('customer-profile-status', $u, 'GET', '/profile.php?status=Đang giao');
     $s->request('customer-product-50', $u, 'GET', '/product.php?id=50');
 
-    $s->request('customer-add-50', $u, 'POST', '/add_to_cart.php', ['product_id' => 50, 'quantity' => 1, 'action' => 'add', 'selected_size' => 'M']);
-    $s->request('customer-buy-now-50', $u, 'POST', '/add_to_cart.php', ['product_id' => 50, 'quantity' => 1, 'action' => 'buy_now']);
-    $s->request('customer-add-out-of-stock', $u, 'POST', '/add_to_cart.php', ['product_id' => $ids['oos'], 'quantity' => 1, 'action' => 'add']);
-    $s->request('customer-add-in-stock-other', $u, 'POST', '/add_to_cart.php', ['product_id' => $ids['second'], 'quantity' => 1, 'action' => 'add']);
+    // State changes need the session's CSRF token, read from the form the product page renders.
+    $token = $s->token($u, '/product.php?id=50');
+    $cartDump = static fn(): string => json_encode($pdo->query('SELECT id, user_id, product_id, quantity, size FROM cart ORDER BY id')->fetchAll());
+    $add = ['product_id' => 50, 'quantity' => 1, 'action' => 'add', 'selected_size' => 'M'];
+    $s->noChange('customer-add-wrong-token', $cartDump, fn() => $s->request('customer-add-wrong-token', $u, 'POST', '/add_to_cart.php', $add + ['csrf_token' => 'not-the-token']));
+    $s->request('customer-add-50', $u, 'POST', '/add_to_cart.php', $add + ['csrf_token' => $token]);
+    $s->request('customer-buy-now-50', $u, 'POST', '/add_to_cart.php', ['product_id' => 50, 'quantity' => 1, 'action' => 'buy_now', 'csrf_token' => $token]);
+    $s->request('customer-add-out-of-stock', $u, 'POST', '/add_to_cart.php', ['product_id' => $ids['oos'], 'quantity' => 1, 'action' => 'add', 'csrf_token' => $token]);
+    $s->request('customer-add-in-stock-other', $u, 'POST', '/add_to_cart.php', ['product_id' => $ids['second'], 'quantity' => 1, 'action' => 'add', 'csrf_token' => $token]);
     $s->request('customer-add-get-method', $u, 'GET', '/add_to_cart.php');
     $s->request('customer-cart-after-add', $u, 'GET', '/cart.php');
 
     $first = $ids['cart_first'];
-    $s->request('customer-update-qty', $u, 'GET', '/update_cart.php?id=' . $first . '&value=3&type=qty');
-    $s->request('customer-update-size', $u, 'GET', '/update_cart.php?id=' . $first . '&value=M&type=size');
+    $update = static fn(string $value, string $type): array => ['id' => $first, 'value' => $value, 'type' => $type];
+    $s->noChange('customer-update-qty-get', $cartDump, fn() => $s->request('customer-update-qty-get', $u, 'GET', '/update_cart.php?id=' . $first . '&value=3&type=qty'));
+    $s->noChange('customer-update-qty-wrong-token', $cartDump, fn() => $s->request('customer-update-qty-wrong-token', $u, 'POST', '/update_cart.php', $update('3', 'qty') + ['csrf_token' => 'not-the-token']));
+    $s->request('customer-update-qty', $u, 'POST', '/update_cart.php', $update('3', 'qty') + ['csrf_token' => $token]);
+    $s->noChange('customer-update-size-get', $cartDump, fn() => $s->request('customer-update-size-get', $u, 'GET', '/update_cart.php?id=' . $first . '&value=L&type=size'));
+    $s->noChange('customer-update-size-wrong-token', $cartDump, fn() => $s->request('customer-update-size-wrong-token', $u, 'POST', '/update_cart.php', $update('L', 'size') + ['csrf_token' => 'not-the-token']));
+    $s->request('customer-update-size', $u, 'POST', '/update_cart.php', $update('M', 'size') + ['csrf_token' => $token]);
     $s->request('customer-cart-after-update', $u, 'GET', '/cart.php');
-    $s->request('customer-remove-line', $u, 'GET', '/cart.php?remove=' . $ids['cart_second']);
+    $s->noChange('customer-remove-line-get', $cartDump, fn() => $s->request('customer-remove-line-get', $u, 'GET', '/cart.php?remove=' . $ids['cart_second']));
+    $s->noChange('customer-remove-line-wrong-token', $cartDump, fn() => $s->request('customer-remove-line-wrong-token', $u, 'POST', '/cart.php', ['remove' => $ids['cart_second'], 'csrf_token' => 'not-the-token']));
+    $s->request('customer-remove-line', $u, 'POST', '/cart.php', ['remove' => $ids['cart_second'], 'csrf_token' => $token]);
     $s->request('customer-cart-after-remove', $u, 'GET', '/cart.php');
 
-    $s->request('customer-review', $u, 'POST', '/submit_review.php', ['product_id' => 50, 'rating' => 5, 'comment' => 'Snap review: chất liệu tốt']);
-    $s->request('customer-review-invalid', $u, 'POST', '/submit_review.php', ['product_id' => 50, 'rating' => 9, 'comment' => '']);
+    $reviewDump = static fn(): string => json_encode($pdo->query('SELECT product_id, user_id, rating, comment FROM reviews ORDER BY id')->fetchAll());
+    $review = ['product_id' => 50, 'rating' => 5, 'comment' => 'Snap review: chất liệu tốt'];
+    $s->noChange('customer-review-wrong-token', $reviewDump, fn() => $s->request('customer-review-wrong-token', $u, 'POST', '/submit_review.php', $review + ['csrf_token' => 'not-the-token']));
+    $s->request('customer-review', $u, 'POST', '/submit_review.php', $review + ['csrf_token' => $token]);
+    $s->request('customer-review-invalid', $u, 'POST', '/submit_review.php', ['product_id' => 50, 'rating' => 9, 'comment' => '', 'csrf_token' => $token]);
     $s->request('customer-product-50-after-review', $u, 'GET', '/product.php?id=50');
 
-    $s->request('customer-process-checkout', $u, 'POST', '/process_checkout.php', [
-        'full_name' => 'Snap User', 'phone' => '0900000000', 'address' => '1 Snap Street', 'note' => 'snapshot',
+    $orderDump = static fn(): string => json_encode([
+        $pdo->query('SELECT id, user_id, total_price, status FROM orders ORDER BY id')->fetchAll(),
+        $pdo->query('SELECT id, stock FROM products ORDER BY id')->fetchAll(),
+        $pdo->query('SELECT id, product_id, quantity, size FROM cart ORDER BY id')->fetchAll(),
     ]);
+    $shipping = ['full_name' => 'Snap User', 'phone' => '0900000000', 'address' => '1 Snap Street', 'note' => 'snapshot'];
+    $checkoutToken = $s->token($u, '/checkout.php');
+    $s->noChange('customer-process-checkout-wrong-token', $orderDump, fn() => $s->request('customer-process-checkout-wrong-token', $u, 'POST', '/process_checkout.php', $shipping + ['csrf_token' => 'not-the-token']));
+    $s->noChange('customer-process-checkout-get', $orderDump, fn() => $s->request('customer-process-checkout-get', $u, 'GET', '/process_checkout.php?' . http_build_query($shipping + ['csrf_token' => $checkoutToken])));
+    $s->request('customer-process-checkout', $u, 'POST', '/process_checkout.php', $shipping + ['csrf_token' => $checkoutToken]);
     $s->request('customer-checkout-empty-cart', $u, 'GET', '/checkout.php');
     $orderId = (int) $pdo->query('SELECT MAX(id) FROM orders')->fetchColumn();
     $s->request('customer-profile-after-order', $u, 'GET', '/profile.php');
@@ -545,35 +603,55 @@ function snapDbAdmin(SnapRunner $s, PDO $pdo, array $ids): void
     $s->request('dbadmin-edit-product-missing', $a, 'GET', '/admin/edit_product.php?id=999999');
     $s->request('dbadmin-add-product-form', $a, 'GET', '/admin/add_product.php');
 
+    // State changes need the session's CSRF token, read from the form the admin page renders.
+    $token = $s->token($a, '/admin/manage_orders.php');
+    $bad = 'not-the-token';
     $orderId = (int) $pdo->query('SELECT MAX(id) FROM orders')->fetchColumn();
-    $s->request('dbadmin-order-status', $a, 'POST', '/admin/manage_orders.php', [
-        'update_status' => '1', 'order_id' => $orderId, 'status' => 'Đang giao',
-    ]);
+    $orderDump = static fn(): string => json_encode($pdo->query('SELECT id, user_id, total_price, status FROM orders ORDER BY id')->fetchAll());
+    $status = ['update_status' => '1', 'order_id' => $orderId, 'status' => 'Đang giao'];
+    $s->noChange('dbadmin-order-status-wrong-token', $orderDump, fn() => $s->request('dbadmin-order-status-wrong-token', $a, 'POST', '/admin/manage_orders.php', $status + ['csrf_token' => $bad]));
+    $s->request('dbadmin-order-status', $a, 'POST', '/admin/manage_orders.php', $status + ['csrf_token' => $token]);
     $s->request('dbadmin-manage-orders-after', $a, 'GET', '/admin/manage_orders.php');
 
     $other = $ids['other'];
-    $s->request('dbadmin-user-lock', $a, 'GET', '/admin/manage_users.php?action=lock&id=' . $other);
+    $userDump = static fn(): string => json_encode($pdo->query('SELECT id, username, role, status FROM users ORDER BY id')->fetchAll());
+    $act = static fn(array $fields): array => $fields + ['id' => $other, 'csrf_token' => $token];
+    $s->noChange('dbadmin-user-lock-get', $userDump, fn() => $s->request('dbadmin-user-lock-get', $a, 'GET', '/admin/manage_users.php?action=lock&id=' . $other));
+    $s->noChange('dbadmin-user-lock-wrong-token', $userDump, fn() => $s->request('dbadmin-user-lock-wrong-token', $a, 'POST', '/admin/manage_users.php', ['action' => 'lock', 'id' => $other, 'csrf_token' => $bad]));
+    $s->request('dbadmin-user-lock', $a, 'POST', '/admin/manage_users.php', $act(['action' => 'lock']));
     $s->request('dbadmin-users-after-lock', $a, 'GET', '/admin/manage_users.php?msg=locked');
-    $s->request('dbadmin-user-unlock', $a, 'GET', '/admin/manage_users.php?action=unlock&id=' . $other);
-    $s->request('dbadmin-user-toggle-role', $a, 'GET', '/admin/manage_users.php?toggle_role=admin&id=' . $other);
+    $s->noChange('dbadmin-user-unlock-get', $userDump, fn() => $s->request('dbadmin-user-unlock-get', $a, 'GET', '/admin/manage_users.php?action=unlock&id=' . $other));
+    $s->noChange('dbadmin-user-unlock-wrong-token', $userDump, fn() => $s->request('dbadmin-user-unlock-wrong-token', $a, 'POST', '/admin/manage_users.php', ['action' => 'unlock', 'id' => $other, 'csrf_token' => $bad]));
+    $s->request('dbadmin-user-unlock', $a, 'POST', '/admin/manage_users.php', $act(['action' => 'unlock']));
+    $s->noChange('dbadmin-user-toggle-role-get', $userDump, fn() => $s->request('dbadmin-user-toggle-role-get', $a, 'GET', '/admin/manage_users.php?toggle_role=admin&id=' . $other));
+    $s->noChange('dbadmin-user-toggle-role-wrong-token', $userDump, fn() => $s->request('dbadmin-user-toggle-role-wrong-token', $a, 'POST', '/admin/manage_users.php', ['toggle_role' => 'admin', 'id' => $other, 'csrf_token' => $bad]));
+    $s->request('dbadmin-user-toggle-role', $a, 'POST', '/admin/manage_users.php', $act(['toggle_role' => 'admin']));
     $s->request('dbadmin-users-after-role', $a, 'GET', '/admin/manage_users.php?msg=updated');
 
     // No file part: the "without an image" path. multipart, as the real forms are.
-    $s->request('dbadmin-edit-product-post', $a, 'POST', '/admin/edit_product.php?id=50', [
+    $productDump = static fn(): string => json_encode($pdo->query('SELECT id, name, price, stock, description, image, category_id, subcategory_id, style_tags FROM products ORDER BY id')->fetchAll());
+    $edit = [
         'update_product' => '1', 'name' => 'Áo Thun Cotton Basic Trắng', 'price' => '185000', 'stock' => '10',
         'description' => 'Snapshot edit', 'category_id' => '1', 'subcategory_id' => '0', 'style_tags' => ['basic', 'dichoi'],
-    ], [], true);
+    ];
+    $s->noChange('dbadmin-edit-product-get', $productDump, fn() => $s->request('dbadmin-edit-product-get', $a, 'GET', '/admin/edit_product.php?id=50&' . http_build_query($edit + ['csrf_token' => $token])));
+    $s->noChange('dbadmin-edit-product-wrong-token', $productDump, fn() => $s->request('dbadmin-edit-product-wrong-token', $a, 'POST', '/admin/edit_product.php?id=50', $edit + ['csrf_token' => $bad], [], true));
+    $s->request('dbadmin-edit-product-post', $a, 'POST', '/admin/edit_product.php?id=50', $edit + ['csrf_token' => $token], [], true);
     $s->request('dbadmin-edit-product-after', $a, 'GET', '/admin/edit_product.php?id=50');
-    $s->request('dbadmin-add-product-no-image', $a, 'POST', '/admin/add_product.php', [
-        'add_product' => '1', 'name' => 'Snap Added', 'price' => '99000', 'category_id' => '1', 'style_tags' => ['basic'],
-    ], [], true);
-    $s->request('dbadmin-manage-products-add-no-image', $a, 'POST', '/admin/manage_products.php', [
+    $add = ['add_product' => '1', 'name' => 'Snap Added', 'price' => '99000', 'category_id' => '1', 'style_tags' => ['basic']];
+    $s->noChange('dbadmin-add-product-wrong-token', $productDump, fn() => $s->request('dbadmin-add-product-wrong-token', $a, 'POST', '/admin/add_product.php', $add + ['csrf_token' => $bad], [], true));
+    $s->request('dbadmin-add-product-no-image', $a, 'POST', '/admin/add_product.php', $add + ['csrf_token' => $token], [], true);
+    $list = [
         'add_product' => '1', 'name' => 'Snap Added', 'price' => '99000', 'stock' => '3', 'category_id' => '1',
         'subcategory_id' => '0', 'description' => 'no image',
-    ], [], true);
+    ];
+    $s->noChange('dbadmin-manage-products-add-wrong-token', $productDump, fn() => $s->request('dbadmin-manage-products-add-wrong-token', $a, 'POST', '/admin/manage_products.php', $list + ['csrf_token' => $bad], [], true));
+    $s->request('dbadmin-manage-products-add-no-image', $a, 'POST', '/admin/manage_products.php', $list + ['csrf_token' => $token], [], true);
 
     $deletable = snapSeedDeletable($pdo);
-    $s->request('dbadmin-delete-product', $a, 'GET', '/admin/manage_products.php?delete_id=' . $deletable);
+    $s->noChange('dbadmin-delete-product-get', $productDump, fn() => $s->request('dbadmin-delete-product-get', $a, 'GET', '/admin/manage_products.php?delete_id=' . $deletable));
+    $s->noChange('dbadmin-delete-product-wrong-token', $productDump, fn() => $s->request('dbadmin-delete-product-wrong-token', $a, 'POST', '/admin/manage_products.php', ['delete_id' => $deletable, 'csrf_token' => $bad]));
+    $s->request('dbadmin-delete-product', $a, 'POST', '/admin/manage_products.php', ['delete_id' => $deletable, 'csrf_token' => $token]);
     $s->request('dbadmin-manage-products-after', $a, 'GET', '/admin/manage_products.php?msg=deleted');
     $s->request('dbadmin-index-after', $a, 'GET', '/admin/index.php');
     $s->request('dbadmin-logout', $a, 'GET', '/admin/logout.php');
@@ -645,7 +723,9 @@ function snapEnvAdmin(SnapRunner $s): void
     $s->request('admin-env-login', $a, 'POST', '/login.php', ['email' => SNAP_ENV_ADMIN_EMAIL, 'password' => SNAP_ENV_ADMIN_PASS]);
     $s->request('admin-env-index', $a, 'GET', '/admin/index.php');
     $s->request('admin-env-manage-users', $a, 'GET', '/admin/manage_users.php');
-    $s->request('admin-env-add-to-cart', $a, 'POST', '/add_to_cart.php', ['product_id' => 50, 'quantity' => 1, 'action' => 'add']);
+    $s->request('admin-env-add-to-cart', $a, 'POST', '/add_to_cart.php', [
+        'product_id' => 50, 'quantity' => 1, 'action' => 'add', 'csrf_token' => $s->token($a, '/product.php?id=50'),
+    ]);
     $s->request('admin-env-cart', $a, 'GET', '/cart.php');
 
     $b = 'envadmin-panel';
@@ -653,6 +733,12 @@ function snapEnvAdmin(SnapRunner $s): void
     $s->request('admin-env-panel-login', $b, 'POST', '/admin/login.php', ['username' => SNAP_ENV_ADMIN_USER, 'password' => SNAP_ENV_ADMIN_PASS, 'login' => '1']);
     $s->request('admin-env-panel-index', $b, 'GET', '/admin/index.php');
     $s->request('admin-env-panel-manage-users', $b, 'GET', '/admin/manage_users.php');
+
+    // A customer login in the same browser must drop the admin flag: the admin pages send the customer away.
+    $c = 'envadmin-then-customer';
+    $s->request('admin-env-then-customer-login-admin', $c, 'POST', '/login.php', ['email' => SNAP_ENV_ADMIN_EMAIL, 'password' => SNAP_ENV_ADMIN_PASS]);
+    $s->request('admin-env-then-customer-login', $c, 'POST', '/login.php', ['email' => SNAP_USER_EMAIL, 'password' => SNAP_USER_PASS]);
+    $s->request('admin-env-then-customer-index', $c, 'GET', '/admin/index.php');
 }
 
 /**
@@ -666,6 +752,10 @@ function snapAssertions(SnapRunner $runner): array
     $guestCart = $runner->results['guest-cart'] ?? null;
     if ($guestCart === null || $guestCart['location'] !== 'login.php?error=vui_long_dang_nhap') {
         $problems[] = 'guest-cart must redirect to login.php?error=vui_long_dang_nhap';
+    }
+    $stale = $runner->results['admin-env-then-customer-index'] ?? null;
+    if ($stale === null || $stale['location'] !== 'login.php') {
+        $problems[] = 'admin-env-then-customer-index must redirect to login.php (the stale admin flag is dropped)';
     }
     foreach (['customer-api-login', 'dbadmin-api-login'] as $name) {
         if (($runner->results[$name]['status'] ?? 0) !== 200) {

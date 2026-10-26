@@ -22,7 +22,7 @@ final class ProductPage
             'product_id' => $product_id,
             'product' => $product,
             'sizes' => $this->products->pageSizes($product_id),
-            'reviews' => $this->reviews->forProductLegacyJoin($product_id),
+            'reviews' => $this->reviews->forProductWithUsername((int)$product_id),
             'loggedIn' => isset($session['user_id']),
         ]);
     }

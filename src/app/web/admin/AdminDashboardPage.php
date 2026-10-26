@@ -9,7 +9,7 @@ final class AdminDashboardPage
 
     public function handle(WebRequest $request, array $session): PageResult
     {
-        $denied = AdminGuard::check($session, true, 'login.php');
+        $denied = AdminGuard::check($session);
         if ($denied !== null) {
             return $denied;
         }
@@ -17,7 +17,7 @@ final class AdminDashboardPage
         try {
             $stats = $this->dashboard->stats();
         } catch (PDOException $e) {
-            return PageResult::halt("Lỗi kết nối dữ liệu: " . $e->getMessage());
+            return PageResult::systemError($e, self::class);
         }
 
         return PageResult::view($stats);

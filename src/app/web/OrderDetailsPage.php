@@ -20,6 +20,8 @@ final class OrderDetailsPage
 
         try {
             $detail = $this->orders->detail($session['user_id'], $order_id)['order'];
+        } catch (PDOException $e) {
+            return PageResult::systemError($e, self::class);
         } catch (RuntimeException) {
             return PageResult::halt('Đơn hàng không tồn tại hoặc bạn không có quyền xem.');
         }

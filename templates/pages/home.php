@@ -35,6 +35,7 @@
                         </p>
 
                         <form action="add_to_cart.php" method="POST" style="margin-top: 10px;">
+                            <?php include __DIR__ . '/../partials/csrf_field.php'; ?>
                             <input type="hidden" name="product_id" value="<?= $p['id']; ?>">
                             <input type="hidden" name="quantity" value="1">
 

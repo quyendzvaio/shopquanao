@@ -2,6 +2,9 @@
 
 final class OrderService
 {
+    /** The order statuses the admin may set (web page and REST API). */
+    public const STATUSES = ['Chờ xử lý', 'Đang giao', 'Đã hoàn thành', 'Đã hủy'];
+
     private OrderRepository $orderRows;
     private CartRepository $cartRows;
     private ProductRepository $products;
@@ -23,6 +26,8 @@ final class OrderService
             try {
                 $detail = $this->detail($userId, $orderId);
                 return ['orders' => [$detail['order']]];
+            } catch (PDOException $error) {
+                throw $error; // a database failure is not "no such order"
             } catch (RuntimeException) {
                 return ['orders' => [], 'message' => 'Không tìm thấy đơn hàng này trong tài khoản của bạn.'];
             }
@@ -70,10 +75,14 @@ final class OrderService
             $forUpdate = $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
             $items = $this->orderRows->cartLinesForCheckout($userId, $forUpdate);
             if ($items === []) {
-                throw new RuntimeException('Cart is empty');
+                throw new EmptyCartException();
             }
             $total = 0.0;
             foreach ($items as $item) {
+                if ((int) $item['quantity'] < 1) {
+                    // A stored quantity of 0 or less would add stock back and write a negative total
+                    throw new RuntimeException('Invalid quantity for product ' . (int) $item['product_id']);
+                }
                 if ((int) $item['quantity'] > (int) $item['stock']) {
                     throw new InsufficientStockException((int) $item['product_id']);
                 }
@@ -105,7 +114,7 @@ final class OrderService
     }
 
     /**
-     * $status is the raw posted value (public/admin/manage_orders.php has no whitelist).
+     * $status is the raw value the caller passes: callers validate it against OrderService::STATUSES first.
      *
      * @return int rows changed: 1, or 0 when the order is missing or already has that status (admin)
      */

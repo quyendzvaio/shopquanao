@@ -9,7 +9,7 @@ if (!$orderId) errorResponse('Order ID required', 400);
 $data = getJsonInput();
 $status = $data['status'] ?? '';
 
-$allowed = ['Chờ xử lý', 'Đang giao', 'Đã hoàn thành', 'Đã hủy'];
+$allowed = OrderService::STATUSES;
 if (!in_array($status, $allowed)) {
     errorResponse("Invalid status. Allowed: " . implode(', ', $allowed), 400);
 }

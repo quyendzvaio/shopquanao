@@ -52,6 +52,15 @@ function errorResponse($message, $statusCode = 400) {
     jsonResponse(['error' => true, 'message' => $message], $statusCode);
 }
 
+/**
+ * A database failure: the driver text (SQL, table names) goes to the log only; the client gets a generic 500,
+ * never a 4xx/409 that would pass for a domain refusal.
+ */
+function databaseErrorResponse(PDOException $error) {
+    error_log('API database error: ' . $error->getMessage());
+    errorResponse('Lỗi hệ thống, vui lòng thử lại sau.', 500);
+}
+
 function getJsonInput() {
     $input = json_decode(file_get_contents('php://input'), true);
     if ($input === null && json_last_error() !== JSON_ERROR_NONE) {

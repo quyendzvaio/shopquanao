@@ -31,7 +31,9 @@ final class CartService
     {
         $productId = (int) ($arguments['product_id'] ?? 0);
         $quantity = (int) ($arguments['quantity'] ?? 1);
-        $size = strtoupper(trim((string) ($arguments['size'] ?? 'S')));
+        // No size (absent, null or blank): a re-add keeps the line's size and a new line gets 'S'; a size replaces it
+        $size = strtoupper(trim((string) ($arguments['size'] ?? '')));
+        $sizeGiven = $size !== '';
         if ($productId <= 0 || $quantity <= 0) {
             throw new InvalidArgumentException('product_id and a positive quantity are required');
         }
@@ -56,10 +58,14 @@ final class CartService
                 if ($newQuantity > (int) $product['stock']) {
                     throw new RuntimeException('Insufficient product stock');
                 }
-                $this->cartRows->updateQuantityAndSize((int) $existing['id'], $newQuantity, $size);
+                if ($sizeGiven) {
+                    $this->cartRows->updateQuantityAndSize((int) $existing['id'], $newQuantity, $size);
+                } else {
+                    $this->cartRows->setQuantity((int) $existing['id'], $newQuantity);
+                }
                 $cartId = (int) $existing['id'];
             } else {
-                $cartId = $this->cartRows->insertLineWithSize($userId, $productId, $quantity, $size);
+                $cartId = $this->cartRows->insertLineWithSize($userId, $productId, $quantity, $sizeGiven ? $size : 'S');
             }
             if ($transactionStarted) {
                 $this->pdo->commit();
@@ -134,16 +140,35 @@ final class CartService
         return $this->cartRows->itemsForCheckoutPage($userId);
     }
 
-    /** Deletes the user's cart line without throwing when it is missing (public/cart.php?remove=). */
+    /** Deletes the user's cart line without throwing when it is missing (the cart page's POST remove form, which carries a CSRF token). */
     public function removeLine(int|string $userId, int $cartId): void
     {
         $this->cartRows->deleteLine($cartId, $userId);
     }
 
-    /** D4 (Part B plan): public/update_cart.php writes the quantity unchecked, as the page always did. */
+    /**
+     * D4 (Part B plan): public/update_cart.php writes the quantity with no stock check, as the page always did.
+     * It does write only an integer of at least 1 (an int, or a string of digits only); anything else, such as -5,
+     * 0 or text, is a no-op, because a stored non-positive quantity would corrupt stock and totals at checkout.
+     */
     public function setQuantityUnchecked(mixed $cartId, mixed $quantity, mixed $userId): void
     {
+        $quantity = self::positiveQuantity($quantity);
+        if ($quantity === null) {
+            return;
+        }
         $this->cartRows->setQuantityUnchecked($quantity, $cartId, $userId);
+    }
+
+    /** @return int|null the value as an int when it is an int >= 1 or a digit-only string for one, else null */
+    private static function positiveQuantity(mixed $quantity): ?int
+    {
+        if (is_string($quantity) && preg_match('/^[0-9]+$/', $quantity) === 1) {
+            $digits = ltrim($quantity, '0');
+            $quantity = $digits !== '' && (string) (int) $digits === $digits ? (int) $digits : 0; // 0 also rejects an overflow
+        }
+
+        return is_int($quantity) && $quantity >= 1 ? $quantity : null;
     }
 
     /** D4 (Part B plan): public/update_cart.php writes the size unchecked, as the page always did. */

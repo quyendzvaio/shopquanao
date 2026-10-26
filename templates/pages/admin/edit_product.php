@@ -17,6 +17,7 @@
 <div class="edit-box">
     <h2>Chỉnh sửa sản phẩm #<?= $id ?></h2>
     <form method="POST" enctype="multipart/form-data">
+        <?php include __DIR__ . '/../../partials/csrf_field.php'; ?>
         <label>Tên sản phẩm:</label>
         <input type="text" name="name" value="<?= htmlspecialchars($product['name']) ?>" required>
 
