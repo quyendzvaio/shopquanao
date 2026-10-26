@@ -42,7 +42,7 @@ Order inside the turn:
 
 - `mcp-server/` (TypeScript, stdio) spawns as a private child process of `app`. No public MCP port.
 - MCP tools call back into PHP at `/api/internal/mcp` (`src/app/api/controllers/Internal/mcp.php`): POST `{operation:"tool.call", tool, arguments, user_id}`, header `X-MCP-SERVICE-TOKEN` must equal `MCP_SERVICE_TOKEN` (`hash_equals`). Nginx returns 404 for this path externally.
-- Internal tools: Product / Size / Policy / Order / Outfit / Free-shipping via `ToolApplicationService`. `ToolRegistry` only executes tools listed in `ToolDefinitionCatalog`, so cart/checkout tools cannot run in-process.
+- Internal tools: Product / Size / Policy / Order / Outfit / Free-shipping via `ToolApplicationService`. `AgentFactory::executeTool` (the bridge `Internal/mcp.php` calls) runs only tools listed in `ToolDefinitionCatalog`, the same filter as `ToolRegistry::execute`; any other name, including the cart/checkout operations `ToolApplicationService` still implements, throws `InvalidArgumentException('Unknown tool: ...')`, mapped to 400. `ToolRegistry` only executes tools listed in `ToolDefinitionCatalog`, so cart/checkout tools cannot run in-process.
 - Auth errors map to 401, other runtime errors to 409, bad input to 400.
 
 ## Streaming boundary

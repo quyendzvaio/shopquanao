@@ -48,7 +48,7 @@ final class ProductPageTest extends TestCase
     public function testKnownIdProvidesProductSizesAndReviews(): void
     {
         $pdo = $this->shop();
-        $pdo->exec("INSERT INTO users (id, username) VALUES (1, 'lan')");
+        $pdo->exec("INSERT INTO users (id, username) VALUES (1, 'lan'), (9, 'minh')");
         $pdo->exec("INSERT INTO reviews (id, product_id, user_id, rating, comment, created_at)
             VALUES (1, 7, 9, 5, 'Đẹp', '2026-01-01 10:00:00')");
         $session = ['user_id' => 3];
@@ -58,8 +58,9 @@ final class ProductPageTest extends TestCase
         $this->assertFalse($data['notFound']);
         $this->assertSame('Áo thun', $data['product']['name']);
         $this->assertSame(['S', 'M'], array_column($data['sizes'], 'size_name'));
-        // Known bug kept for byte identity: reviews join users on r.id = u.id, not r.user_id.
-        $this->assertSame('lan', $data['reviews'][0]['username']);
+        // Reviews join users on r.user_id = u.id: the reviewer is user 9, not the user whose id equals the review id.
+        $this->assertCount(1, $data['reviews']);
+        $this->assertSame('minh', $data['reviews'][0]['username']);
         $this->assertSame('7', $data['product_id']);
         $this->assertTrue($data['loggedIn']);
     }

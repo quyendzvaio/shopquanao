@@ -15,8 +15,14 @@ final class SubmitReviewActionTest extends TestCase
         return $pdo;
     }
 
-    private function visit(PDO $pdo, string $method, array $post, array $session): PageResult
+    /** Posts with the session's CSRF token by default; pass $token = null for none, or another value for a wrong one. */
+    private function visit(PDO $pdo, string $method, array $post, array $session, ?string $token = 'tok'): PageResult
     {
+        $session['csrf_token'] = 'tok';
+        if ($token !== null) {
+            $post['csrf_token'] = $token;
+        }
+
         return (new SubmitReviewAction(new ReviewService($pdo)))->handle(new WebRequest($method, [], $post, []), $session);
     }
 
@@ -56,9 +62,45 @@ final class SubmitReviewActionTest extends TestCase
         $pdo = new PDO('sqlite::memory:');
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-        $result = $this->visit($pdo, 'POST', ['product_id' => '50', 'rating' => '5', 'comment' => 'ok'], ['user_id' => 5]);
+        $log = tempnam(sys_get_temp_dir(), 'phplog');
+        $previous = ini_set('error_log', $log);
+        try {
+            $result = $this->visit($pdo, 'POST', ['product_id' => '50', 'rating' => '5', 'comment' => 'ok'], ['user_id' => 5]);
+        } finally {
+            ini_set('error_log', (string) $previous);
+        }
 
         $this->assertSame('halt', $result->kind());
-        $this->assertStringStartsWith('Lỗi hệ thống: ', $result->payload());
+        $this->assertSame('Lỗi hệ thống, vui lòng thử lại sau.', $result->payload());
+        $this->assertStringNotContainsStringIgnoringCase('SQLSTATE', $result->payload());
+        $this->assertStringNotContainsString('no such table', $result->payload());
+        $this->assertStringContainsString('no such table', (string) file_get_contents($log));
+        unlink($log);
+    }
+
+    public function testMissingOrWrongTokenGoesHomeWithoutWriting(): void
+    {
+        $pdo = $this->db();
+        $valid = ['product_id' => '50', 'rating' => '5', 'comment' => 'ok'];
+
+        foreach ([null, 'forged', ''] as $token) {
+            $result = $this->visit($pdo, 'POST', $valid, ['user_id' => 5], $token);
+
+            $this->assertSame('redirect', $result->kind());
+            $this->assertSame('index.php', $result->payload());
+        }
+        $this->assertSame(0, $this->reviewCount($pdo));
+    }
+
+    public function testASessionWithoutATokenNeverStoresAReview(): void
+    {
+        $pdo = $this->db();
+        $post = ['product_id' => '50', 'rating' => '5', 'comment' => 'ok', 'csrf_token' => ''];
+
+        $session = ['user_id' => 5];
+        $result = (new SubmitReviewAction(new ReviewService($pdo)))->handle(new WebRequest('POST', [], $post, []), $session);
+
+        $this->assertSame('index.php', $result->payload());
+        $this->assertSame(0, $this->reviewCount($pdo));
     }
 }

@@ -49,6 +49,8 @@ final class LoginPage
                         $session['user_id'] = $user['id'];
                         $session['username'] = $user['username'];
                         $session['role'] = 'user';
+                        // A stale env/DB admin flag must not survive a customer login (AdminGuard would accept it)
+                        unset($session['admin_logged_in']);
 
                         // Generate + store API token for chatbot
                         $session['api_token'] = $this->users->rotateApiToken($user['id']);

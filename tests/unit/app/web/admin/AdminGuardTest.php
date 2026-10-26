@@ -4,79 +4,48 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
+/**
+ * One rule for every admin page: `admin_logged_in` (env admin) OR role admin (DB admin) passes,
+ * everyone else goes to the admin login (public/admin/login.php, i.e. 'login.php').
+ */
 final class AdminGuardTest extends TestCase
 {
-    // index.php and manage_orders.php: the admin flag OR the admin role passes, otherwise login.php.
-
-    public function testFlagPageSendsAGuestToLogin(): void
+    public function testGuestIsRedirectedToTheAdminLogin(): void
     {
-        $result = AdminGuard::check([], true, 'login.php');
+        $result = AdminGuard::check([]);
 
         $this->assertNotNull($result);
         $this->assertSame('redirect', $result->kind());
         $this->assertSame('login.php', $result->payload());
     }
 
-    public function testFlagPageAcceptsTheAdminFlagAlone(): void
+    public function testCustomerRoleIsRedirectedToTheAdminLogin(): void
     {
-        $this->assertNull(AdminGuard::check(['admin_logged_in' => true], true, 'login.php'));
-    }
+        $result = AdminGuard::check(['user_id' => 3, 'role' => 'user']);
 
-    public function testFlagPageAcceptsTheAdminRoleAlone(): void
-    {
-        $this->assertNull(AdminGuard::check(['role' => 'admin'], true, 'login.php'));
-    }
-
-    public function testFlagPageRejectsACustomerRole(): void
-    {
-        $result = AdminGuard::check(['user_id' => 3, 'role' => 'user'], true, 'login.php');
-
+        $this->assertSame('redirect', $result?->kind());
         $this->assertSame('login.php', $result?->payload());
     }
 
-    public function testFlagPageTreatsANullFlagAsMissing(): void
+    public function testEnvAdminFlagIsAllowed(): void
     {
-        $result = AdminGuard::check(['admin_logged_in' => null], true, 'login.php');
-
-        $this->assertSame('login.php', $result?->payload());
+        $this->assertNull(AdminGuard::check(['admin_logged_in' => true]));
     }
 
-    // add_product.php: role only, login.php.
-
-    public function testRoleOnlyAddProductSendsAGuestToAdminLogin(): void
+    public function testDbAdminRoleIsAllowed(): void
     {
-        $this->assertSame('login.php', AdminGuard::check([], false, 'login.php')?->payload());
+        $this->assertNull(AdminGuard::check(['user_id' => 7, 'role' => 'admin']));
     }
 
-    public function testRoleOnlyAddProductIgnoresTheAdminFlag(): void
+    public function testNullOrEmptyFlagIsTreatedAsMissing(): void
     {
-        $result = AdminGuard::check(['admin_logged_in' => true], false, 'login.php');
-
-        $this->assertSame('login.php', $result?->payload());
-    }
-
-    public function testRoleOnlyAcceptsTheAdminRole(): void
-    {
-        $this->assertNull(AdminGuard::check(['role' => 'admin'], false, 'login.php'));
-    }
-
-    // edit_product.php, manage_products.php, manage_users.php: role only, ../login.php (the storefront login).
-
-    public function testRoleOnlyEditPagesSendAGuestToTheStorefrontLogin(): void
-    {
-        $this->assertSame('../login.php', AdminGuard::check([], false, '../login.php')?->payload());
-    }
-
-    public function testRoleOnlyEditPagesRejectACustomerRole(): void
-    {
-        $result = AdminGuard::check(['role' => 'user'], false, '../login.php');
-
-        $this->assertSame('../login.php', $result?->payload());
+        $this->assertSame('login.php', AdminGuard::check(['admin_logged_in' => null])?->payload());
+        $this->assertSame('login.php', AdminGuard::check(['admin_logged_in' => false])?->payload());
     }
 
     public function testRoleIsComparedStrictly(): void
     {
-        $this->assertNotNull(AdminGuard::check(['role' => 'Admin'], false, '../login.php'));
-        $this->assertNotNull(AdminGuard::check(['role' => true], false, '../login.php'));
+        $this->assertNotNull(AdminGuard::check(['role' => 'Admin']));
+        $this->assertNotNull(AdminGuard::check(['role' => true]));
     }
 }

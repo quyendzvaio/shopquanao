@@ -27,6 +27,8 @@ final class AdminLoginPage
                     $session['admin_logged_in'] = true;
                     $session['role'] = 'admin';
                     $session['username'] = 'Admin Shop';
+                    // The env admin has no user row: a customer session in the same browser must not survive into it
+                    unset($session['user_id'], $session['api_token']);
 
                     return PageResult::redirect('index.php');
                 }

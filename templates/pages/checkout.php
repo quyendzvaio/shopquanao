@@ -4,6 +4,7 @@
     <div style="flex: 2; background: #f9f9f9; padding: 30px; border-radius: 8px;">
         <h2 style="margin-bottom: 20px; text-transform: uppercase;">Thông tin giao hàng</h2>
         <form action="process_checkout.php" method="POST">
+            <?php include __DIR__ . '/../partials/csrf_field.php'; ?>
             <div style="margin-bottom: 15px;">
                 <label style="display: block; margin-bottom: 5px;">Họ và tên *</label>
                 <input type="text" name="full_name" required style="width: 100%; padding: 10px; border: 1px solid #ddd;">

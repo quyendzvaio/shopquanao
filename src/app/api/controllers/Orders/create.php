@@ -6,6 +6,8 @@ $userId = (int)$user['id'];
 global $pdo;
 try {
     jsonResponse((new OrderService($pdo))->create($userId), 201);
+} catch (PDOException $error) {
+    databaseErrorResponse($error);
 } catch (RuntimeException $error) {
-    errorResponse($error->getMessage(), str_contains($error->getMessage(), 'empty') ? 400 : 409);
+    errorResponse($error->getMessage(), $error instanceof EmptyCartException ? 400 : 409);
 }

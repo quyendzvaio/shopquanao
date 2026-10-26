@@ -9,6 +9,8 @@ if (!$orderId) errorResponse('Order ID required', 400);
 
 try {
     jsonResponse((new OrderService($pdo))->detail($userId, $orderId));
+} catch (PDOException $error) {
+    databaseErrorResponse($error);
 } catch (RuntimeException $error) {
     errorResponse($error->getMessage(), 404);
 }

@@ -16,6 +16,7 @@ docker compose config --quiet
 scripts/dev/smoke.sh                                              # HTTP smoke incl. 404/403 on source paths
 scripts/dev/web-snapshot.sh <label>                               # HTTP snapshot of storefront, admin and REST on shop_test
 diff -r reports/web-snapshot/baseline reports/web-snapshot/<label> # must be empty for a pure refactor
+scripts/dev/gate.sh                                               # the full local gate: autoload, Unit, PHPStan, integration, eval, mcp-server tests, snapshot diff (SKIP_SNAPSHOT=1 skips the diff)
 ```
 
 The snapshot baseline lives in gitignored `reports/web-snapshot/baseline`. Re-take it only for a deliberate, reviewed behaviour change (e.g. web checkout moving to `OrderService`), never to make a diff go away.

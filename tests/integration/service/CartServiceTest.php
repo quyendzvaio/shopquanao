@@ -87,6 +87,50 @@ final class CartServiceTest extends TestCase
         $this->assertSame(1, $result['cart'][0]['quantity']);
     }
 
+    public function testReAddWithoutSizeKeepsLineSize(): void
+    {
+        $product = $this->product(5);
+        $first = $this->cart->add($this->userId, ['product_id' => $product['id'], 'quantity' => 1, 'size' => 'm']);
+
+        foreach ([[], ['size' => null], ['size' => ''], ['size' => '  ']] as $extra) {
+            $result = $this->cart->add($this->userId, ['product_id' => $product['id'], 'quantity' => 1] + $extra);
+
+            $this->assertSame($first['cart_id'], $result['cart_id']);
+            $this->assertCount(1, $result['cart']);
+            $this->assertSame('M', $result['cart'][0]['size']);
+        }
+        $this->assertSame(5, $this->cart->list($this->userId)['cart'][0]['quantity']);
+    }
+
+    public function testReAddWithSizeReplacesIt(): void
+    {
+        $product = $this->product(5);
+        $this->cart->add($this->userId, ['product_id' => $product['id'], 'quantity' => 1, 'size' => 'M']);
+
+        $result = $this->cart->add($this->userId, ['product_id' => $product['id'], 'quantity' => 1, 'size' => ' l ']);
+
+        $this->assertSame('L', $result['cart'][0]['size']);
+        $this->assertSame(2, $result['cart'][0]['quantity']);
+    }
+
+    public function testReAddWithoutSizeStillRefusesMergedQuantityAboveStock(): void
+    {
+        $product = $this->product(5);
+        $this->setStock($product['id'], 3);
+        $this->cart->add($this->userId, ['product_id' => $product['id'], 'quantity' => 2, 'size' => 'M']);
+
+        try {
+            $this->cart->add($this->userId, ['product_id' => $product['id'], 'quantity' => 2]);
+            $this->fail('expected RuntimeException');
+        } catch (RuntimeException $e) {
+            $this->assertSame('Insufficient product stock', $e->getMessage());
+        }
+
+        $line = $this->cart->list($this->userId)['cart'][0];
+        $this->assertSame(2, $line['quantity']);
+        $this->assertSame('M', $line['size']);
+    }
+
     public function testAddRefusesMergedQuantityAboveStock(): void
     {
         $product = $this->product(5);

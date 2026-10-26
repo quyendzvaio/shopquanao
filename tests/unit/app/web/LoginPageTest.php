@@ -101,4 +101,25 @@ final class LoginPageTest extends TestCase
         $this->assertFalse($plain['registerSuccess']);
         $this->assertTrue($banner['registerSuccess']);
     }
+
+    public function testCustomerLoginDropsAStaleAdminFlagFromAnEarlierAdminLogin(): void
+    {
+        $session = ['user_id' => 0, 'username' => 'Admin Shop', 'role' => 'admin', 'admin_logged_in' => true];
+
+        $result = $this->visit($this->db(), new AppConfig(), ['email' => 'an@example.test', 'password' => 'good-pass'], $session);
+
+        $this->assertSame('index.php', $result->payload());
+        $this->assertArrayNotHasKey('admin_logged_in', $session);
+        $this->assertSame('user', $session['role']);
+        $this->assertNotNull(AdminGuard::check($session), 'the unified admin guard no longer lets this customer in');
+    }
+
+    public function testAFailedCustomerLoginKeepsTheExistingAdminSession(): void
+    {
+        $session = ['user_id' => 0, 'role' => 'admin', 'admin_logged_in' => true];
+
+        $this->visit($this->db(), new AppConfig(), ['email' => 'an@example.test', 'password' => 'nope'], $session);
+
+        $this->assertTrue($session['admin_logged_in']);
+    }
 }

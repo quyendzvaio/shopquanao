@@ -31,7 +31,7 @@ Every component may also use `service/`, `model/` and `core/`; `repository/` onl
 
 | Component | Contains | Public entry | May use (besides service/model/core) |
 |---|---|---|---|
-| `llm/` | `LLMProvider`, `StreamingLLMProvider`, `LLMResponse`, `ToolCall`, `LLMTransportException`, `ModelCall`, `MiddlewareModel` | interfaces + DTOs | middleware (only `Middleware`, `MiddlewareStack`) |
+| `llm/` | `LLMProvider`, `StreamingLLMProvider`, `LLMResponse`, `ToolCall`, `LLMTransportException`, `UnavailableStreamingLlm`, `ModelCall`, `MiddlewareModel` | interfaces + DTOs | middleware (only `Middleware`, `MiddlewareStack`) |
 | `turn/` | `TurnRunner`, `TurnContext`, `TurnResult` | `TurnRunner::run()` | all components |
 | `intent/` | `IntentResolver`, `DeterministicIntentParser`, `ConflictDetector`, `ConflictResolver`, `MergeEngine`, `LlmInputParser`, `SemanticEntityEnricher`, `TurnTierGate`, `CheckoutDetector` | `IntentResolver::resolve()`, `CheckoutDetector` | llm, planning |
 | `planning/` | `ChatbotToolManifest`, `CapabilityRegistry`, `ToolPlanner`, `PlanValidator` | those four | none |
