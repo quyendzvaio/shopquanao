@@ -63,6 +63,10 @@ ChatbotService (src/agent facade) -> TurnRunner::run(), one turn:
 - Never auto-checkout, add to cart, or take payment from the chatbot (guardrail intent `unsupported_checkout`).
 - Product cards come only from the private catalog and must pass `ProductConstraintVerifier`.
 - `.env`, reports, model caches and local DB artifacts stay out of git.
+- State-changing web actions are POST with a CSRF token (`src/core/http/Csrf.php`); never a GET link.
+- Re-adding a product to the cart without a size keeps that line's size (web and API, `CartService::add`); a new line defaults to `S`.
+- An env admin (no real `user_id`) cannot add to cart or check out.
+- The MCP bridge (`AgentFactory::executeTool`) only runs tools listed in `ToolDefinitionCatalog`, so cart and checkout tools run through neither MCP nor in-process.
 - Web checkout and add-to-cart go through `OrderService`/`CartService` like the API: checkout locks stock, saves the size and writes status `Chờ xử lý`. Orders already stored as `pending` are not migrated.
 
 ## Rules index (`.claude/rules/`)
