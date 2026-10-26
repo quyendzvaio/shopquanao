@@ -338,10 +338,11 @@ return [
       - cầu MCP (`AgentFactory::executeTool`, gọi từ `Internal/mcp.php`) chạy mọi tool của `ToolApplicationService`, gồm cả giỏ hàng và checkout, không lọc theo `ToolDefinitionCatalog` như `ToolRegistry::execute`. Resolved in web follow-ups Task 7 (tool ngoài catalog bị từ chối như tool không biết: `InvalidArgumentException`, HTTP 400).
     - **Còn mở (still open), chưa sửa sau web follow-ups:**
       - không có `session_regenerate_id` khi đăng nhập và cookie phiên không có SameSite;
-      - `Internal/mcp.php` ánh xạ `PDOException` sang 409 kèm text gốc và không ghi log;
       - `authenticate()` và một số trang (`CartPage`, `CheckoutPage`, `UpdateCartAction`, `ProfilePage`) không xử lý `PDOException`;
       - token CSRF hết hạn bị bỏ qua im lặng (no-op), người dùng không thấy thông báo;
-      - nhánh admin từ env khi đăng nhập admin giữ lại `user_id` của khách hàng đang có trong phiên.
+      - `mcp-server/src/tools.ts` vẫn đăng ký 7 tool giỏ hàng/đơn hàng mà bridge PHP từ chối.
+    - Đã sửa trong lượt review cuối: `Internal/mcp.php` trả 500 khi `PDOException`; đăng nhập admin từ env xoá `user_id`/`api_token` khỏi phiên.
+    - Quyết định (2026-10-27): admin trong DB đăng nhập qua trang login của cửa hàng được coi là admin (`user_id=0`) và không mua hàng; giữ nguyên hành vi này.
 12. **Tài liệu:** `CLAUDE.md`, `.claude/rules/*`, `README.md`, `docs/chatbot-spec.md`, `docs/technical-spec.md`, gồm mục "thêm intent/tool", "thêm middleware", "thêm trang/endpoint".
 
 Mỗi phần một PR vào `develop`. Phần A merge trước rồi mới mở nhánh phần B.
