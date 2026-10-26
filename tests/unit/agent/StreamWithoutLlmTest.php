@@ -96,6 +96,8 @@ final class StreamWithoutLlmTest extends TestCase
         [$result, $deltas] = $this->stream('đặt hàng giúp mình luôn nhé');
 
         $this->assertSame('unsupported_checkout', $result['primary_intent']);
+        $this->assertSame('CheckoutGuardrail', $result['latency']['blocked_by']);
+        $this->assertSame([], $result['latency']['routing']['selected_tools'] ?? []);
         $this->assertSame('template_fallback', $result['latency']['streaming']);
         $this->assertSame($result['message'], implode('', $deltas));
     }
