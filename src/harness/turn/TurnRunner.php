@@ -303,7 +303,8 @@ final class TurnRunner
     /**
      * Non-streamed turns keep the grounded draft. Streamed turns emit it as a
      * single delta in template mode (CHATBOT_TEMPLATE_RESPONSE=1, takes
-     * precedence), else stream an LLM rewrite of it.
+     * precedence), else stream an LLM rewrite of it (the grounded draft when
+     * there is no LLM or it fails).
      */
     private function answer(TurnContext $turn, array $result): array
     {
@@ -316,11 +317,11 @@ final class TurnRunner
             $result['latency']['streaming'] = 'template';
             return $result;
         }
-        if ($this->streamingLlm === null) {
-            throw new RuntimeException('Configured LLM provider does not support native token streaming');
-        }
+        // No streaming LLM (none configured, or it cannot stream): the stand-in fails inside the middleware stack,
+        // so the required AnswerTemplateFallback streams the grounded draft like for any other LLM failure.
+        $streamingLlm = $this->streamingLlm ?? new MiddlewareModel(new UnavailableStreamingLlm(), $this->middleware);
         $streamStart = microtime(true);
-        $generated = (new StreamingResponseGenerator())->stream($this->streamingLlm, $turn->message, $result, $turn->emit);
+        $generated = (new StreamingResponseGenerator())->stream($streamingLlm, $turn->message, $result, $turn->emit);
         $result['message'] = $generated['text'];
         $result['answer'] = $generated['text'];
         $result['latency']['llm_stream_ms'] = (int)((microtime(true) - $streamStart) * 1000);
