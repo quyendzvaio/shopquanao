@@ -1,7 +1,7 @@
 <?php
 
 /**
- * public/add_to_cart.php: puts a product in the cart through CartService::add (stock check, size, merged quantity),
+ * public/add_to_cart.php: puts a product in the cart (POST with a CSRF token) through CartService::add (stock check, size, merged quantity),
  * then goes to the cart, or straight to checkout for "buy now". Any refusal shows the sold-out alert.
  */
 final class AddToCartAction
@@ -15,7 +15,8 @@ final class AddToCartAction
         if (!isset($session['user_id'])) {
             return PageResult::output("<script>alert('Vui lòng đăng nhập để mua hàng!'); window.location.href='login.php';</script>");
         }
-        if ($request->method !== 'POST') {
+        // Only a POST with the session's CSRF token adds; anything else is the old no-op (an empty view)
+        if ($request->method !== 'POST' || !Csrf::valid($session, $request->post[Csrf::FIELD] ?? null)) {
             return PageResult::view();
         }
 

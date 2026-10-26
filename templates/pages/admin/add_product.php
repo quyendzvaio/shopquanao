@@ -2,6 +2,7 @@
     <h2>Thêm sản phẩm mới</h2>
     <?php if ($msg_error !== ''): ?><p style="color: #c0392b;"><?= htmlspecialchars($msg_error) ?></p><?php endif; ?>
     <form method="POST" enctype="multipart/form-data">
+        <?php include __DIR__ . '/../../partials/csrf_field.php'; ?>
         <input type="text" name="name" placeholder="Tên sản phẩm" required><br><br>
         <input type="number" name="price" placeholder="Giá" required><br><br>
         <select name="category_id">

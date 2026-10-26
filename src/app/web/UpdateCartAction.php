@@ -1,8 +1,9 @@
 <?php
 
 /**
- * public/update_cart.php: changes a cart line's quantity or size from GET parameters, then returns to the cart.
- * Part B plan D4: GET semantics and the missing stock/value checks are kept as they were; every value is bound raw.
+ * public/update_cart.php: changes a cart line's quantity or size from POST fields, then returns to the cart.
+ * Only a POST with the session's CSRF token writes; a GET (the old query URL) or a bad token just redirects.
+ * The missing stock/value checks are kept as they were; every value is bound raw.
  */
 final class UpdateCartAction
 {
@@ -12,12 +13,14 @@ final class UpdateCartAction
 
     public function handle(WebRequest $request, array &$session): PageResult
     {
-        $cart_id = $request->query['id'] ?? null;
-        $value = $request->query['value'] ?? null;
-        $type = $request->query['type'] ?? null;
+        $post = $request->post;
+        $cart_id = $post['id'] ?? null;
+        $value = $post['value'] ?? null;
+        $type = $post['type'] ?? null;
         $user_id = $session['user_id'] ?? null;
+        $trusted = $request->method === 'POST' && Csrf::valid($session, $post[Csrf::FIELD] ?? null);
 
-        if ($cart_id && $value && $user_id) {
+        if ($trusted && $cart_id && $value && $user_id) {
             if ($type == 'qty') {
                 $this->cart->setQuantityUnchecked($cart_id, $value, $user_id);
             } else {

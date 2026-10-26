@@ -32,8 +32,13 @@ final class AdminAddProductPageTest extends TestCase
         return $pdo;
     }
 
-    private function visit(PDO $pdo, array $post, array $files, array $session): PageResult
+    /** Posts with the session's CSRF token by default; pass $token = null for none, or another value for a wrong one. */
+    private function visit(PDO $pdo, array $post, array $files, array $session, ?string $token = 'tok'): PageResult
     {
+        $session['csrf_token'] = 'tok';
+        if ($token !== null) {
+            $post['csrf_token'] = $token;
+        }
         $page = new AdminAddProductPage(new ProductAdminService($pdo), $this->imagesDir);
 
         return $page->handle(new WebRequest('POST', [], $post, $files), $session);
@@ -143,5 +148,51 @@ final class AdminAddProductPageTest extends TestCase
 
         $this->assertSame('Không thể di chuyển file vào thư mục images.', $result->data()['msg_error']);
         $this->assertSame(0, $this->productCount($pdo));
+    }
+
+    public function testMissingOrWrongTokenSkipsTheUploadAndInsertsNothing(): void
+    {
+        $pdo = $this->db();
+        $upload = $this->imagesDir . 'incoming.jpg';
+        file_put_contents($upload, 'x');
+        $files = ['image' => ['name' => 'a.jpg', 'tmp_name' => $upload, 'error' => UPLOAD_ERR_OK]];
+
+        foreach ([null, 'forged', ''] as $token) {
+            $result = $this->visit($pdo, ['add_product' => '1', 'name' => 'Ao', 'price' => '1'], $files, ['role' => 'admin'], $token);
+
+            $this->assertTrue($result->isView());
+            $this->assertSame('', $result->data()['msg_error'], 'the upload was not even looked at');
+        }
+        $this->assertSame(0, $this->productCount($pdo));
+        $this->assertSame([$upload], glob($this->imagesDir . '*'));
+    }
+
+    public function testAValidTokenLetsTheUploadRun(): void
+    {
+        $result = $this->visit($this->db(), ['add_product' => '1', 'name' => 'Ao', 'price' => '1'], [], ['role' => 'admin']);
+
+        $this->assertSame('Lỗi khi tải file lên: ' . UPLOAD_ERR_NO_FILE, $result->data()['msg_error']);
+    }
+
+    public function testAGetNeverRunsTheUploadEvenWithAValidToken(): void
+    {
+        $pdo = $this->db();
+        $page = new AdminAddProductPage(new ProductAdminService($pdo), $this->imagesDir);
+        $post = ['add_product' => '1', 'name' => 'Ao', 'price' => '1', 'csrf_token' => 'tok'];
+
+        $result = $page->handle(new WebRequest('GET', [], $post, []), ['role' => 'admin', 'csrf_token' => 'tok']);
+
+        $this->assertSame('', $result->data()['msg_error']);
+        $this->assertSame(0, $this->productCount($pdo));
+    }
+
+    public function testASessionWithoutATokenNeverRunsTheUpload(): void
+    {
+        $page = new AdminAddProductPage(new ProductAdminService($this->db()), $this->imagesDir);
+        $post = ['add_product' => '1', 'name' => 'Ao', 'price' => '1', 'csrf_token' => ''];
+
+        $result = $page->handle(new WebRequest('POST', [], $post, []), ['role' => 'admin']);
+
+        $this->assertSame('', $result->data()['msg_error']);
     }
 }

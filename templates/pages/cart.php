@@ -49,7 +49,7 @@
 
                     <td style="padding: 10px; border: 1px solid #ddd; color: #d0021b; font-weight: bold;"><?= number_format($item['subtotal']) ?>đ</td>
                     <td style="padding: 10px; border: 1px solid #ddd;">
-                        <a href="cart.php?remove=<?= $item['cart_id'] ?>" onclick="return confirm('Xóa món này?')" style="color: red; text-decoration: none;">Xóa</a>
+                        <button type="button" onclick="if (confirm('Xóa món này?')) removeCartLine(<?= $item['cart_id'] ?>)" style="color: red; background: none; border: none; padding: 0; font: inherit; cursor: pointer;">Xóa</button>
                     </td>
                 </tr>
                 <?php endforeach; else: ?>
@@ -66,12 +66,32 @@
             <button type="submit" style="padding: 10px 25px; background: #28a745; color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">Thanh toán sản phẩm đã chọn</button>
         </div>
     </form>
+
+<!-- State changes are POSTs with the CSRF token; these forms sit outside #cart-form (forms cannot nest). -->
+<form id="update-cart-form" action="update_cart.php" method="POST" style="display: none;">
+    <?php include __DIR__ . '/../partials/csrf_field.php'; ?>
+    <input type="hidden" name="id" value="">
+    <input type="hidden" name="value" value="">
+    <input type="hidden" name="type" value="">
+</form>
+<form id="remove-cart-form" action="cart.php" method="POST" style="display: none;">
+    <?php include __DIR__ . '/../partials/csrf_field.php'; ?>
+    <input type="hidden" name="remove" value="">
+</form>
 </div>
 
 <script>
 function updateCart(cartId, value, type) {
-    // Gửi yêu cầu cập nhật ngầm mà không cần tải lại trang hoàn toàn
-    window.location.href = `update_cart.php?id=${cartId}&value=${value}&type=${type}`;
+    var form = document.getElementById('update-cart-form');
+    form.elements['id'].value = cartId;
+    form.elements['value'].value = value;
+    form.elements['type'].value = type;
+    form.submit();
+}
+function removeCartLine(cartId) {
+    var form = document.getElementById('remove-cart-form');
+    form.elements['remove'].value = cartId;
+    form.submit();
 }
 </script>
 

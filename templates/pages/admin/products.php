@@ -42,6 +42,7 @@
     <div class="form-container">
         <h3>Thêm sản phẩm mới</h3>
         <form method="POST" enctype="multipart/form-data">
+            <?php include __DIR__ . '/../../partials/csrf_field.php'; ?>
             <input type="text" name="name" placeholder="Tên sản phẩm" required style="padding: 8px; width: 250px;">
             <input type="number" name="price" placeholder="Giá tiền" required style="padding: 8px; width: 150px;">
             <input type="number" name="stock" placeholder="Số lượng" value="0" min="0" style="padding: 8px; width: 80px;">
@@ -109,7 +110,11 @@
                 </td>
                 <td>
                     <a href="edit_product.php?id=<?= $p['id'] ?>" class="btn btn-edit">Sửa</a>
-                    <a href="?delete_id=<?= $p['id'] ?>" class="btn btn-del" onclick="return confirm('Xóa sản phẩm này?')">Xóa</a>
+                    <form method="POST" style="display: inline;" onsubmit="return confirm('Xóa sản phẩm này?')">
+                        <?php include __DIR__ . '/../../partials/csrf_field.php'; ?>
+                        <input type="hidden" name="delete_id" value="<?= $p['id'] ?>">
+                        <button type="submit" class="btn btn-del">Xóa</button>
+                    </form>
                 </td>
             </tr>
             <?php endforeach; ?>

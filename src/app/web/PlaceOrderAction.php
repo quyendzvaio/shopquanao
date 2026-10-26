@@ -12,7 +12,10 @@ final class PlaceOrderAction
 
     public function handle(WebRequest $request, array $session): PageResult
     {
-        if (!isset($session['user_id']) || $request->method !== 'POST') {
+        if (
+            !isset($session['user_id']) || $request->method !== 'POST'
+            || !Csrf::valid($session, $request->post[Csrf::FIELD] ?? null)
+        ) {
             return PageResult::redirect('index.php');
         }
 

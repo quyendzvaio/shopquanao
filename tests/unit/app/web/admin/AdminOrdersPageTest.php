@@ -19,14 +19,16 @@ final class AdminOrdersPageTest extends TestCase
         return $pdo;
     }
 
-    private function post(PDO $pdo, string $status): PageResult
+    /** Posts with the session's CSRF token by default; pass $token = null for none, or another value for a wrong one. */
+    private function post(PDO $pdo, string $status, ?string $token = 'tok', string $method = 'POST'): PageResult
     {
         $page = new AdminOrdersPage(new OrderService($pdo));
+        $fields = ['update_status' => '1', 'order_id' => '3', 'status' => $status];
+        if ($token !== null) {
+            $fields['csrf_token'] = $token;
+        }
 
-        return $page->handle(
-            new WebRequest('POST', [], ['update_status' => '1', 'order_id' => '3', 'status' => $status], []),
-            ['role' => 'admin']
-        );
+        return $page->handle(new WebRequest($method, [], $fields, []), ['role' => 'admin', 'csrf_token' => 'tok']);
     }
 
     private function statusOfOrder3(PDO $pdo): string
@@ -60,5 +62,38 @@ final class AdminOrdersPageTest extends TestCase
     public function testTheWhitelistIsTheApiList(): void
     {
         $this->assertSame(['Chờ xử lý', 'Đang giao', 'Đã hoàn thành', 'Đã hủy'], OrderService::STATUSES);
+    }
+
+    public function testMissingOrWrongTokenRedirectsAndLeavesTheRowUnchanged(): void
+    {
+        $pdo = $this->db();
+
+        foreach ([null, 'forged', ''] as $token) {
+            $result = $this->post($pdo, 'Đã hủy', $token);
+
+            $this->assertSame('redirect', $result->kind());
+            $this->assertSame('manage_orders.php', $result->payload());
+        }
+        $this->assertSame('Chờ xử lý', $this->statusOfOrder3($pdo));
+    }
+
+    public function testAGetNeverUpdatesTheStatusEvenWithAValidToken(): void
+    {
+        $pdo = $this->db();
+
+        $result = $this->post($pdo, 'Đã hủy', 'tok', 'GET');
+
+        $this->assertTrue($result->isView());
+        $this->assertSame('Chờ xử lý', $this->statusOfOrder3($pdo));
+    }
+
+    public function testASessionWithoutATokenNeverUpdatesTheStatus(): void
+    {
+        $pdo = $this->db();
+        $fields = ['update_status' => '1', 'order_id' => '3', 'status' => 'Đã hủy', 'csrf_token' => ''];
+
+        (new AdminOrdersPage(new OrderService($pdo)))->handle(new WebRequest('POST', [], $fields, []), ['role' => 'admin']);
+
+        $this->assertSame('Chờ xử lý', $this->statusOfOrder3($pdo));
     }
 }

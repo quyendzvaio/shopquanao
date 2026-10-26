@@ -9,7 +9,10 @@ final class SubmitReviewAction
 
     public function handle(WebRequest $request, array &$session): PageResult
     {
-        if ($request->method == 'POST' && isset($session['user_id'])) {
+        if (
+            $request->method == 'POST' && isset($session['user_id'])
+            && Csrf::valid($session, $request->post[Csrf::FIELD] ?? null)
+        ) {
             $user_id = $session['user_id'];
             $product_id = $request->post['product_id'];
             $rating = $request->post['rating'];
@@ -26,7 +29,7 @@ final class SubmitReviewAction
             }
         }
 
-        // Not signed in, wrong method or invalid input: back to the home page
+        // Not signed in, wrong method, bad CSRF token or invalid input: back to the home page
         return PageResult::redirect('index.php');
     }
 }

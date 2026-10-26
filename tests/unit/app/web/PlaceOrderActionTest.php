@@ -17,9 +17,15 @@ final class PlaceOrderActionTest extends TestCase
         return $pdo;
     }
 
-    private function visit(PDO $pdo, string $method, array $session): PageResult
+    /** Posts with the session's CSRF token by default; pass $token = null for none, or another value for a wrong one. */
+    private function visit(PDO $pdo, string $method, array $session, ?string $token = 'tok'): PageResult
     {
         $post = ['full_name' => 'A', 'phone' => '0900', 'address' => 'HN', 'note' => ''];
+        $session['csrf_token'] = 'tok';
+        if ($token !== null) {
+            $post['csrf_token'] = $token;
+        }
+
         return (new PlaceOrderAction(new OrderService($pdo)))->handle(new WebRequest($method, [], $post, []), $session);
     }
 
@@ -101,5 +107,33 @@ final class PlaceOrderActionTest extends TestCase
         $this->assertStringStartsWith('Lỗi đặt hàng: ', $result->payload());
         $this->assertSame(0, $this->rows($pdo, 'orders'));
         $this->assertSame(1, $this->rows($pdo, 'cart'));
+    }
+
+    public function testMissingOrWrongTokenGoesHomeWithoutWriting(): void
+    {
+        $pdo = $this->shop();
+        $pdo->exec("INSERT INTO cart (user_id, product_id, quantity, size) VALUES (5, 7, 1, 'S')");
+
+        foreach ([null, 'forged', ''] as $token) {
+            $result = $this->visit($pdo, 'POST', ['user_id' => 5], $token);
+
+            $this->assertSame('redirect', $result->kind());
+            $this->assertSame('index.php', $result->payload());
+        }
+        $this->assertSame(0, $this->rows($pdo, 'orders'));
+        $this->assertSame(5, (int) $pdo->query('SELECT stock FROM products WHERE id = 7')->fetchColumn());
+        $this->assertSame(1, $this->rows($pdo, 'cart'));
+    }
+
+    public function testASessionWithoutATokenNeverPlacesAnOrder(): void
+    {
+        $pdo = $this->shop();
+        $pdo->exec("INSERT INTO cart (user_id, product_id, quantity, size) VALUES (5, 7, 1, 'S')");
+        $request = new WebRequest('POST', [], ['csrf_token' => ''], []);
+
+        $result = (new PlaceOrderAction(new OrderService($pdo)))->handle($request, ['user_id' => 5]);
+
+        $this->assertSame('index.php', $result->payload());
+        $this->assertSame(0, $this->rows($pdo, 'orders'));
     }
 }

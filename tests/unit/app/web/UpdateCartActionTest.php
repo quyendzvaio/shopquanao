@@ -14,9 +14,20 @@ final class UpdateCartActionTest extends TestCase
         return $pdo;
     }
 
-    private function visit(PDO $pdo, array $query, array $session): PageResult
+    /** Posts the cart-line fields with the session's CSRF token by default; $token = null sends none. */
+    private function visit(PDO $pdo, array $fields, array $session, string $method = 'POST', ?string $token = 'tok'): PageResult
     {
-        return (new UpdateCartAction(new CartService($pdo)))->handle(new WebRequest('GET', $query, [], []), $session);
+        $session['csrf_token'] = 'tok';
+        if ($token !== null) {
+            $fields['csrf_token'] = $token;
+        }
+
+        return (new UpdateCartAction(new CartService($pdo)))->handle(new WebRequest($method, [], $fields, []), $session);
+    }
+
+    private function line(PDO $pdo, int $id): array
+    {
+        return $pdo->query("SELECT quantity, size FROM cart WHERE id = {$id}")->fetch(PDO::FETCH_ASSOC);
     }
 
     public function testQtyUpdatesTheQuantityWithoutAStockCheckAndRedirects(): void
@@ -56,9 +67,49 @@ final class UpdateCartActionTest extends TestCase
             [['id' => '1', 'type' => 'qty'], ['user_id' => 5]],
             [['id' => '1', 'value' => '0', 'type' => 'qty'], ['user_id' => 5]],
             [['id' => '1', 'value' => '9', 'type' => 'qty'], []],
-        ] as [$query, $session]) {
-            $this->assertSame('cart.php', $this->visit($pdo, $query, $session)->payload());
+        ] as [$fields, $session]) {
+            $this->assertSame('cart.php', $this->visit($pdo, $fields, $session)->payload());
         }
         $this->assertSame('2', (string) $pdo->query('SELECT quantity FROM cart WHERE id = 1')->fetchColumn());
+    }
+
+    public function testMissingOrWrongTokenRedirectsWithoutWriting(): void
+    {
+        $pdo = $this->shop();
+
+        foreach ([null, 'forged', ''] as $token) {
+            foreach ([['qty', '99'], ['size', 'XL']] as [$type, $value]) {
+                $result = $this->visit($pdo, ['id' => '1', 'value' => $value, 'type' => $type], ['user_id' => 5], 'POST', $token);
+
+                $this->assertSame('redirect', $result->kind());
+                $this->assertSame('cart.php', $result->payload());
+            }
+        }
+        $this->assertSame(['quantity' => 2, 'size' => 'M'], $this->line($pdo, 1));
+    }
+
+    public function testGetWritesNothingEvenWithAValidTokenAndTheOldQueryUrl(): void
+    {
+        $pdo = $this->shop();
+        $request = new WebRequest('GET', ['id' => '1', 'value' => '99', 'type' => 'qty', 'csrf_token' => 'tok'], [], []);
+
+        $session = ['user_id' => 5, 'csrf_token' => 'tok'];
+        $result = (new UpdateCartAction(new CartService($pdo)))->handle($request, $session);
+        $viaPostFields = $this->visit($pdo, ['id' => '1', 'value' => '99', 'type' => 'qty'], ['user_id' => 5], 'GET');
+
+        $this->assertSame('cart.php', $result->payload());
+        $this->assertSame('cart.php', $viaPostFields->payload());
+        $this->assertSame(['quantity' => 2, 'size' => 'M'], $this->line($pdo, 1));
+    }
+
+    public function testASessionWithoutATokenNeverWrites(): void
+    {
+        $pdo = $this->shop();
+        $request = new WebRequest('POST', [], ['id' => '1', 'value' => '99', 'type' => 'qty', 'csrf_token' => ''], []);
+        $session = ['user_id' => 5];
+
+        (new UpdateCartAction(new CartService($pdo)))->handle($request, $session);
+
+        $this->assertSame(['quantity' => 2, 'size' => 'M'], $this->line($pdo, 1));
     }
 }

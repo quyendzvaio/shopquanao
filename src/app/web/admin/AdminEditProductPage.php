@@ -1,7 +1,7 @@
 <?php
 
 /**
- * public/admin/edit_product.php: the edit form and its UPDATE. The upload (non-strict extension check,
+ * public/admin/edit_product.php: the edit form and its UPDATE (POST with a CSRF token; otherwise only the form). The upload (non-strict extension check,
  * server-made name, move_uploaded_file, unlink of the old image) stays here; the service only receives the final
  * file name. A new file that is rejected or cannot be moved leaves $image_to_save at NULL, so NULL is written to the
  * image column: the page has always done that and it is kept. A form without any `image` part counts as no new
@@ -35,7 +35,8 @@ final class AdminEditProductPage
         $subcategories = $this->categories->withSubcategories();
 
         // Update
-        if (isset($request->post['update_product'])) {
+        $trusted = $request->method === 'POST' && Csrf::valid($session, $request->post[Csrf::FIELD] ?? null);
+        if ($trusted && isset($request->post['update_product'])) {
             $name = $request->post['name'];
             $price = $request->post['price'];
             $stock = (int)($request->post['stock'] ?? 0);

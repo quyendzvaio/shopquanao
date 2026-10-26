@@ -62,6 +62,7 @@
                 </td>
                 <td>
                     <form method="POST" style="display: flex; gap: 5px;">
+                        <?php include __DIR__ . '/../../partials/csrf_field.php'; ?>
                         <input type="hidden" name="order_id" value="<?= $order['id'] ?>">
                         <select name="status" style="padding: 5px; border-radius: 4px;">
                             <option value="Chờ xử lý" <?= $order['status'] == 'Chờ xử lý' ? 'selected' : '' ?>>Chờ xử lý</option>

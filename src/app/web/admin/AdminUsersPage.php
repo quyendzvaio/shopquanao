@@ -1,7 +1,7 @@
 <?php
 
 /**
- * public/admin/manage_users.php: the member list with lock/unlock and role toggling, all through GET links.
+ * public/admin/manage_users.php: the member list with lock/unlock and role toggling, all through POST forms.
  * The template reads the session's user_id itself (the `session` view variable) to hide the actions on one's
  * own row. An env admin has no user_id, so both places compare against null.
  */
@@ -18,10 +18,13 @@ final class AdminUsersPage
             return $denied;
         }
 
+        // Lock, unlock and role changes are POSTs with the session's CSRF token; otherwise the page is just the list
+        $trusted = $request->method === 'POST' && Csrf::valid($session, $request->post[Csrf::FIELD] ?? null);
+
         // 2. Lock and unlock
-        if (isset($request->query['action']) && isset($request->query['id'])) {
-            $id = (int)$request->query['id'];
-            $action = $request->query['action'];
+        if ($trusted && isset($request->post['action']) && isset($request->post['id'])) {
+            $id = (int)$request->post['id'];
+            $action = $request->post['action'];
             $msg = ''; // an unknown action redirects to `?msg=` (the old page logged an undefined-variable warning there)
 
             if ($id != ($session['user_id'] ?? null)) {
@@ -41,9 +44,9 @@ final class AdminUsersPage
         }
 
         // 3. Change the role (user <-> admin)
-        if (isset($request->query['toggle_role']) && isset($request->query['id'])) {
-            $id = (int)$request->query['id'];
-            $new_role = ($request->query['toggle_role'] === 'admin') ? 'admin' : 'user';
+        if ($trusted && isset($request->post['toggle_role']) && isset($request->post['id'])) {
+            $id = (int)$request->post['id'];
+            $new_role = ($request->post['toggle_role'] === 'admin') ? 'admin' : 'user';
             $this->users->setRole($id, $new_role);
             return PageResult::redirect('manage_users.php?msg=updated');
         }

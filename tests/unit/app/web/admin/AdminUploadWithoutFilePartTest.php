@@ -39,8 +39,8 @@ final class AdminUploadWithoutFilePartTest extends TestCase
 
         $result = $this->strict(fn () => $page->handle(
             new WebRequest('POST', ['id' => '1'], ['update_product' => '1', 'name' => 'Ao moi', 'price' => '150',
-                'stock' => '3', 'description' => 'x'], []),
-            ['role' => 'admin']
+                'stock' => '3', 'description' => 'x', 'csrf_token' => 'tok'], []),
+            ['role' => 'admin', 'csrf_token' => 'tok']
         ));
 
         $this->assertSame('manage_products.php?msg=updated', $result->payload());
@@ -55,8 +55,9 @@ final class AdminUploadWithoutFilePartTest extends TestCase
         $page = new AdminProductsPage(new ProductAdminService($pdo), new CategoryService($pdo), '/nonexistent/');
 
         $result = $this->strict(fn () => $page->handle(
-            new WebRequest('POST', [], ['add_product' => '1', 'name' => 'Moi', 'price' => '1', 'description' => 'x'], []),
-            ['role' => 'admin']
+            new WebRequest('POST', [], ['add_product' => '1', 'name' => 'Moi', 'price' => '1', 'description' => 'x',
+                'csrf_token' => 'tok'], []),
+            ['role' => 'admin', 'csrf_token' => 'tok']
         ));
 
         $this->assertTrue($result->isView());

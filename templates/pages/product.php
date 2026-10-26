@@ -28,6 +28,7 @@
             </div>
 
             <form action="add_to_cart.php" method="POST" style="margin-top: 30px;">
+                <?php include __DIR__ . '/../partials/csrf_field.php'; ?>
                 <input type="hidden" name="product_id" value="<?= $product_id ?>">
 
                 <div style="margin-bottom: 25px;">
@@ -83,6 +84,7 @@
                 <?php if ($loggedIn): ?>
                     <form action="submit_review.php" method="POST"
                         style="background: #f9f9f9; padding: 25px; border-radius: 8px;">
+                        <?php include __DIR__ . '/../partials/csrf_field.php'; ?>
                         <input type="hidden" name="product_id" value="<?= $product_id ?>">
                         <p style="font-weight: bold; margin-bottom: 15px;">Gửi nhận xét của bạn</p>
                         <select name="rating"

@@ -13,8 +13,14 @@ final class AddToCartActionTest extends TestCase
         return $pdo;
     }
 
-    private function visit(PDO $pdo, string $method, array $post, array $session): PageResult
+    /** Posts with the session's CSRF token by default; pass $token = null for none, or another value for a wrong one. */
+    private function visit(PDO $pdo, string $method, array $post, array $session, ?string $token = 'tok'): PageResult
     {
+        $session['csrf_token'] = 'tok';
+        if ($token !== null) {
+            $post['csrf_token'] = $token;
+        }
+
         return (new AddToCartAction(new CartService($pdo)))->handle(new WebRequest($method, [], $post, []), $session);
     }
 
@@ -140,6 +146,49 @@ final class AddToCartActionTest extends TestCase
         $this->assertSame($this->soldOutScript(99), $this->visit($pdo, 'POST', ['product_id' => '99'], ['user_id' => 5])->payload());
         $this->assertSame($this->soldOutScript(7), $this->visit($pdo, 'POST', ['product_id' => '7', 'quantity' => '0'], ['user_id' => 5])->payload());
         $this->assertSame($this->soldOutScript(0), $this->visit($pdo, 'POST', [], ['user_id' => 5])->payload());
+        $this->assertSame([], $this->lines($pdo));
+    }
+
+    public function testMissingTokenWritesNothingAndReturnsTheEmptyView(): void
+    {
+        $pdo = $this->shop();
+
+        $result = $this->visit($pdo, 'POST', ['product_id' => '7', 'quantity' => '1'], ['user_id' => 5], null);
+
+        $this->assertTrue($result->isView());
+        $this->assertSame([], $result->data());
+        $this->assertSame([], $this->lines($pdo));
+    }
+
+    public function testWrongTokenWritesNothingAndReturnsTheEmptyView(): void
+    {
+        $pdo = $this->shop();
+
+        $result = $this->visit($pdo, 'POST', ['product_id' => '7', 'quantity' => '1'], ['user_id' => 5], 'forged');
+
+        $this->assertTrue($result->isView());
+        $this->assertSame([], $this->lines($pdo));
+    }
+
+    public function testGetWithAValidTokenInTheQueryStillWritesNothing(): void
+    {
+        $pdo = $this->shop();
+        $request = new WebRequest('GET', ['product_id' => '7', 'csrf_token' => 'tok'], [], []);
+
+        $result = (new AddToCartAction(new CartService($pdo)))->handle($request, ['user_id' => 5, 'csrf_token' => 'tok']);
+
+        $this->assertTrue($result->isView());
+        $this->assertSame([], $this->lines($pdo));
+    }
+
+    public function testSessionWithoutATokenNeverAdds(): void
+    {
+        $pdo = $this->shop();
+        $request = new WebRequest('POST', [], ['product_id' => '7', 'csrf_token' => ''], []);
+
+        $result = (new AddToCartAction(new CartService($pdo)))->handle($request, ['user_id' => 5]);
+
+        $this->assertTrue($result->isView());
         $this->assertSame([], $this->lines($pdo));
     }
 }

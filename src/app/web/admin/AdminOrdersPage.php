@@ -1,8 +1,8 @@
 <?php
 
 /**
- * public/admin/manage_orders.php: the order list and the status update. Only a status in OrderService::STATUSES
- * (the REST API's list) is stored; any other redirects without a write.
+ * public/admin/manage_orders.php: the order list and the status update (POST with a CSRF token). Only a status in
+ * OrderService::STATUSES (the REST API's list) is stored; any other status, or a bad token, redirects without a write.
  */
 final class AdminOrdersPage
 {
@@ -18,11 +18,15 @@ final class AdminOrdersPage
         }
 
         // 1. Update the status
-        if (isset($request->post['update_status'])) {
+        if ($request->method === 'POST' && isset($request->post['update_status'])) {
             $order_id = (int)$request->post['order_id'];
             $new_status = $request->post['status'] ?? null;
 
-            if (!in_array($new_status, OrderService::STATUSES, true)) {
+            // A missing or wrong CSRF token is the same no-op as an invalid status
+            if (
+                !Csrf::valid($session, $request->post[Csrf::FIELD] ?? null)
+                || !in_array($new_status, OrderService::STATUSES, true)
+            ) {
                 return PageResult::redirect('manage_orders.php');
             }
 

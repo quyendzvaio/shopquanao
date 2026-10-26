@@ -1,7 +1,7 @@
 <?php
 
 /**
- * public/admin/add_product.php: the add-product form fragment and its upload. The guard runs first, so a guest
+ * public/admin/add_product.php: the add-product form fragment and its upload (POST with a CSRF token). The guard runs first, so a guest
  * is redirected before any upload or insert. The upload (strict extension check, server-made name,
  * move_uploaded_file) stays here; the service only receives the final file name.
  */
@@ -19,7 +19,8 @@ final class AdminAddProductPage
         }
 
         $msg_error = '';
-        if (isset($request->post['add_product'])) {
+        $trusted = $request->method === 'POST' && Csrf::valid($session, $request->post[Csrf::FIELD] ?? null);
+        if ($trusted && isset($request->post['add_product'])) {
             $name = $request->post['name'];
             $price = $request->post['price'];
             $category_id = (int)($request->post['category_id'] ?? 0);
