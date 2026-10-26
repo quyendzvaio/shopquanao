@@ -20,7 +20,8 @@ step "phpstan level 1"
 scripts/dev/php vendor/bin/phpstan analyse --level=1 config/ src/ --no-progress
 
 step "shop_test + integration tests"
-scripts/dev/test-db.sh && scripts/dev/test-integration.sh
+scripts/dev/test-db.sh
+scripts/dev/test-integration.sh
 
 step "agent eval (40 cases)"
 DEV_DOCKER_NETWORK=shop_quan_ao_default DB_HOST=db DB_NAME=shop_test DB_USER=root DB_PASS="$ROOT_PW" \
