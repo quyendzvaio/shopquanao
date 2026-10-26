@@ -14,9 +14,8 @@ if (!in_array($status, $allowed)) {
     errorResponse("Invalid status. Allowed: " . implode(', ', $allowed), 400);
 }
 
-$stmt = $pdo->prepare("UPDATE orders SET status = ? WHERE id = ?");
-$stmt->execute([$status, $orderId]);
+$affected = (new OrderService($pdo))->updateStatus($orderId, $status);
 
-if ($stmt->rowCount() === 0) errorResponse('Order not found', 404);
+if ($affected === 0) errorResponse('Order not found', 404);
 
 jsonResponse(['message' => 'Order status updated']);

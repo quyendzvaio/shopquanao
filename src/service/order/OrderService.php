@@ -2,8 +2,15 @@
 
 final class OrderService
 {
+    private OrderRepository $orderRows;
+    private CartRepository $cartRows;
+    private ProductRepository $products;
+
     public function __construct(private PDO $pdo)
     {
+        $this->orderRows = new OrderRepository($pdo);
+        $this->cartRows = new CartRepository($pdo);
+        $this->products = new ProductRepository($pdo);
     }
 
     public function status(?int $userId, array $arguments): array
@@ -27,20 +34,8 @@ final class OrderService
 
     public function list(int $userId, ?string $status = null): array
     {
-        $sql = 'SELECT id, total_price, status, created_at FROM orders WHERE user_id = ?';
-        $params = [$userId];
-        if ($status !== null && $status !== '' && $status !== 'all') {
-            $sql .= ' AND status = ?';
-            $params[] = $status;
-        }
-        $sql .= ' ORDER BY created_at DESC';
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($params);
-        $orders = array_map([$this, 'castOrder'], $stmt->fetchAll(PDO::FETCH_ASSOC));
-        $stats = $this->pdo->prepare("SELECT SUM(total_price) AS total_spent, COUNT(*) AS completed_count
-            FROM orders WHERE user_id = ? AND status = 'Đã hoàn thành'");
-        $stats->execute([$userId]);
-        $row = $stats->fetch(PDO::FETCH_ASSOC) ?: [];
+        $orders = array_map([$this, 'castOrder'], $this->orderRows->listForUser($userId, $status));
+        $row = $this->orderRows->completedStats($userId);
         return [
             'orders' => $orders,
             'stats' => [
@@ -51,25 +46,20 @@ final class OrderService
         ];
     }
 
-    public function detail(int $userId, int $orderId): array
+    public function detail(int|string $userId, int $orderId): array
     {
-        $stmt = $this->pdo->prepare('SELECT id, total_price, status, created_at FROM orders WHERE id = ? AND user_id = ?');
-        $stmt->execute([$orderId, $userId]);
-        $order = $stmt->fetch(PDO::FETCH_ASSOC);
+        $order = $this->orderRows->findForUser($orderId, $userId);
         if (!$order) {
             throw new RuntimeException('Order not found');
         }
         $order = $this->castOrder($order);
-        $stmt = $this->pdo->prepare("SELECT oi.id, oi.product_id, oi.quantity, oi.price, p.name, p.image
-            FROM order_items oi JOIN products p ON oi.product_id = p.id WHERE oi.order_id = ?");
-        $stmt->execute([$orderId]);
         $order['items'] = array_map(function (array $item): array {
             $item['id'] = (int) $item['id'];
             $item['product_id'] = (int) $item['product_id'];
             $item['quantity'] = (int) $item['quantity'];
             $item['price'] = (float) $item['price'];
             return $item;
-        }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+        }, $this->orderRows->itemsForOrder($orderId));
         return ['order' => $order];
     }
 
@@ -77,36 +67,27 @@ final class OrderService
     {
         $this->pdo->beginTransaction();
         try {
-            $lockClause = $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
-            $stmt = $this->pdo->prepare("SELECT c.product_id, c.quantity, p.price, p.stock
-                FROM cart c JOIN products p ON c.product_id = p.id
-                WHERE c.user_id = ?" . $lockClause);
-            $stmt->execute([$userId]);
-            $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $forUpdate = $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+            $items = $this->orderRows->cartLinesForCheckout($userId, $forUpdate);
             if ($items === []) {
                 throw new RuntimeException('Cart is empty');
             }
             $total = 0.0;
             foreach ($items as $item) {
                 if ((int) $item['quantity'] > (int) $item['stock']) {
-                    throw new RuntimeException('Insufficient stock for product ' . (int) $item['product_id']);
+                    throw new InsufficientStockException((int) $item['product_id']);
                 }
                 $total += (float) $item['price'] * (int) $item['quantity'];
             }
-            $this->pdo->prepare("INSERT INTO orders (user_id, total_price, status, created_at) VALUES (?, ?, 'Chờ xử lý', CURRENT_TIMESTAMP)")
-                ->execute([$userId, $total]);
-            $orderId = (int) $this->pdo->lastInsertId();
-            $insert = $this->pdo->prepare('INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (?, ?, ?, ?)');
-            $decrement = $this->pdo->prepare('UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?');
+            $orderId = $this->orderRows->insertOrder($userId, $total);
             foreach ($items as $item) {
-                $insert->execute([$orderId, (int) $item['product_id'], (int) $item['quantity'], (float) $item['price']]);
+                $this->orderRows->insertItem($orderId, (int) $item['product_id'], (int) $item['quantity'], (float) $item['price']);
                 $quantity = (int) $item['quantity'];
-                $decrement->execute([$quantity, (int) $item['product_id'], $quantity]);
-                if ($decrement->rowCount() !== 1) {
+                if (!$this->products->decrementStock((int) $item['product_id'], $quantity)) {
                     throw new RuntimeException('Stock changed while creating the order');
                 }
             }
-            $this->pdo->prepare('DELETE FROM cart WHERE user_id = ?')->execute([$userId]);
+            $this->cartRows->clear($userId);
             $this->pdo->commit();
             return ['message' => 'Order placed successfully', 'order_id' => $orderId, 'total_price' => round($total, 2)];
         } catch (Throwable $error) {
@@ -117,10 +98,52 @@ final class OrderService
         }
     }
 
+    /** @return list<array<string,mixed>> every order with its customer's username, newest first (admin) */
+    public function allWithUsername(): array
+    {
+        return $this->orderRows->allWithUsername();
+    }
+
+    /**
+     * $status is the raw posted value (public/admin/manage_orders.php has no whitelist).
+     *
+     * @return int rows changed: 1, or 0 when the order is missing or already has that status (admin)
+     */
+    public function updateStatus(int $orderId, mixed $status): int
+    {
+        return $this->orderRows->updateStatus($orderId, $status);
+    }
+
+    public function count(): int
+    {
+        return $this->orderRows->count();
+    }
+
+    public function completedRevenue(): float
+    {
+        return $this->orderRows->completedRevenue();
+    }
+
     private function castOrder(array $order): array
     {
         $order['id'] = (int) $order['id'];
         $order['total_price'] = (float) $order['total_price'];
         return $order;
+    }
+
+    /**
+     * public/profile.php: the user's orders with every column, newest first; the filter is the raw ?status= value.
+     *
+     * @return list<array<int|string,mixed>>
+     */
+    public function listForProfilePage(int|string $userId, mixed $statusFilter): array
+    {
+        return $this->orderRows->listForProfilePage($userId, $statusFilter);
+    }
+
+    /** @return array<string,mixed> total_spent and completed_count of the user's completed orders (empty if none) */
+    public function completedStats(int|string $userId): array
+    {
+        return $this->orderRows->completedStats($userId);
     }
 }

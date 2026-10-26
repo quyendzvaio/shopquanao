@@ -10,6 +10,16 @@ final class OutfitService
     {
     }
 
+    /**
+     * The legacy hand-made product pairs of GET /api/outfit.
+     *
+     * @return list<array<int|string,mixed>>
+     */
+    public function suggestions(?int $productId, string $search): array
+    {
+        return (new OutfitSuggestionRepository($this->pdo))->suggestions($productId, $search);
+    }
+
     /** @return array<string,mixed> */
     public function build(array $arguments): array
     {

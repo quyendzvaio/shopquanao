@@ -3,8 +3,7 @@
 requireAdmin();
 
 global $pdo;
-$stmt = $pdo->query("SELECT o.*, u.username FROM orders o JOIN users u ON o.user_id = u.id ORDER BY o.id DESC");
-$orders = $stmt->fetchAll();
+$orders = (new OrderService($pdo))->allWithUsername();
 
 foreach ($orders as &$o) {
     $o['id']         = (int)$o['id'];

@@ -22,7 +22,7 @@ final class FreeShippingNudgeMiddlewareTest extends TestCase
 
     private function middleware(): FreeShippingNudge
     {
-        return new FreeShippingNudge($this->pdo, 9, new FreeShippingPolicy(500000, 200000));
+        return new FreeShippingNudge(new ChatMemoryRepository($this->pdo), 9, $policy = new FreeShippingPolicy(500000, 200000), new FreeShippingService($this->pdo, $policy));
     }
 
     /** @param list<string> $deltas */

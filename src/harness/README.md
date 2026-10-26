@@ -27,7 +27,7 @@ A blocked turn still goes through the response step, `afterTurn` and `persist`; 
 ## Components (spec 2026-10-22 section 4.1)
 
 `tests/unit/ArchitectureTest.php` enforces this table. Fix the code to match it, not the table to match the code.
-Every component may also use `service/`, `model/` and `core/`.
+Every component may also use `service/`, `model/` and `core/`; `repository/` only where the table says so (the harness otherwise never reaches the database layer directly).
 
 | Component | Contains | Public entry | May use (besides service/model/core) |
 |---|---|---|---|
@@ -39,8 +39,8 @@ Every component may also use `service/`, `model/` and `core/`.
 | `evidence/` | `EvidenceNormalizer`, `ProductConstraintVerifier`, `ObservationEvaluator`, `LightweightEvidenceScorer` | the first three | none |
 | `tools/` | `ChatbotToolGateway`, `ToolDefinitionCatalog`, `ToolRegistry`, `McpToolGateway`, `ShadowToolGateway`, `ToolApplicationService` | `ChatbotToolGateway` | none |
 | `response/` | `ResponseGenerator`, `StreamingResponseGenerator` | those two | llm |
-| `memory/` | `ChatbotMemoryStore`, `ChatbotConversationStore`, `ChatbotMemory`, `PdoChatbotConversationStore`, `ChatbotSessionContext` | the two store interfaces | none |
-| `middleware/` | `Middleware`, `BaseMiddleware`, `MiddlewareStack`, `CheckoutGuardrail`, `AnswerTemplateFallback`, `FreeShippingNudge`, `TraceOutbox` | `Middleware`, `MiddlewareStack` | turn (only `TurnContext`, `TurnResult`), llm, intent (only `CheckoutDetector`), response, evidence |
+| `memory/` | `ChatbotMemoryStore`, `ChatbotConversationStore`, `ChatbotMemory`, `PdoChatbotConversationStore`, `ChatbotSessionContext` | the two store interfaces | repository |
+| `middleware/` | `Middleware`, `BaseMiddleware`, `MiddlewareStack`, `CheckoutGuardrail`, `AnswerTemplateFallback`, `FreeShippingNudge`, `TraceOutbox` | `Middleware`, `MiddlewareStack` | turn (only `TurnContext`, `TurnResult`), llm, intent (only `CheckoutDetector`), response, evidence, repository (only `ChatMemoryRepository`) |
 
 The harness never uses `app/`, `agent/` or `llm_providers/`, and never reads env (`getenv`, `$_ENV`, `$_SERVER`).
 No harness function may exceed 80 lines.
@@ -83,4 +83,4 @@ When a class in `AgentFactory::REQUIRED_MIDDLEWARE` is missing from the config, 
    (`mcp-server/tests/contract.test.ts` checks the list).
 5. Add a unit test; pipeline behaviour changes need one, the eval alone is not enough. Add eval cases if user-visible.
 
-Business logic for the tool belongs in `src/service/`, not here; `tools/ToolApplicationService` only wires it.
+Business logic for the tool belongs in `src/service/`, not here; `tools/ToolApplicationService` only wires it. SQL belongs in `src/repository/`; see `src/service/README.md` and `src/repository/README.md`.

@@ -5,8 +5,6 @@ $id = (int)($route_params['id'] ?? 0);
 
 if (!$id) errorResponse('Product ID required', 400);
 
-$stmt = $pdo->prepare("SELECT * FROM product_sizes WHERE product_id = ?");
-$stmt->execute([$id]);
-$sizes = $stmt->fetchAll();
+$sizes = (new SizeService($pdo))->productSizes($id);
 
 jsonResponse(['sizes' => $sizes]);

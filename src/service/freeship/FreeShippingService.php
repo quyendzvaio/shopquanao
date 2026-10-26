@@ -3,14 +3,14 @@
 /** Tool `suggest_freeship_items`: read-only, never mutates the cart. */
 final class FreeShippingService
 {
-    public function __construct(private PDO $pdo, private ?FreeShippingPolicy $policy = null)
+    public function __construct(private PDO $pdo, private FreeShippingPolicy $policy)
     {
     }
 
     /** @return array<string,mixed> */
     public function suggest(?int $userId, array $arguments): array
     {
-        $policy = $this->policy ?? FreeShippingPolicy::fromEnvironment();
+        $policy = $this->policy;
         if ($userId === null) {
             return ['status' => 'requires_login', 'threshold' => $policy->threshold, 'products' => []];
         }
