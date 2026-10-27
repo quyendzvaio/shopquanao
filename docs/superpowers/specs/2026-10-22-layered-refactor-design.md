@@ -340,8 +340,8 @@ return [
       - không có `session_regenerate_id` khi đăng nhập và cookie phiên không có SameSite;
       - `authenticate()` và một số trang (`CartPage`, `CheckoutPage`, `UpdateCartAction`, `ProfilePage`) không xử lý `PDOException`;
       - token CSRF hết hạn bị bỏ qua im lặng (no-op), người dùng không thấy thông báo;
-      - `mcp-server/src/tools.ts` vẫn đăng ký 7 tool giỏ hàng/đơn hàng mà bridge PHP từ chối.
     - Đã sửa trong lượt review cuối: `Internal/mcp.php` trả 500 khi `PDOException`; đăng nhập admin từ env xoá `user_id`/`api_token` khỏi phiên.
+    - Đã xoá (2026-10-27): 7 tool giỏ hàng/đơn hàng (`list_cart`, `add_to_cart`, `update_cart`, `remove_from_cart`, `list_orders`, `get_order_detail`, `create_order`) khỏi `mcp-server/src/tools.ts` và `ToolApplicationService`.
     - Quyết định (2026-10-27): admin trong DB đăng nhập qua trang login của cửa hàng được coi là admin (`user_id=0`) và không mua hàng; giữ nguyên hành vi này.
 12. **Tài liệu:** `CLAUDE.md`, `.claude/rules/*`, `README.md`, `docs/chatbot-spec.md`, `docs/technical-spec.md`, gồm mục "thêm intent/tool", "thêm middleware", "thêm trang/endpoint".
 
