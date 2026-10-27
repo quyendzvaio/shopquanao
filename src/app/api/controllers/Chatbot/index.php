@@ -23,28 +23,26 @@ $sessionToken = trim($data['session_token'] ?? '');
 if (!$message) {
     errorResponse('Message is required', 400);
 }
-$rejection = ChatStreamProtocol::rejectBrowserRequest($message, $_SERVER);
+$rejection = ChatStreamProtocol::rejectBrowserRequest($message, $_SERVER, AppConfig::fromEnvironment());
 if ($rejection !== null) errorResponse($rejection['message'], $rejection['status']);
-
-$context = ChatbotSessionContext::resolve($pdo, $sessionToken, getBearerToken());
 
 // The PHP service persists messages and tool diagnostics while keeping
 // the HTTP/auth/session boundary stable for the existing frontend.
-$chatbot = new ChatbotService($pdo, $context->sessionId, $context->userId);
+$chatbot = ChatbotService::open($pdo, $sessionToken, getBearerToken());
 $result = $chatbot->respond($message);
 
 $responseText = $result['message'];
 $products = $result['products'] ?? [];
 $knowledgeSources = $result['knowledge_sources'] ?? [];
 
-$context->touch($pdo);
+$chatbot->touchSession();
 
 $response = [
     'message' => $responseText,
     'products' => $products,
     'knowledge_sources' => $knowledgeSources,
-    'session_token' => $context->sessionToken,
-    'session_id' => $context->sessionId,
+    'session_token' => $chatbot->sessionToken(),
+    'session_id' => $chatbot->sessionId(),
 ];
 
 foreach (['answer', 'response_type', 'primary_intent', 'secondary_intents', 'requested_fields', 'cards', 'missing_slots', 'outfits', 'freeship_status', 'freeship_nudge', 'trace_id', 'latency'] as $key) {

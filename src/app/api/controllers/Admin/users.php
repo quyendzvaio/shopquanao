@@ -3,8 +3,7 @@
 requireAdmin();
 
 global $pdo;
-$stmt = $pdo->query("SELECT id, username, email, role, status, created_at FROM users ORDER BY id DESC");
-$users = $stmt->fetchAll();
+$users = (new UserService($pdo))->adminList();
 
 foreach ($users as &$u) {
     $u['id'] = (int)$u['id'];

@@ -17,7 +17,7 @@ $options = getopt('', ['cases::', 'output::']);
 $casesFile = (string)($options['cases'] ?? dirname(__DIR__) . '/eval/cases.jsonl');
 $output = (string)($options['output'] ?? dirname(__DIR__) . '/reports/eval/agent_eval.json');
 
-$runner = new AgentEvalCaseRunner($pdo, FreeShippingPolicy::fromEnvironment());
+$runner = new AgentEvalCaseRunner($pdo, HarnessConfig::fromEnvironment()->freeShipping);
 $report = ['generated_at' => date('c'), 'passed' => 0, 'failed' => 0, 'by_group' => [], 'cases' => []];
 foreach (file($casesFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
     $case = json_decode($line, true, 512, JSON_THROW_ON_ERROR);

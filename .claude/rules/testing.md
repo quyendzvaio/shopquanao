@@ -14,7 +14,12 @@ scripts/dev/composer dump-autoload                                # after adding
 npm --prefix mcp-server ci && npm --prefix mcp-server test && npm --prefix mcp-server run build
 docker compose config --quiet
 scripts/dev/smoke.sh                                              # HTTP smoke incl. 404/403 on source paths
+scripts/dev/web-snapshot.sh <label>                               # HTTP snapshot of storefront, admin and REST on shop_test
+diff -r reports/web-snapshot/baseline reports/web-snapshot/<label> # must be empty for a pure refactor
+scripts/dev/gate.sh                                               # the full local gate: autoload, Unit, PHPStan, integration, eval, mcp-server tests, snapshot diff (SKIP_SNAPSHOT=1 skips the diff)
 ```
+
+The snapshot baseline lives in gitignored `reports/web-snapshot/baseline`. Re-take it only for a deliberate, reviewed behaviour change (e.g. web checkout moving to `OrderService`), never to make a diff go away.
 
 Agent eval (40 cases, needs shop_test): see `eval.md`.
 
@@ -27,4 +32,5 @@ A change is green only when all gates pass; integration tests and the agent eval
 ## Conventions
 
 - Unit tests live in `tests/unit` (mirrors `src/`), integration in `tests/integration`; the SQLite catalog fixture is `tests/support/SqliteShop.php`. `tests/unit/ArchitectureTest.php` enforces the `src/harness` component table and layer rules; a violation means fix the code, not the test.
+- Web snapshot baseline (local only, CI does not run it): to compare a change against a reference commit such as `develop`, check that commit out and run `scripts/dev/web-snapshot.sh baseline` before making the change, then `scripts/dev/web-snapshot.sh current` and `diff -r reports/web-snapshot/baseline reports/web-snapshot/current`.
 - Pipeline behavior changes (intent, evidence loop, constraint verifier, outfit/free-shipping logic) require a matching unit test — the eval alone is not enough.
