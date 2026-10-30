@@ -2,7 +2,7 @@
 
 
 class LightweightEvidenceScorer {
-    public const MIN_EVIDENCE_SCORE = 0.75;
+    public const MIN_EVIDENCE_SCORE = 0.85;
     public const MIN_REQUIRED_FACT_COVERAGE = 0.75;
     public const MIN_RAG_RESULT_COUNT = 1;
     public const MIN_RAG_CONFIDENCE = 0.50;
