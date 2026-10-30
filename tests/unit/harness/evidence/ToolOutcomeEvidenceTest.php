@@ -4,32 +4,6 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
-/** Stub gateway: each tool either returns a canned result or throws. */
-final class StubOutcomeGateway implements ChatbotToolGateway
-{
-    public int $calls = 0;
-
-    /** @param array<string,array<string,mixed>|Throwable> $outcomes */
-    public function __construct(private array $outcomes)
-    {
-    }
-
-    public function getDefinitions(): array
-    {
-        return ToolDefinitionCatalog::chatbotDefinitions();
-    }
-
-    public function execute(string $toolName, array $arguments): array
-    {
-        $this->calls++;
-        $outcome = $this->outcomes[$toolName] ?? new RuntimeException("unexpected tool $toolName");
-        if ($outcome instanceof Throwable) {
-            throw $outcome;
-        }
-        return $outcome;
-    }
-}
-
 /**
  * build_outfit / freeship_gap end-to-end through the evidence loop: a valid
  * tool result must return a final answer, a failing tool must fall back

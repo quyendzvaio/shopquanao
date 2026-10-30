@@ -16,6 +16,9 @@ class EvidenceDecisionRouter {
         if (!empty($score['passed'])) {
             return $this->decision('return', 'evidence_score_passed');
         }
+        if ($primary === 'product_search' && ($normalized['cards'] ?? []) === [] && $this->soldOutMatches($normalized) > 0) {
+            return $this->decision('return', 'all_matches_out_of_stock');
+        }
         if ($noProgress) {
             return $this->decision('fallback', 'no_progress_detected');
         }
@@ -62,6 +65,13 @@ class EvidenceDecisionRouter {
             if (($item['fact_type'] ?? '') === $factType) return true;
         }
         return false;
+    }
+
+    private function soldOutMatches(array $normalized): int {
+        foreach (($normalized['evidence'] ?? []) as $item) {
+            if (($item['fact_type'] ?? '') === 'out_of_stock_matches') return (int)($item['value'] ?? 0);
+        }
+        return 0;
     }
 
     private function planHasTool(array $plan, string $tool): bool {
