@@ -85,6 +85,26 @@ final class ProductServiceTest extends TestCase
         $this->assertSame(['page' => 1, 'limit' => null, 'total' => 2, 'total_pages' => 1], $result['pagination']);
     }
 
+    public function testInStockSearchCountsSoldOutMatches(): void
+    {
+        // 69 "Quần Baggy Vải Tuyết Mưa" is the only baggy and has stock 0 in the seed.
+        $result = $this->products->search(['search' => 'quần baggy', 'in_stock' => true]);
+
+        $this->assertSame([], $result['products']);
+        $this->assertSame(1, $result['out_of_stock_matches']);
+    }
+
+    public function testSearchWithoutStockFilterOrWithResultsHasNoSoldOutCount(): void
+    {
+        $all = $this->products->search(['search' => 'quần baggy']);
+        $this->assertSame([69], array_column($all['products'], 'id'));
+        $this->assertArrayNotHasKey('out_of_stock_matches', $all);
+
+        $inStock = $this->products->search(['search' => 'áo thun', 'in_stock' => true]);
+        $this->assertNotSame([], $inStock['products']);
+        $this->assertArrayNotHasKey('out_of_stock_matches', $inStock);
+    }
+
     public function testSearchByProductReferenceRoutesToDetail(): void
     {
         $result = $this->products->search(['search' => '#50']);

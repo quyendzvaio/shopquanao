@@ -89,6 +89,12 @@ class ResponseGenerator {
         $productType = (string)($entities['product_type'] ?? 'sản phẩm');
         $count = $this->resultCount($evidence, count($cards));
         if ($count <= 0 || $cards === []) {
+            $soldOut = $this->soldOutMatches($evidence);
+            if ($soldOut > 0) {
+                $constraint = $this->constraintPhrase(array_diff_key($entities, ['in_stock' => true]));
+                return "Shop có $soldOut mẫu $productType" . ($constraint !== '' ? " $constraint" : '')
+                    . ' nhưng hiện đang hết hàng. Bạn thử màu hoặc mẫu khác giúp mình nhé.';
+            }
             return "Mình chưa tìm thấy $productType phù hợp. Bạn có thể thử khoảng giá rộng hơn hoặc đổi từ khóa tìm kiếm.";
         }
 
@@ -364,6 +370,13 @@ class ResponseGenerator {
             'products' => $cards,
             'missing_slots' => $intent['missing_slots'] ?? [],
         ];
+    }
+
+    private function soldOutMatches(array $evidence): int {
+        foreach ($evidence as $item) {
+            if (($item['fact_type'] ?? '') === 'out_of_stock_matches') return (int)$item['value'];
+        }
+        return 0;
     }
 
     private function resultCount(array $evidence, int $fallback): int {
