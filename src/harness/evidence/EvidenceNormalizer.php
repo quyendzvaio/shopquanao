@@ -127,6 +127,15 @@ class EvidenceNormalizer {
             'freshness' => date('c'),
             'confidence' => 1.0,
         ];
+        if (isset($result['out_of_stock_matches'])) {
+            $evidence[] = [
+                'source' => 'product_search',
+                'fact_type' => 'out_of_stock_matches',
+                'value' => (int)$result['out_of_stock_matches'],
+                'freshness' => date('c'),
+                'confidence' => 1.0,
+            ];
+        }
     }
 
     private function normalizeProductDetail(array $result, array &$cards, array &$evidence): void {

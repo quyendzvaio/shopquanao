@@ -75,6 +75,9 @@ final class ProductService
         if (!isset($result['error']) && !empty($result['products'])) {
             $result = (new ProductReranker($this->rerankerUrl))->apply($args['search'] ?? '', $result);
         }
+        if (!isset($result['error']) && empty($result['products']) && ($args['in_stock'] ?? null) === true) {
+            $result['out_of_stock_matches'] = $this->soldOutMatchCount($args);
+        }
 
         if (!isset($result['error'])) {
             Cache::setProductSearchIds($queryParams, [
@@ -369,6 +372,12 @@ final class ProductService
                 'total_pages' => 1,
             ],
         ];
+    }
+
+    /** A "còn hàng" search found nothing: how many products match every other filter (so they are sold out). */
+    private function soldOutMatchCount(array $args): int {
+        unset($args['in_stock']);
+        return count($this->executeSearchProductsDirect($args)['products'] ?? []);
     }
 
     private function searchCriteria(array $args): ProductSearchCriteria {
