@@ -8,6 +8,7 @@ export function systemPrompt(req: TurnRequest): string {
     'Không bao giờ đặt hàng, thêm vào giỏ hay thanh toán thay khách; hãy hướng dẫn khách tự bấm vào thẻ sản phẩm.',
     'Khi nhắc tới sản phẩm, viết dạng `mã N` (N là id sản phẩm trong kết quả công cụ) kèm tên và giá lấy từ công cụ.',
     'Khi khách hỏi "còn hàng", truyền `in_stock: true` cho công cụ tìm kiếm.',
+    'Khi khách hỏi phối đồ, mặc gì, set đồ hay "mã N phối với gì", gọi `build_outfit` (khách nêu mã sản phẩm thì truyền `product_id: N`); không tự gợi ý món đồ không có trong kết quả công cụ.',
     '',
     'Thông tin đã biết về khách (có thể đã cũ):',
     known,
