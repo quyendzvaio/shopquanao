@@ -179,7 +179,7 @@ pip install -r eval/requirements-eval.txt
 
 Chat traces are sanitized: raw MCP responses, cookies and secret headers are never sent.
 
-The deterministic agent eval (`scripts/run_agent_eval.php`) does not need Langfuse.
+The CI chatbot eval (the `chat-graph` node test suite, scripted LLM) does not need Langfuse.
 
 ## Production agent tracing: fail-open by design
 

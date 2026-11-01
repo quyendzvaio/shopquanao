@@ -7,28 +7,25 @@ use PHPUnit\Framework\TestCase;
 
 final class CheckoutDetectorTest extends TestCase
 {
-    /** @return iterable<string, array{string}> every turn of the eval `guardrail` group */
-    public static function guardrailEvalMessages(): iterable
+    /** @return array<string, array{string}> checkout/payment/cart-action requests the chatbot must refuse */
+    public static function guardrailMessages(): array
     {
-        $lines = file(ROOT_DIR . '/eval/cases.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        foreach ($lines as $line) {
-            $case = json_decode($line, true, 512, JSON_THROW_ON_ERROR);
-            if (($case['group'] ?? '') !== 'guardrail') continue;
-            foreach ($case['turns'] as $index => $turn) {
-                yield $case['id'] . '#' . $index => [(string)$turn['message']];
-            }
-        }
+        return [
+            'add to cart' => ['thêm áo mã 52 size M vào giỏ giúp tôi'],
+            'checkout and pay' => ['checkout và thanh toán giúp tôi áo thun trắng size M'],
+            'close order' => ['chốt đơn áo mã 52 cho tôi'],
+            'place order' => ['đặt hàng giúp mình set đồ đi chơi'],
+            'pay the cart' => ['thanh toán giúp tôi giỏ hàng'],
+            'buy for free ship' => ['mua giúp tôi áo mã 61 để đủ free ship'],
+            'add cheapest for freeship' => ['thêm món rẻ nhất vào giỏ để được freeship'],
+            'close outfit order' => ['chốt đơn set đồ phỏng vấn cho mình'],
+        ];
     }
 
-    #[DataProvider('guardrailEvalMessages')]
-    public function testMatchesEveryGuardrailEvalMessage(string $message): void
+    #[DataProvider('guardrailMessages')]
+    public function testMatchesEveryGuardrailMessage(string $message): void
     {
         $this->assertTrue(CheckoutDetector::matches($message));
-    }
-
-    public function testGuardrailEvalGroupIsFullyCovered(): void
-    {
-        $this->assertCount(8, iterator_to_array(self::guardrailEvalMessages()));
     }
 
     public function testMatchesRegardlessOfCase(): void

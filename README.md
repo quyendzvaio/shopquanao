@@ -127,7 +127,7 @@ Response chỉ trả product cards của shop đã qua `ProductConstraintVerifie
 | `templates/` | `partials/` (header/footer/chat widget) và `pages/` (view từng trang) |
 | `database/` | `schema.sql` và `migrations/` (đặt tên theo ngày) |
 | `mcp-server/` | MCP stdio server (TypeScript) |
-| `eval/` | `cases.jsonl` (40 case) và runner |
+| `chat-graph/` | Agent LangGraph (TypeScript): LLM chọn tool chỉ-đọc, policy middleware; có image riêng |
 | `scripts/` | Migration gate, eval, ingest; `scripts/dev/` là wrapper chạy PHP/Composer trong Docker |
 
 ## Kiểm thử
@@ -143,14 +143,13 @@ docker compose config --quiet
 scripts/dev/smoke.sh                                             # smoke HTTP, gồm 404/403 cho source path
 ```
 
-Agent eval deterministic 40 case (15 outfit, 10 free ship, 8 guardrail, 7 unrelated), cần DB `shop_test`:
+Eval chatbot (CI): bộ test node của `chat-graph` với LLM giả lập, không cần mạng:
 
 ```bash
-DEV_DOCKER_NETWORK=shop_quan_ao_default DB_HOST=db DB_NAME=shop_test DB_USER=root DB_PASS=... \
-  scripts/dev/php scripts/run_agent_eval.php
+npm --prefix mcp-server ci && npm --prefix chat-graph ci && npm --prefix chat-graph test
 ```
 
-Báo cáo ghi ở `reports/eval/agent_eval.json` (gitignored).
+Eval thủ công với LLM thật: `chat-graph/eval` (xem `.claude/rules/eval.md`).
 
 ### Langfuse tracing
 
@@ -203,7 +202,7 @@ App dùng image `${APP_IMAGE:-shop_quan_ao-app:latest}`.
 
 | File | Nội dung |
 | --- | --- |
-| `reports/eval/` (tạo lại bằng lệnh eval, gitignored) | Báo cáo agent eval mới nhất |
+| `reports/eval/` (gitignored) | Báo cáo eval thủ công mới nhất |
 | `docs/chatbot-spec.md` | Chatbot deterministic pipeline spec |
 | `docs/technical-spec.md` | Tổng quan kiến trúc hệ thống |
 | `docs/langfuse-observability.md` | Langfuse self-hosted setup |

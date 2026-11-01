@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Fashion shop (PHP 8.2 + MariaDB + Docker Compose) with a deterministic RAG chatbot. The LLM never writes SQL and never picks tools; PHP resolves intent, plans tools from a manifest and validates every product card against the private catalog. Spec: `docs/superpowers/specs/2026-10-15-outfit-tags-freeship-design.md`.
+Fashion shop (PHP 8.2 + MariaDB + Docker Compose) with a LangGraph chatbot (`chat-graph/`, TypeScript). The LLM picks tools, only from the 9 read-only shop tools; PHP is the only place with SQL; the `chat-graph` policy middleware enforces the hard rules (checkout refusal, tool allow-list, call budget, grounded cards and prices). Spec: `docs/superpowers/specs/2026-11-01-langgraph-chat-agent-design.md` (the outfit/free-shipping tools: `docs/superpowers/specs/2026-10-15-outfit-tags-freeship-design.md`).
 
 ## Commands
 
@@ -17,11 +17,12 @@ scripts/dev/test-db.sh && scripts/dev/test-integration.sh         # shop_test in
 scripts/dev/php vendor/bin/phpstan analyse --level=1 config/ src/ --no-progress
 scripts/dev/composer dump-autoload                                # after adding a class under src/
 npm --prefix mcp-server test && npm --prefix mcp-server run build
+npm --prefix chat-graph ci && npm --prefix chat-graph test && npm --prefix chat-graph run build   # needs mcp-server installed (chat-graph compiles ../mcp-server/src); test = scripted LLM, no network
 docker compose config --quiet
 scripts/dev/smoke.sh                                              # HTTP smoke incl. 404 on source paths
 ```
 
-Agent eval (40 cases, needs shop_test): `DEV_DOCKER_NETWORK=shop_quan_ao_default DB_HOST=db DB_NAME=shop_test DB_USER=root DB_PASS=... scripts/dev/php scripts/run_agent_eval.php` — report in `reports/eval/` (gitignored).
+Agent eval: the CI layer is the `chat-graph` node suite above (scripted LLM). The manual layer is `chat-graph/eval` against a real LLM (target >= 90%): see `.claude/rules/eval.md`.
 
 Local bring-up: `cp .env.example .env`, fill `LLM_*` + `MCP_SERVICE_TOKEN`, `docker compose up -d --build`, then the migration gate `docker compose run --rm --no-deps app php scripts/run_database_migrations.php`. Migrations never run on web requests.
 
@@ -36,37 +37,32 @@ Local bring-up: `cp .env.example .env`, fill `LLM_*` + `MCP_SERVICE_TOKEN`, `doc
 ## Chatbot architecture
 
 ```
-ChatbotService (src/agent facade) -> TurnRunner::run(), one turn:
-  loadMemory -> beforeTurn middleware (CheckoutGuardrail, required)
-  -> IntentResolver (DeterministicIntentParser first; LLM only enriches)
-  -> EvidenceExecutionLoop: ToolPlanner + PlanValidator from config/chatbot_tools.php
-  -> tool gateway: McpToolGateway (mcp-server stdio child -> /api/internal/mcp) or ToolRegistry (in-process)
-       both execute through ToolApplicationService
-  -> EvidenceNormalizer + ProductConstraintVerifier
-  -> ResponseGenerator (template) / StreamingResponseGenerator (streamed, non-template turns only: LLM rewrite of the grounded draft; every model call
-       goes through MiddlewareModel; the required AnswerTemplateFallback middleware emits the grounded draft on any
-       LLM failure, latency.streaming=template_fallback)
-  -> afterTurn middleware: FreeShippingNudge (UC-C proactive line, once per cart state), TraceOutbox -> persist
+browser -> POST /api/chatbot/stream (SSE) -> nginx -> app (PHP): session, origin, length, rate limit, history/memory from MariaDB
+  -> ChatbotService (src/agent facade) -> POST http://chat-graph:8090/turn (NDJSON, header X-CHAT-GRAPH-TOKEN)
+  chat-graph (Node 22, LangChain.js createAgent on LangGraph):
+    policy_in (CheckoutGuardrail: refusal, no LLM) -> agent <-> tools (LLM picks tools; budget, allow-list, grounding middleware)
+      -> [sold-out edge: find_similar_in_stock + fixed question] | policy_out (CardPolicy, price/stock grounding) -> END
+    tools = mcp-server createMcpServer in-process (InMemoryTransport) -> POST app:8080/api/internal/mcp -> ToolApplicationService
+  <- delta / cards / complete events; PHP re-filters cards with ChatStreamProtocol and persists the turn
 ```
 
-- Middleware (`config/harness.php`, order = run order): `CheckoutGuardrail` and `AnswerTemplateFallback` are required (`AgentFactory::REQUIRED_MIDDLEWARE`; without them `AgentFactory` throws a `LogicException` when it builds the middleware stack / turn runner for a turn); `FreeShippingNudge` and `TraceOutbox` are optional. Add one = class extending `BaseMiddleware` + `AgentFactory::makeMiddleware` arm + config entry (required: also `REQUIRED = true` and `REQUIRED_MIDDLEWARE`).
-- `tests/unit/ArchitectureTest.php` enforces the harness component table (`src/harness/README.md`): no env reads, no `app`/`agent`/`llm_providers` references, functions <= 80 lines.
-
-- Adding an intent/tool = one manifest entry (`config/chatbot_tools.php`) + planner builder + validator rule + scorer facts + normalizer/answer; tool contracts live in `ToolDefinitionCatalog` (the allow-list the PHP bridge enforces) and `mcp-server/src/tools.ts`; `contract.test.ts` checks the list. Neither registers any cart or order-writing tool.
-- **UC-A `build_outfit`**: `products.style_tags` (1-3 of the 10 `StyleTag::ALL` tags, curated in migration `2026_10_15_product_style_tags.sql`) → `OutfitBuilder` composes top+bottom or dress (+ accessory) within budget, size and the one-statement-piece palette rule. Ranking ties: with a budget the higher total wins, without one the lower (accessory ties too), then lower ids. "có <amount><unit>" is a budget only in outfit context; "ngân sách/budget <amount>" is global.
-- **UC-C `freeship_gap`** + proactive nudge: `FreeShippingGapAdvisor` picks in-stock items with the smallest overshoot of `FREE_SHIPPING_THRESHOLD`; the nudge's last cart fingerprint is stored in `chat_session_memory.slots`.
-- MCP is a private stdio child; nginx 404s `/api/internal/mcp`; it is authed by `X-MCP-SERVICE-TOKEN` (`hash_equals`).
+- `chat-graph` fails closed: LLM down, timeout or any graph error answers the fixed busy text (`response_type=busy`); there is no PHP fallback pipeline. It is private (compose `expose` only, nginx does not route it) and authed with `CHAT_GRAPH_TOKEN` (constant-time compare; refuses empty/`change-me`). `app` does not depend on it; it depends on `app` being healthy.
+- Env is read only in `chat-graph/src/config.ts` (Node side). Tool contracts: `ToolDefinitionCatalog` (PHP allow-list) and `mcp-server/src/tools.ts`; `chat-graph/src/policies/allowList.ts` lists the 9 tools. None is a cart or order-writing tool.
+- **Legacy (removed in Task 10 of the migration):** `src/harness/` + `config/chatbot_tools.php` (the old deterministic pipeline) still sit in the tree and in the unit suite but are no longer on the chat path.
+- **UC-A `build_outfit`**: `products.style_tags` (1-3 of the 10 `StyleTag::ALL` tags, curated in migration `2026_10_15_product_style_tags.sql`) -> `OutfitBuilder` composes top+bottom or dress (+ accessory) within budget, size and the one-statement-piece palette rule. Ranking ties: with a budget the higher total wins, without one the lower (accessory ties too), then lower ids.
+- **UC-C `suggest_freeship_items`** + proactive nudge: `FreeShippingGapAdvisor` picks in-stock items with the smallest overshoot of `FREE_SHIPPING_THRESHOLD`; the nudge's last cart fingerprint is stored in `chat_session_memory.slots`.
+- MCP is private: nginx 404s `/api/internal/mcp`; it is authed by `X-MCP-SERVICE-TOKEN` (`hash_equals`).
 - Browser chat = `POST /api/chatbot/stream` as Server-Sent Events read by the widget with fetch (no WebSocket, no stream service). `ChatStreamProtocol` owns the SSE framing, the card field allow-list, and the same-origin + max-length guard shared with `POST /api/chatbot`, which is the widget's fallback when the stream fails before any text.
 
 ## Hard rules
 
-- Never auto-checkout, add to cart, or take payment from the chatbot (guardrail intent `unsupported_checkout`).
-- Product cards come only from the private catalog and must pass `ProductConstraintVerifier`.
+- Never auto-checkout, add to cart, or take payment from the chatbot (the `chat-graph` checkout policy refuses without calling the LLM; no write tool exists).
+- Product cards come only from the private catalog: a card must come from a tool result of the same turn and pass the `chat-graph` card/grounding policy, then PHP's `ChatStreamProtocol` allow-list.
 - `.env`, reports, model caches and local DB artifacts stay out of git.
 - State-changing web actions are POST with a CSRF token (`src/core/http/Csrf.php`); never a GET link. Login, register and logout are the exceptions.
 - Re-adding a product to the cart without a size keeps that line's size (web and API, `CartService::add`); a new line defaults to `S`.
 - An env admin (no real `user_id`) cannot add to cart or check out.
-- The MCP bridge (`AgentFactory::executeTool`) only runs tools listed in `ToolDefinitionCatalog`, so cart and checkout tools run through neither MCP nor in-process.
+- The MCP bridge only runs tools listed in `ToolDefinitionCatalog` and `chat-graph` only exposes the 9 allow-listed tools, so cart and checkout tools exist nowhere.
 - Web checkout and add-to-cart go through `OrderService`/`CartService` like the API: checkout locks stock, saves the size and writes status `Chờ xử lý`. Orders already stored as `pending` are not migrated.
 
 ## Rules index (`.claude/rules/`)
@@ -76,6 +72,6 @@ ChatbotService (src/agent facade) -> TurnRunner::run(), one turn:
 | `architecture.md` | Runtime services, pipeline internals, MCP contract |
 | `database.md` | Schema, migrations, `MigrationRunner` |
 | `testing.md` | Suites, fixtures, eval, CI gates |
-| `eval.md` | Agent eval cases and how to read the report |
+| `eval.md` | Two-layer chatbot eval (CI scripted LLM, manual real LLM) |
 | `observability.md` | Langfuse profile, trace outbox, secrets |
 | `deployment.md` | Compose, CI/CD deploy gate |

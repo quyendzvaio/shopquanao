@@ -41,7 +41,9 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: mcp-server/package-lock.json
+          cache-dependency-path: |
+            mcp-server/package-lock.json
+            chat-graph/package-lock.json
 
       - name: MCP contract tests and build
         working-directory: mcp-server
@@ -49,6 +51,14 @@ jobs:
           npm ci
           npm test
           npm run build
+
+      # The graph suite (scripted LLM, no network) is the CI eval for the chatbot.
+      # chat-graph compiles ../mcp-server/src, so mcp-server must be installed first.
+      - name: chat-graph tests and build
+        run: |
+          npm --prefix chat-graph ci
+          npm --prefix chat-graph test
+          npm --prefix chat-graph run build
 
       - name: PHP Lint
         run: |
@@ -159,16 +169,6 @@ jobs:
           DB_PASS: root_pass
         run: vendor/bin/phpunit --testsuite=Integration --colors=always --display-warnings
 
-      - name: Agent eval (UC-A outfits, UC-C free shipping, guardrails)
-        env:
-          APP_ENV: test
-          CHATBOT_TOOL_TRANSPORT: internal
-          DB_HOST: 127.0.0.1
-          DB_NAME: shop_test
-          DB_USER: root
-          DB_PASS: root_pass
-        run: php scripts/run_agent_eval.php
-
   # ============================================================
   # Job 4: Security Scan
   # ============================================================
@@ -220,7 +220,7 @@ jobs:
             /src || echo "⚠️ Trivy scan done"
 
   # ============================================================
-  # Job 5: Docker Build (app + reranker + rag-ml)
+  # Job 5: Docker Build (app + reranker + chat-graph + rag-ml)
   # ============================================================
   docker:
     name: Docker Build
@@ -248,6 +248,11 @@ jobs:
           docker build -t shop-reranker:ci-${{ github.sha }} docker/reranker/
           docker tag shop-reranker:ci-${{ github.sha }} shop-reranker:ci-latest
 
+      - name: Build chat-graph image
+        run: |
+          docker build -f chat-graph/Dockerfile -t shop-chat-graph:ci-${{ github.sha }} .
+          docker tag shop-chat-graph:ci-${{ github.sha }} shop-chat-graph:ci-latest
+
       - name: Build rag-ml image
         run: |
           docker build -t shop-rag-ml:ci-${{ github.sha }} docker/rag-ml/
@@ -266,6 +271,13 @@ jobs:
             --severity HIGH,CRITICAL \
             --exit-code 0 \
             shop-reranker:ci-${{ github.sha }} || echo "⚠️ Trivy scan done"
+
+      - name: Scan chat-graph image
+        run: |
+          docker run --rm aquasecurity/trivy:latest image \
+            --severity HIGH,CRITICAL \
+            --exit-code 0 \
+            shop-chat-graph:ci-${{ github.sha }} || echo "⚠️ Trivy scan done"
 
       - name: Scan rag-ml image
         run: |
@@ -387,6 +399,7 @@ jobs:
             echo "RAG_ML_WARMUP_ON_START=${{ secrets.RAG_ML_WARMUP_ON_START || 'true' }}" >> .env
             echo "CHATBOT_TOOL_TRANSPORT=mcp" >> .env
             echo "MCP_SERVICE_TOKEN=${{ secrets.MCP_SERVICE_TOKEN }}" >> .env
+            echo "CHAT_GRAPH_TOKEN=${{ secrets.CHAT_GRAPH_TOKEN }}" >> .env
             echo "MCP_REQUEST_TIMEOUT_MS=80000" >> .env
             echo "MCP_REQUEST_TIMEOUT=85" >> .env
             echo "REDIS_TIMEOUT=0.15" >> .env
@@ -459,7 +472,7 @@ jobs:
             FREE_MB=$(df -Pm / | awk 'NR==2 {print $4}')
             if [ "${FREE_MB:-0}" -lt 6000 ]; then
               echo "❌ Not enough free disk after Docker cleanup: ${FREE_MB}MB."
-              echo "Need at least 6000MB for MariaDB/Nginx/Redis/Qdrant plus app/reranker/rag-ml image build."
+              echo "Need at least 6000MB for MariaDB/Nginx/Redis/Qdrant plus app/reranker/chat-graph/rag-ml image build."
               echo "Manual fix on server:"
               echo "  docker compose down --remove-orphans || true"
               echo "  docker system prune -af"
@@ -472,6 +485,7 @@ jobs:
             echo "Building images..."
             docker compose build reranker
             docker compose build rag-ml
+            docker compose build chat-graph
             docker compose build app
 
             echo "Pulling runtime base images..."
