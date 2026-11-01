@@ -138,3 +138,27 @@ test('summaryFromCardsCopy', () => {
   );
   assert.equal(summaryFromCards([]), 'Hệ thống đang bận, bạn thử lại sau ít phút nhé.');
 });
+
+const priced = (price: number): ToolRecord => ({ name: 'search_products', args: {}, result: { products: [product(1, price)] } });
+
+test('grounding flags invented prices written with longer units', () => {
+  assert.equal(ungroundedClaims('giá 123.000 đồng', [priced(560000)]).length, 1);
+  assert.equal(ungroundedClaims('giá 490.000đồng', [priced(560000)]).length, 1);
+  assert.equal(ungroundedClaims('giá 2 triệu', [priced(560000)]).length, 1);
+  assert.equal(ungroundedClaims('giá 490 ngàn', [priced(560000)]).length, 1);
+});
+
+test('grounding accepts longer unit spellings of a real price', () => {
+  assert.deepEqual(ungroundedClaims('giá 490 ngàn', [priced(490000)]), []);
+  assert.deepEqual(ungroundedClaims('giá 490.000 đồng', [priced(490000)]), []);
+  assert.deepEqual(ungroundedClaims('giá 1,2 triệu', [priced(1200000)]), []);
+});
+
+test('grounding parses decimals as floats, not as a tail', () => {
+  assert.deepEqual(ungroundedClaims('giá 1,5k', [priced(1500)]), []);
+  assert.deepEqual(ungroundedClaims('giá 1,5k', [priced(490000)]), ['1,5k']);
+});
+
+test('grounding ignores non-money words after a number', () => {
+  assert.deepEqual(ungroundedClaims('nặng 2kg, cao 170cm, 3 đơn, 2 trắng', [priced(490000)]), []);
+});
