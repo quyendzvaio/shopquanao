@@ -526,16 +526,32 @@ jobs:
             echo "Checking rag-ml..."
             docker compose exec -T rag-ml python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5).read()" && echo " ✅" || echo " ⚠️ rag-ml health check failed"
 
-            echo "Checking chatbot PHP pipeline route..."
+            echo "Checking chat-graph health..."
             for i in $(seq 1 15); do
-              body=$(curl -sf -m 60 -X POST http://localhost/api/chatbot -H 'content-type: application/json' --data '{"message":"áo polo màu đỏ"}' || true)
-              if echo "$body" | grep -q '"primary_intent":"product_search"' && echo "$body" | grep -q '"pipeline":"deterministic_hybrid_pipeline"'; then
+              if docker compose exec -T chat-graph wget -qO- http://127.0.0.1:8090/health 2>/dev/null | grep -q '"ok":true'; then
                 echo " ✅"
                 break
               fi
               if [ "$i" -eq 15 ]; then
-                echo "❌ chatbot PHP pipeline route check failed"
+                echo "❌ chat-graph health check failed"
+                docker compose logs chat-graph --tail=60 2>/dev/null || true
+                exit 1
+              fi
+              sleep 2
+            done
+
+            # LLM-free route check: the checkout guardrail refuses before any model call.
+            echo "Checking chatbot route (checkout refusal, no LLM)..."
+            for i in $(seq 1 15); do
+              body=$(curl -sf -m 60 -X POST http://localhost/api/chatbot -H 'content-type: application/json' --data '{"message":"thêm áo này vào giỏ"}' || true)
+              if echo "$body" | grep -q '"response_type":"refusal"'; then
+                echo " ✅"
+                break
+              fi
+              if [ "$i" -eq 15 ]; then
+                echo "❌ chatbot route check failed"
                 docker compose logs app --tail=60 2>/dev/null || true
+                docker compose logs chat-graph --tail=60 2>/dev/null || true
                 exit 1
               fi
               sleep 2

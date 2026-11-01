@@ -25,7 +25,7 @@ App uses `${APP_IMAGE:-shop_quan_ao-app:latest}`.
 
 ## Chat pipeline internals (`chat-graph/`, `src/agent/`)
 
-`ChatbotService` (`src/agent/`) is a facade: PHP loads the session, the last 6 messages and the memory (`summary`/`slots`/`profile`), then POSTs `/turn` to `chat-graph` (`CHAT_GRAPH_URL`, header `X-CHAT-GRAPH-TOKEN`, `CHAT_GRAPH_TIMEOUT` seconds) and reads the NDJSON events `delta` / `cards` / `complete`. `AgentFactory`/`HarnessConfig` stay the only PHP readers of chatbot env. `chat-graph` is stateless between turns (no checkpointer); its only env reader is `chat-graph/src/config.ts`.
+`ChatbotService` (`src/agent/`) is a facade: PHP loads the session, the last 6 messages and the memory (`summary`/`slots`/`profile`), then POSTs `/turn` to `chat-graph` (`CHAT_GRAPH_URL`, header `X-CHAT-GRAPH-TOKEN`, `CHAT_GRAPH_TIMEOUT` seconds) and reads the NDJSON events `delta` / `cards` / `complete`. `AgentFactory`/`HarnessConfig` stay the only PHP readers of chatbot env. `chat-graph` is stateless between turns (no checkpointer); the graph's own env is read only in `chat-graph/src/config.ts` (the imported `mcp-server/src/config.ts` reads `SHOP_INTERNAL_URL`, `MCP_SERVICE_TOKEN`, `MCP_REQUEST_TIMEOUT_MS` itself).
 
 Graph (`chat-graph/src/graph/`, policies in `chat-graph/src/policies/`):
 

@@ -24,7 +24,7 @@ scripts/dev/smoke.sh                                              # HTTP smoke i
 
 Agent eval: the CI layer is the `chat-graph` node suite above (scripted LLM). The manual layer is `chat-graph/eval` against a real LLM (target >= 90%): see `.claude/rules/eval.md`.
 
-Local bring-up: `cp .env.example .env`, fill `LLM_*` + `MCP_SERVICE_TOKEN`, `docker compose up -d --build`, then the migration gate `docker compose run --rm --no-deps app php scripts/run_database_migrations.php`. Migrations never run on web requests.
+Local bring-up: `cp .env.example .env`, fill `LLM_*` + `MCP_SERVICE_TOKEN` (and `CHAT_GRAPH_TOKEN` for production; unset locally = a shared dev default), `docker compose up -d --build`, then the migration gate `docker compose run --rm --no-deps app php scripts/run_database_migrations.php`. Migrations never run on web requests.
 
 ## Layout
 
@@ -47,7 +47,7 @@ browser -> POST /api/chatbot/stream (SSE) -> nginx -> app (PHP): session, origin
 ```
 
 - `chat-graph` fails closed: LLM down, timeout or any graph error answers the fixed busy text (`response_type=busy`); there is no PHP fallback pipeline. It is private (compose `expose` only, nginx does not route it) and authed with `CHAT_GRAPH_TOKEN` (constant-time compare; refuses empty/`change-me`). `app` does not depend on it; it depends on `app` being healthy.
-- Env is read only in `chat-graph/src/config.ts` (Node side). Tool contracts: `ToolDefinitionCatalog` (PHP allow-list) and `mcp-server/src/tools.ts`; `chat-graph/src/policies/allowList.ts` lists the 9 tools. None is a cart or order-writing tool.
+- Node env: `chat-graph/src/config.ts` is the only reader for the graph itself; the imported `mcp-server/src/config.ts` separately reads `SHOP_INTERNAL_URL`, `MCP_SERVICE_TOKEN`, `MCP_REQUEST_TIMEOUT_MS`. Tool contracts: `ToolDefinitionCatalog` (PHP allow-list) and `mcp-server/src/tools.ts`; `chat-graph/src/policies/allowList.ts` lists the 9 tools. None is a cart or order-writing tool.
 - **Legacy (removed in Task 10 of the migration):** `src/harness/` + `config/chatbot_tools.php` (the old deterministic pipeline) still sit in the tree and in the unit suite but are no longer on the chat path.
 - **UC-A `build_outfit`**: `products.style_tags` (1-3 of the 10 `StyleTag::ALL` tags, curated in migration `2026_10_15_product_style_tags.sql`) -> `OutfitBuilder` composes top+bottom or dress (+ accessory) within budget, size and the one-statement-piece palette rule. Ranking ties: with a budget the higher total wins, without one the lower (accessory ties too), then lower ids.
 - **UC-C `suggest_freeship_items`** + proactive nudge: `FreeShippingGapAdvisor` picks in-stock items with the smallest overshoot of `FREE_SHIPPING_THRESHOLD`; the nudge's last cart fingerprint is stored in `chat_session_memory.slots`.
