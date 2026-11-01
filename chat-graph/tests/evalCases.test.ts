@@ -5,11 +5,11 @@ import { parseCases } from '../eval/cases.js';
 
 const shipped = readFileSync(new URL('../eval/cases.jsonl', import.meta.url), 'utf8');
 
-test('the shipped case file parses and has at least 40 cases in the expected groups', () => {
+test('the shipped case file parses and has at least 50 cases in the expected groups', () => {
   const cases = parseCases(shipped);
-  assert.ok(cases.length >= 40, `only ${cases.length} cases`);
+  assert.ok(cases.length >= 50, `only ${cases.length} cases`);
   const groups = new Set(cases.map((c) => c.group));
-  for (const g of ['s1_regression', 'outfit', 'freeship', 'guardrail', 'unrelated', 'multi_intent', 'sold_out']) {
+  for (const g of ['s1_regression', 'outfit', 'freeship', 'guardrail', 'unrelated', 'multi_intent', 'sold_out', 'catalog', 'knowledge', 'order', 'memory']) {
     assert.ok(groups.has(g), `missing group ${g}`);
   }
 });

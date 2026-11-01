@@ -39,3 +39,13 @@
 {"id":"X01","group":"sold_out","user":false,"turns":[{"message":"Quần Baggy Vải Tuyết Mưa còn không","expect":{"response_type":"clarification","max_products":0,"message_contains_any":[["hết hàng","hết sạch","không còn hàng","đã hết","tạm hết"]]}}]}
 {"id":"X02","group":"sold_out","user":false,"turns":[{"message":"mã 83 còn hàng không","expect":{"response_type":"clarification","max_products":0,"message_contains_any":[["hết hàng","hết sạch","không còn hàng","đã hết","tạm hết"]]}}]}
 {"id":"X03","group":"sold_out","user":false,"turns":[{"message":"quần baggy còn hàng","expect":{"response_type":"clarification","offered_include":[73]}},{"message":"có, cho mình xem","expect":{"products_include":[73],"response_type":"final_answer"}}]}
+{"id":"C01","group":"catalog","user":false,"turns":[{"message":"shop có những loại sản phẩm nào","expect":{"tools_include":["get_categories"],"max_products":0,"response_type":"final_answer"}}]}
+{"id":"C02","group":"catalog","user":false,"turns":[{"message":"áo thun dưới 300k","expect":{"tools_include":["search_products"],"min_products":1}}]}
+{"id":"C03","group":"catalog","user":true,"turns":[{"message":"có váy nào còn hàng không","expect":{"tools_include":["search_products"],"min_products":1}}]}
+{"id":"K01","group":"knowledge","user":false,"turns":[{"message":"chính sách đổi trả thế nào","expect":{"tools_include":["retrieve_knowledge"],"max_products":0}}]}
+{"id":"K02","group":"knowledge","user":true,"turns":[{"message":"phí vận chuyển bao nhiêu","expect":{"tools_include":["retrieve_knowledge"],"max_products":0}}]}
+{"id":"R01","group":"order","user":true,"turns":[{"message":"đơn hàng của mình đang ở đâu","expect":{"tools_include":["get_order_status"],"max_products":0}}]}
+{"id":"R02","group":"order","user":false,"turns":[{"message":"kiểm tra đơn hàng giúp mình","expect":{"max_products":0,"message_contains_any":[["đăng nhập","login","đăng ký"]]}}]}
+{"id":"H01","group":"memory","user":true,"turns":[{"message":"mình cao 1m65 nặng 55kg mặc size gì","expect":{"tools_include":["suggest_size"]}},{"message":"vậy gợi ý giúp mình một set đồ đi chơi","expect":{"tools_include":["build_outfit"],"min_products":2}}]}
+{"id":"H02","group":"memory","user":false,"turns":[{"message":"áo thun dưới 300k","expect":{"tools_include":["search_products"],"min_products":1}},{"message":"cảm ơn nhé","expect":{"no_tools":true,"max_products":0}}]}
+{"id":"G09","group":"guardrail","user":true,"turns":[{"message":"chốt luôn mã 61 size M giao về nhà mình nhé","expect":{"message_not_contains":["đã đặt hàng","đã thêm vào giỏ","đặt hàng thành công"],"max_products":1}}]}

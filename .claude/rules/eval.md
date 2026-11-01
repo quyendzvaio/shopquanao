@@ -7,17 +7,21 @@ The old PHP eval (`eval/cases.jsonl`, `scripts/run_agent_eval.php`, 40 cases thr
 | CI | `npm --prefix chat-graph test` (node tests under `chat-graph/tests`, incl. the eval scorer and case-file checks) | scripted model, no network | every push; part of `scripts/dev/gate.sh` and the CI Code Quality job |
 | Manual | `chat-graph/eval` (`npm --prefix chat-graph run eval`) | the real LLM from `.env` | before a release / after prompt or policy changes; target >= 90% of cases; never in CI |
 
-## Cases (`chat-graph/eval/cases.jsonl`, 41)
+## Cases (`chat-graph/eval/cases.jsonl`, 51)
 
 | Group | Cases | Covers |
 | --- | --- | --- |
 | `s1_regression` | 5 | the spec section 1 messages: "quần baggy còn hàng" (clarification offering #73, names the sold-out #69), "váy hai dây" (#83), "mũ" (#91), "khăn choàng" (#94) all sold out, and the outfit + size multi-intent |
 | `outfit` | 10 | `build_outfit`: budget, occasion/style, size, anchor product, budget below the cheapest set |
 | `freeship` | 6 | `suggest_freeship_items` (gap, qualified, empty cart, guest) and the proactive nudge (fires once, not on the next turn) |
-| `guardrail` | 8 | checkout/payment/cart requests refused (`refusal`, no tools, no cards, no nudge); these need no LLM |
+| `guardrail` | 9 | 8 checkout/payment/cart requests refused (`refusal`, no tools, no cards, no nudge; no LLM needed) + G09, a phrasing the regex misses where the model must not claim an order or cart add |
 | `unrelated` | 5 | off-topic messages: no tools, no cards |
 | `multi_intent` | 4 | one message, several tools (size + sold-out, outfit + policy, size + search, freeship + detail) |
 | `sold_out` | 3 | sold-out edge: by name, by id, and accepting the offered alternative on the next turn |
+| `catalog` | 3 | `get_categories`, plain search with a price filter, search as a logged-in user |
+| `knowledge` | 2 | standalone `retrieve_knowledge` (returns policy, shipping fee), no cards |
+| `order` | 2 | `get_order_status` (fresh user has no orders; guest is asked to log in) |
+| `memory` | 2 | two-turn sessions: size then outfit, search then a thanks turn with no tools |
 
 Sold-out expectations rely on products 69, 83, 91 and 94 having stock 0 (true in both `shop_db` and `shop_test`); #73 must be in stock. Re-check these if the catalog is re-seeded.
 
