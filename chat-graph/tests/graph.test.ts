@@ -3,7 +3,7 @@ import test from 'node:test';
 import { AIMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import type { GraphConfig } from '../src/config.js';
 import type { TurnRequest } from '../src/contract.js';
-import { askAlternatives, nudgeText, soldOutNote, soldOutNoAlternatives, checkoutRefusal } from '../src/copy.js';
+import { BUSY, askAlternatives, nudgeText, soldOutNote, soldOutNoAlternatives, checkoutRefusal } from '../src/copy.js';
 import { TurnBudget } from '../src/policies/budget.js';
 import { summaryFromCards } from '../src/policies/grounding.js';
 import { productToCard } from '../src/policies/cards.js';
@@ -327,4 +327,62 @@ test('nudgeKeepsTotalAtSixCards', async () => {
   assert.ok(!out.cards.some((c) => c.id === 90));
   assert.equal(out.freeship_nudge, true);
   assert.ok(out.message.endsWith(nudgeText(50000, 500000, { id: 90, name: 'Túi Xách Mini Thời Trang', price: 450000 })));
+});
+
+const MARKUP = 'Để mình kiểm tra ngay nhé!<tool_call>getg_product';
+
+test('toolCallMarkupDraftIsRetriedOnceAndCleanTextWins', async () => {
+  const product = { id: 66, name: 'Áo Thun', price: 150000, stock: 3 };
+  const { model, outcome } = run(
+    [ai('', [call('c1', 'search_products', { search: 'áo' })]), ai(MARKUP), ai('Mình tìm được Áo Thun mã 66 giá 150.000đ.')],
+    { search_products: () => ({ products: [product] }) },
+  );
+  const out = await outcome;
+  assert.equal(out.message, 'Mình tìm được Áo Thun mã 66 giá 150.000đ.');
+  assert.equal(out.response_type, 'final_answer');
+  assert.equal(model.calls.length, 3);
+  const retry = model.calls[2]!;
+  assert.match(String(retry[retry.length - 1]?.content), /tool-call/);
+});
+
+test('toolCallMarkupStillPresentAfterRetryFallsBackToCardSummary', async () => {
+  const product = { id: 66, name: 'Áo Thun', price: 150000, stock: 3 };
+  const { model, outcome } = run(
+    [ai('', [call('c1', 'search_products', { search: 'áo' })]), ai(MARKUP), ai('<|tool_call_begin|>search_products')],
+    { search_products: () => ({ products: [product] }) },
+  );
+  const out = await outcome;
+  assert.equal(out.message, summaryFromCards([productToCard(product)]));
+  assert.ok(!/<\s*[|｜]?\s*tool/i.test(out.message));
+  assert.equal(out.response_type, 'final_answer');
+  assert.equal(model.calls.length, 3);
+  assert.deepEqual(out.cards.map((c) => c.id), [66]);
+});
+
+test('toolCallMarkupWithoutToolsAndStillMalformedIsBusy', async () => {
+  const { model, outcome } = run([ai(MARKUP), ai(MARKUP)], { get_categories: () => ({ categories: [] }) });
+  const out = await outcome;
+  assert.equal(out.response_type, 'busy');
+  assert.equal(out.message, BUSY);
+  assert.equal(model.calls.length, 2);
+});
+
+test('toolCallMarkupAndUngroundedClaimShareTheSingleRetry', async () => {
+  const product = { id: 66, name: 'Áo Thun', price: 150000, stock: 3 };
+  const { model, outcome } = run(
+    [ai('', [call('c1', 'search_products', { search: 'áo' })]), ai(`${MARKUP} mã 999`), ai('Mã 999 vẫn sai.')],
+    { search_products: () => ({ products: [product] }) },
+  );
+  const out = await outcome;
+  assert.equal(model.calls.length, 3);
+  assert.equal(out.message, summaryFromCards([productToCard(product)]));
+});
+
+test('toolCallMarkupWithOnlySoldOutProductIsJustTheAsk', async () => {
+  const { outcome } = run(
+    [ai('', [call('c1', 'search_products', { search: 'quần baggy' })]), ai(MARKUP), ai(MARKUP)],
+    { search_products: () => ({ products: [baggy], out_of_stock_ids: [69] }), find_similar_in_stock: () => similar },
+  );
+  const out = await outcome;
+  assert.equal(out.message, 'Mẫu Quần Baggy Vải Tuyết Mưa đang hết hàng. Bạn có muốn xem Quần Kaki Ống Rộng hoặc Quần Bò Rách Gối không?');
 });

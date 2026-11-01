@@ -56,6 +56,13 @@ export function ungroundedClaims(answer: string, records: ToolRecord[]): string[
   return claims;
 }
 
+const TOOL_CALL_MARKUP = /<\/?tool_call|<[|｜]\s*tool|<function=|<\|im_start\|>|<\|python_tag\|>/i;
+
+/** Raw tool-call markup in a plain-text draft: the model "called" a tool as text instead of structurally. */
+export function hasToolCallMarkup(text: string): boolean {
+  return TOOL_CALL_MARKUP.test(text);
+}
+
 export function summaryFromCards(cards: Card[]): string {
   if (cards.length === 0) return BUSY;
   const items = cards.map((c) => `${c.name} (mã ${c.id}) giá ${money(c.price)}`).join('; ');

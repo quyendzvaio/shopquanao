@@ -5,7 +5,7 @@ import { ALLOWED_TOOLS, isAllowedTool } from '../src/policies/allowList.js';
 import { TurnBudget } from '../src/policies/budget.js';
 import { outfitsFrom, productToCard, selectCards, verifyCard } from '../src/policies/cards.js';
 import { matchesCheckout } from '../src/policies/checkout.js';
-import { summaryFromCards, ungroundedClaims } from '../src/policies/grounding.js';
+import { hasToolCallMarkup, summaryFromCards, ungroundedClaims } from '../src/policies/grounding.js';
 
 const product = (id: number, price = 100000, stock = 5, extra: Record<string, unknown> = {}) => ({
   id, name: `SP ${id}`, price, stock, image: `p${id}.jpg`, category_id: 1, ...extra,
@@ -161,4 +161,16 @@ test('grounding parses decimals as floats, not as a tail', () => {
 
 test('grounding ignores non-money words after a number', () => {
   assert.deepEqual(ungroundedClaims('nặng 2kg, cao 170cm, 3 đơn, 2 trắng', [priced(490000)]), []);
+});
+
+test('hasToolCallMarkup flags every raw tool-call marker, case-insensitively', () => {
+  for (const marker of ['<tool_call>', '</tool_call>', '<|tool_calls_begin|>', '<｜tool▁calls▁begin｜>', '<function=search_products>', '<|im_start|>assistant', '<|python_tag|>', '<TOOL_CALL>', '<tool_call>search_products<arg_key>category</arg_key><arg_value>mũ</arg_value>']) {
+    assert.equal(hasToolCallMarkup(`Để mình kiểm tra nhé ${marker} x`), true, marker);
+  }
+});
+
+test('hasToolCallMarkup ignores ordinary text containing angle brackets', () => {
+  for (const text of ['giá < 300k', 'Áo thun giá <300k, size M > L', 'Mình tìm được 3 mẫu.', '']) {
+    assert.equal(hasToolCallMarkup(text), false, text);
+  }
 });

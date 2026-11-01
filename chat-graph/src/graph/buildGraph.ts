@@ -9,7 +9,7 @@ import { BUSY, askAlternatives, checkoutRefusal, nudgeText, soldOutNoAlternative
 import type { TurnBudget } from '../policies/budget.js';
 import { outfitsFrom, productToCard, selectCards } from '../policies/cards.js';
 import { matchesCheckout } from '../policies/checkout.js';
-import { summaryFromCards, ungroundedClaims } from '../policies/grounding.js';
+import { hasToolCallMarkup, summaryFromCards, ungroundedClaims } from '../policies/grounding.js';
 import type { ShopTools } from '../shopTools.js';
 import { policyMiddleware, TurnRecorder } from './middleware.js';
 import { systemPrompt } from './prompt.js';
@@ -114,21 +114,29 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
   const policyOut = async (s: S, runConfig: RunnableConfig): Promise<Partial<S>> => {
     const records = s.records;
     let text = s.draft;
-    let claims = text === '' ? [] : ungroundedClaims(text, records);
-    if (claims.length > 0 && budget.takeModelCall()) {
+    // A draft is bad when it carries raw tool-call markup or claims no tool result backs.
+    const problems = (draft: string) => ({
+      markup: hasToolCallMarkup(draft),
+      claims: draft === '' ? [] : ungroundedClaims(draft, records),
+    });
+    let found = problems(text);
+    if ((found.markup || found.claims.length > 0) && budget.takeModelCall()) {
+      const corrections: string[] = [];
+      if (found.markup) corrections.push('Câu trả lời chứa văn bản gọi công cụ thô (tool-call). Viết lại thành câu trả lời tiếng Việt bình thường, chỉ dùng dữ liệu từ công cụ.');
+      if (found.claims.length > 0) corrections.push(`Câu trả lời có thông tin không có trong kết quả công cụ: ${found.claims.join(', ')}. Viết lại, chỉ dùng dữ liệu từ công cụ.`);
       const retry = await model.invoke([
         new SystemMessage(systemPrompt(s.req)),
         ...s.messages,
-        new HumanMessage(`Câu trả lời có thông tin không có trong kết quả công cụ: ${claims.join(', ')}. Viết lại, chỉ dùng dữ liệu từ công cụ.`),
+        new HumanMessage(corrections.join(' ')),
       ], runConfig);
       text = textOf(retry);
-      claims = text === '' ? [] : ungroundedClaims(text, records);
+      found = problems(text);
     }
     const soldIds = new Set(s.soldOut?.ids ?? []);
-    if (claims.length > 0) {
+    if (found.markup || found.claims.length > 0) {
       // The summary must not name a sold-out product; the ask copy is the only place that does.
       const safe = selectCards('', records).filter((c) => !soldIds.has(c.id));
-      text = safe.length === 0 && s.soldOut ? '' : summaryFromCards(safe);
+      text = safe.length === 0 ? '' : summaryFromCards(safe); // '' -> busy below (or the ask alone on a sold-out turn)
     }
     const cards = selectCards(text, records).filter((c) => !soldIds.has(c.id));
     const toolsUsed = [...new Set(records.map((r) => r.name))];
