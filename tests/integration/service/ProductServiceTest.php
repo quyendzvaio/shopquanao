@@ -121,6 +121,42 @@ final class ProductServiceTest extends TestCase
         $this->assertSame(1, $cached['out_of_stock_matches']);
     }
 
+    public function testSimilarInStockForSoldOutBaggy(): void
+    {
+        $r = $this->products->similar(['product_id' => 69]);
+        $this->assertSame(69, $r['source']['id']);
+        $this->assertSame('Quần Baggy Vải Tuyết Mưa', $r['source']['name']);
+        $this->assertSame(2, $r['source']['category_id']);
+        $this->assertSame(['streetstyle', 'dichoi'], $r['source']['style_tags']);
+        $this->assertSame([73, 71], array_column($r['products'], 'id')); // 2 shared tags; |560k-490k| < |720k-490k|
+        foreach ($r['products'] as $p) {
+            $this->assertGreaterThan(0, $p['stock']);
+            $this->assertArrayHasKey('variants', $p);
+            $this->assertArrayHasKey('available_sizes', $p);
+        }
+    }
+
+    public function testSimilarInStockLimitAndExclusions(): void
+    {
+        $ids = array_column($this->products->similar(['product_id' => 69, 'limit' => 5])['products'], 'id');
+        // 2 shared tags: 73, 71; 1 shared by |price diff|: 68, 72, 67 (70 is cut by the limit)
+        $this->assertSame([73, 71, 68, 72, 67], $ids);
+        $this->assertNotContains(69, $ids);
+        $this->assertNotContains(65, $ids); // shares a tag but is sold out
+        $this->assertNotContains(74, $ids); // shares none
+    }
+
+    public function testSimilarInStockClampsLimit(): void
+    {
+        $this->assertCount(1, $this->products->similar(['product_id' => 69, 'limit' => 0])['products']);
+        $this->assertCount(5, $this->products->similar(['product_id' => 69, 'limit' => 99])['products']);
+    }
+
+    public function testSimilarInStockUnknownProduct(): void
+    {
+        $this->assertSame('Product not found', $this->products->similar(['product_id' => 999999])['error']);
+    }
+
     public function testSearchByProductReferenceRoutesToDetail(): void
     {
         $result = $this->products->search(['search' => '#50']);

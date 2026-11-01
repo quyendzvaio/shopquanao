@@ -3,6 +3,12 @@
 /** Reads the products table, joined with its category and subcategory where a caller needs them. */
 final class ProductRepository
 {
+    /** The one in-stock definition: row stock, or an active variant (a NULL variant stock falls back to the row stock). */
+    private const IN_STOCK_SQL = "(p.stock > 0 OR EXISTS (
+        SELECT 1 FROM product_variants av
+        WHERE av.product_id = p.id AND av.is_active = 1 AND COALESCE(av.stock, p.stock) > 0
+    ))";
+
     public function __construct(private PDO $pdo)
     {
     }
@@ -270,10 +276,7 @@ final class ProductRepository
             $params[] = $c->maxPrice;
         }
         if ($c->inStock === true) {
-            $sql .= " AND (p.stock > 0 OR EXISTS (
-                SELECT 1 FROM product_variants av
-                WHERE av.product_id = p.id AND av.is_active = 1 AND COALESCE(av.stock, p.stock) > 0
-            ))";
+            $sql .= " AND " . self::IN_STOCK_SQL;
         }
         if ($c->size !== null) {
             $sql .= " AND (EXISTS (
@@ -300,6 +303,36 @@ final class ProductRepository
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * In-stock products of the same category sharing at least one style tag with the source, most shared tags
+     * first, then closest price, then lowest id. The source itself is excluded.
+     *
+     * @param list<string> $styleTags the source's tags (non-empty)
+     * @return list<array<string,mixed>> search-shaped rows
+     */
+    public function similarInStock(int $productId, int $categoryId, array $styleTags, float $price, int $limit): array
+    {
+        if ($styleTags === []) return [];
+        $shared = implode(' + ', array_fill(0, count($styleTags), '(FIND_IN_SET(?, p.style_tags) > 0)'));
+        $sql = "SELECT p.id, p.category_id, p.subcategory_id, p.name, p.price, p.stock, p.image, p.description,
+                       c.name as category_name, c.canonical_key as category,
+                       sc.canonical_key as subcategory, sc.display_name as subcategory_name,
+                       ($shared) AS shared_tags
+                FROM products p
+                LEFT JOIN categories c ON p.category_id = c.id
+                LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.id
+                WHERE p.category_id = ? AND p.id <> ? AND " . self::IN_STOCK_SQL . "
+                HAVING shared_tags >= 1
+                ORDER BY shared_tags DESC, ABS(p.price - ?) ASC, p.id ASC
+                LIMIT " . max(1, $limit);
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([...array_values($styleTags), $categoryId, $productId, $price]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$row) unset($row['shared_tags']);
+        unset($row);
+        return $rows;
     }
 
     /**
@@ -375,10 +408,7 @@ final class ProductRepository
             $params[] = $f->maxPrice;
         }
         if ($f->inStock) {
-            $where[] = "(p.stock > 0 OR EXISTS (
-        SELECT 1 FROM product_variants av
-        WHERE av.product_id = p.id AND av.is_active = 1 AND COALESCE(av.stock, p.stock) > 0
-    ))";
+            $where[] = self::IN_STOCK_SQL;
         }
         if ($f->color !== null) {
             $where[] = "EXISTS (

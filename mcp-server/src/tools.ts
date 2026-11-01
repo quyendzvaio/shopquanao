@@ -59,6 +59,15 @@ export function createMcpServer(principal: Principal): McpServer {
     }, outputSchema, annotations: readOnly,
   }, async (args) => result(await callTool('build_outfit', args, principal)));
 
+  server.registerTool('find_similar_in_stock', {
+    title: 'Find similar in-stock products',
+    description: 'Use this when a product the customer asked about is sold out, to find in-stock products of the same category and similar style.',
+    inputSchema: {
+      product_id: z.number().int().positive(),
+      limit: z.number().int().min(1).max(5).optional(),
+    }, outputSchema, annotations: readOnly,
+  }, async (args) => result(await callTool('find_similar_in_stock', args, principal)));
+
   server.registerTool('suggest_freeship_items', {
     title: 'Suggest items to reach free shipping',
     description: 'Use this when the user asks how much more to buy, or what to add, to get free shipping. Read-only: it never changes the cart. Guests receive the threshold and a login requirement.',

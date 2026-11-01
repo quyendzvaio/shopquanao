@@ -11,6 +11,12 @@ final class ToolDefinitionCatalog
 {
     public static function chatbotDefinitions(): array
     {
+        return array_merge(self::catalogDefinitions(), self::supportDefinitions());
+    }
+
+    /** @return list<array<string,mixed>> product, outfit and free-shipping tools */
+    private static function catalogDefinitions(): array
+    {
         return [
             self::definition('search_products', 'Tìm kiếm sản phẩm theo từ khóa, giá, danh mục, màu, size và tồn kho.', [
                 'type' => 'object',
@@ -36,6 +42,14 @@ final class ToolDefinitionCatalog
                 'properties' => ['product_id' => ['type' => 'integer']],
                 'required' => ['product_id'],
             ]),
+            self::definition('find_similar_in_stock', 'Khi sản phẩm khách hỏi đã hết hàng, tìm sản phẩm còn hàng cùng danh mục và phong cách tương tự.', [
+                'type' => 'object',
+                'properties' => [
+                    'product_id' => ['type' => 'integer', 'minimum' => 1],
+                    'limit' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 5],
+                ],
+                'required' => ['product_id'],
+            ]),
             self::definition('build_outfit', 'Ghép 1-2 set đồ còn hàng từ catalog shop theo tag dịp/phong cách, ngân sách và size.', [
                 'type' => 'object',
                 'properties' => [
@@ -51,6 +65,13 @@ final class ToolDefinitionCatalog
                 'type' => 'object',
                 'properties' => ['limit' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 5]],
             ]),
+        ];
+    }
+
+    /** @return list<array<string,mixed>> size, policy, category and order tools */
+    private static function supportDefinitions(): array
+    {
+        return [
             self::definition('suggest_size', 'Tư vấn size dựa trên chiều cao, cân nặng và danh mục.', [
                 'type' => 'object',
                 'properties' => [

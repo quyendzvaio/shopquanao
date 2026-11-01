@@ -117,6 +117,44 @@ final class ProductService
         ];
     }
 
+    /**
+     * find_similar_in_stock: in-stock products of the source's category sharing a style tag with it
+     * (most shared tags, then nearest price). limit is clamped to 1..5, default 2.
+     */
+    public function similar(array $args): array {
+        $id = (int)($args['product_id'] ?? 0);
+        $source = $id > 0 ? $this->productRows->findById($id) : null;
+        if ($source === null) return ['error' => 'Product not found'];
+
+        $tags = StyleTag::parseList((string)($source['style_tags'] ?? ''));
+        $categoryId = (int)($source['category_id'] ?? 0);
+        $limit = max(1, min(5, (int)($args['limit'] ?? 2)));
+        $products = [];
+        if ($tags !== [] && $categoryId > 0) {
+            $rows = $this->productRows->similarInStock($id, $categoryId, $tags, (float)$source['price'], $limit);
+            $this->attachProductSizes($rows);
+            $products = $this->catalogVariants->enrich($rows);
+            foreach ($products as &$p) {
+                $p['id'] = (int)$p['id'];
+                $p['category_id'] = $p['category_id'] !== null ? (int)$p['category_id'] : null;
+                $p['price'] = (float)$p['price'];
+                $p['stock'] = (int)($p['stock'] ?? 0);
+            }
+            unset($p);
+            $products = array_values(array_filter($products, fn($p) => $this->isInStock($p)));
+        }
+
+        return [
+            'source' => [
+                'id' => $id,
+                'name' => (string)$source['name'],
+                'category_id' => $categoryId > 0 ? $categoryId : null,
+                'style_tags' => $tags,
+            ],
+            'products' => $products,
+        ];
+    }
+
     public function categories(): array {
         $cached = Cache::getCategories();
         if ($cached !== null) {
