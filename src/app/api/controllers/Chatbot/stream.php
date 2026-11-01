@@ -3,7 +3,7 @@
  * POST /api/chatbot/stream
  * Server-Sent Events consumed directly by the storefront widget (fetch +
  * ReadableStream; EventSource cannot POST). Text deltas are emitted only after
- * the PHP pipeline has validated the answer; cards and metadata follow as
+ * chat-graph has finished its graph and validated the answer; cards and metadata follow as
  * whole events.
  */
 
@@ -48,7 +48,6 @@ try {
         'primary_intent' => $result['primary_intent'] ?? 'unknown',
         'trace_id' => $result['trace_id'] ?? null,
         'outfits' => $result['outfits'] ?? [],
-        'freeship_status' => $result['freeship_status'] ?? null,
         'freeship_nudge' => (bool)($result['freeship_nudge'] ?? false),
         'product_count' => count($cards),
         'latency' => array_filter(

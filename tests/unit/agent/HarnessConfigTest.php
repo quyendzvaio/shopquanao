@@ -116,4 +116,26 @@ final class HarnessConfigTest extends TestCase
         $this->assertSame(35, $mcp['timeout_seconds']);
         $this->assertSame('/opt/node', $mcp['node']);
     }
+
+    public function testChatGraphDefaults(): void
+    {
+        $config = HarnessConfig::fromEnvironment();
+
+        $this->assertSame('http://chat-graph:8090', $config->chatGraphUrl);
+        $this->assertSame('', $config->chatGraphToken);
+        $this->assertSame(50, $config->chatGraphTimeout);
+    }
+
+    public function testChatGraphSettingsFromEnv(): void
+    {
+        putenv('CHAT_GRAPH_URL=http://graph.local:9000');
+        putenv('CHAT_GRAPH_TOKEN=tok');
+        putenv('CHAT_GRAPH_TIMEOUT=20');
+
+        $config = HarnessConfig::fromEnvironment();
+
+        $this->assertSame('http://graph.local:9000', $config->chatGraphUrl);
+        $this->assertSame('tok', $config->chatGraphToken);
+        $this->assertSame(20, $config->chatGraphTimeout);
+    }
 }

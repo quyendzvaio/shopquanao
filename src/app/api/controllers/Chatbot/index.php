@@ -4,9 +4,9 @@
  * POST /api/chatbot
  * Body: { "message": "string", "session_token": "string" }
  *
- * Architecture: deterministic-first PHP pipeline (ChatbotService). PHP parses
- * intent, plans tools and verifies evidence; the optional LLM only enriches
- * unresolved descriptive entities. Turn tier (L0/L1) is reported in latency.
+ * Architecture: ChatbotService sends the turn to the internal chat-graph service
+ * (LangGraph agent with read-only shop tools) and persists the messages and memory.
+ * This is the widget's fallback when /api/chatbot/stream fails before any text.
  */
 
 
@@ -26,26 +26,24 @@ if (!$message) {
 $rejection = ChatStreamProtocol::rejectBrowserRequest($message, $_SERVER, AppConfig::fromEnvironment());
 if ($rejection !== null) errorResponse($rejection['message'], $rejection['status']);
 
-// The PHP service persists messages and tool diagnostics while keeping
+// The PHP service persists messages and memory while keeping
 // the HTTP/auth/session boundary stable for the existing frontend.
 $chatbot = ChatbotService::open($pdo, $sessionToken, getBearerToken());
 $result = $chatbot->respond($message);
 
-$responseText = $result['message'];
-$products = $result['products'] ?? [];
-$knowledgeSources = $result['knowledge_sources'] ?? [];
-
 $chatbot->touchSession();
 
+$cards = ChatStreamProtocol::cards(is_array($result['products'] ?? null) ? $result['products'] : []);
 $response = [
-    'message' => $responseText,
-    'products' => $products,
-    'knowledge_sources' => $knowledgeSources,
+    'message' => $result['message'],
+    'answer' => $result['answer'] ?? $result['message'],
+    'products' => $cards,
+    'cards' => $cards,
     'session_token' => $chatbot->sessionToken(),
     'session_id' => $chatbot->sessionId(),
 ];
 
-foreach (['answer', 'response_type', 'primary_intent', 'secondary_intents', 'requested_fields', 'cards', 'missing_slots', 'outfits', 'freeship_status', 'freeship_nudge', 'trace_id', 'latency'] as $key) {
+foreach (['response_type', 'primary_intent', 'outfits', 'freeship_nudge', 'trace_id', 'latency'] as $key) {
     if (array_key_exists($key, $result)) {
         $response[$key] = $result[$key];
     }

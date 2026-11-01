@@ -22,6 +22,9 @@ final readonly class HarnessConfig
         public array $mcp = [],
         public FreeShippingPolicy $freeShipping = new FreeShippingPolicy(),
         public ServiceConfig $services = new ServiceConfig(),
+        public string $chatGraphUrl = 'http://chat-graph:8090',
+        public string $chatGraphToken = '',
+        public int $chatGraphTimeout = 50,
     ) {
     }
 
@@ -64,6 +67,9 @@ final readonly class HarnessConfig
             ],
             freeShipping: new FreeShippingPolicy($services->freeShippingThreshold, $services->freeshipNudgeMaxGap),
             services: $services,
+            chatGraphUrl: rtrim(self::env('CHAT_GRAPH_URL') ?: 'http://chat-graph:8090', '/'),
+            chatGraphToken: self::env('CHAT_GRAPH_TOKEN'),
+            chatGraphTimeout: max(1, (int) (self::env('CHAT_GRAPH_TIMEOUT') ?: 50)),
         );
     }
 

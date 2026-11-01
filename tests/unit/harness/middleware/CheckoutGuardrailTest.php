@@ -71,7 +71,7 @@ final class CheckoutGuardrailTest extends TestCase
     public function testBlockedTurnRunsNoToolsAndKeepsItsRoutingRecord(): void
     {
         $store = $this->recordingStore();
-        $service = new ChatbotService(SqliteShop::pdo(), 1, null, null, $this->failingGateway(), $this->memory(), $store);
+        $service = $this->runner(null, $store);
 
         $result = $service->respond('chốt đơn áo mã 52 cho tôi');
 
@@ -98,7 +98,7 @@ final class CheckoutGuardrailTest extends TestCase
                 return new LLMResponse('Mình không thể chốt đơn giúp bạn.');
             }
         };
-        $service = new ChatbotService(SqliteShop::pdo(), 1, null, $llm, $this->failingGateway(), $this->memory(), $store);
+        $service = $this->runner($llm, $store);
         $deltas = [];
 
         $result = $service->respondStreaming('chốt đơn áo mã 52 cho tôi', static function (string $delta) use (&$deltas): void {
@@ -127,7 +127,7 @@ final class CheckoutGuardrailTest extends TestCase
                 throw new LLMTransportException('provider_unavailable', 'provider went away mid-answer');
             }
         };
-        $service = new ChatbotService(SqliteShop::pdo(), 1, null, $llm, $this->failingGateway(), $this->memory(), $this->recordingStore());
+        $service = $this->runner($llm, $this->recordingStore());
         $deltas = [];
         $log = tempnam(sys_get_temp_dir(), 'stream_llm_log');
         $previous = ini_set('error_log', $log);
@@ -150,6 +150,33 @@ final class CheckoutGuardrailTest extends TestCase
             '{"operation":"chatbot_stream_llm","success":false,"error_category":"provider_unavailable"}',
             $logged
         );
+    }
+
+    /** The in-process harness (the old pipeline behind ChatbotService, now only reachable through AgentFactory). */
+    private function runner(?LLMProvider $llm, ChatbotConversationStore $store): object
+    {
+        $turnRunner = (new AgentFactory(HarnessConfig::fromEnvironment()))->turnRunner(SqliteShop::pdo(), 1, null, [
+            'llm' => $llm,
+            'tool_gateway' => $this->failingGateway(),
+            'memory' => $this->memory(),
+            'conversation_store' => $store,
+        ]);
+
+        return new class ($turnRunner) {
+            public function __construct(private TurnRunner $runner)
+            {
+            }
+
+            public function respond(string $message): array
+            {
+                return $this->runner->run(new TurnContext($message, 1, null, [], null))->toArray();
+            }
+
+            public function respondStreaming(string $message, callable $onDelta): array
+            {
+                return $this->runner->run(new TurnContext($message, 1, null, [], Closure::fromCallable($onDelta)))->toArray();
+            }
+        };
     }
 
     private function failingGateway(): ChatbotToolGateway

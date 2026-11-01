@@ -119,6 +119,24 @@ class ChatbotMemory implements ChatbotMemoryStore {
         return $memory;
     }
 
+    /** Upserts one key into the session slots, leaving the others (and the summary) untouched. */
+    public function rememberSlot(string $key, string $value): void {
+        try {
+            $json = $this->memory->slotsJson($this->sessionId);
+            $slots = $this->decodeJson($json === false ? null : $json, []);
+            $slots = is_array($slots) ? $slots : [];
+            $slots[$key] = $value;
+            $encoded = json_encode($slots, JSON_UNESCAPED_UNICODE);
+            if ($json === false) {
+                $this->memory->insertSlots($this->sessionId, $encoded);
+            } else {
+                $this->memory->updateSlots($this->sessionId, $encoded);
+            }
+        } catch (Throwable $e) {
+            error_log("Memory slot save error: " . $e->getMessage());
+        }
+    }
+
     public function refreshSummary(): void {
         $memory = $this->load();
         $summary = $this->generateSummary($memory['summary'], $memory['slots']);

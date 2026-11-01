@@ -1,16 +1,20 @@
 <?php
 
 /**
- * Facade over one chat session: builds a TurnRunner from the environment
- * (AgentFactory) and runs each message as one turn, streamed or not.
- * Controllers use open() / sessionToken() / touchSession(), so the session
- * seam (ChatbotSessionContext) and the harness classes stay behind it.
+ * Facade over one chat session. Each message is one turn answered by the
+ * internal chat-graph service (ChatGraphClient): PHP keeps the data, the
+ * session, the chat history and the memories, and sends chat-graph only a
+ * whitelisted memory slice (ChatMemoryContext) and a short history window.
+ * When chat-graph is unreachable, slow or malformed, the turn answers busy.
+ * Controllers use open() / sessionToken() / touchSession().
  */
 class ChatbotService
 {
-    private ?TurnRunner $runner = null;
-    /** @var Closure(): TurnRunner builds the runner on the first turn */
-    private Closure $buildRunner;
+    public const BUSY_MESSAGE = 'Hệ thống đang bận, bạn thử lại sau ít phút nhé.';
+    private const FINGERPRINT_SLOT = 'freeship_nudged_fingerprint';
+    private const MAX_MESSAGE_CHARS = 2000;
+
+    private ?ChatGraphClient $graph;
     private PDO $pdo;
     private ?ChatbotSessionContext $context = null;
 
@@ -18,26 +22,10 @@ class ChatbotService
         PDO $pdo,
         private int $sessionId,
         private ?int $userId,
-        ?LLMProvider $llm = null,
-        ?ChatbotToolGateway $toolGateway = null,
-        ?ChatbotMemoryStore $memory = null,
-        ?ChatbotConversationStore $conversationStore = null,
-        ?ResponseGenerator $responseGenerator = null
+        ?ChatGraphClient $graph = null
     ) {
-        $overrides = array_filter([
-            'tool_gateway' => $toolGateway,
-            'memory' => $memory,
-            'conversation_store' => $conversationStore,
-            'response_generator' => $responseGenerator,
-        ], static fn ($collaborator): bool => $collaborator !== null);
-        // An explicitly passed $llm (even null) replaces the environment LLMs; a provider is still wrapped in the middleware stack.
-        if (func_num_args() >= 4) {
-            $overrides['llm'] = $llm;
-        }
         $this->pdo = $pdo;
-        $factory = new AgentFactory(HarnessConfig::fromEnvironment());
-        // Built on the first turn, not here: the stream endpoint reports progress between opening the session and assembling the harness.
-        $this->buildRunner = static fn (): TurnRunner => $factory->turnRunner($pdo, $sessionId, $userId, $overrides);
+        $this->graph = $graph;
     }
 
     /** Resolves the durable chat session (bearer user first, then the guest token, else a new one) and opens the service on it. */
@@ -73,24 +61,107 @@ class ChatbotService
 
     public function respond(string $message): array
     {
-        return $this->runner()->run(new TurnContext($message, $this->sessionId, $this->userId, [], null))->toArray();
+        return $this->turn($message, null);
     }
 
     /**
-     * Same turn, with the answer streamed to $onDelta; afterTurn deltas (the nudge) follow it.
+     * Same turn, with the answer streamed to $onDelta once chat-graph has finished its graph.
      *
      * @param callable(string):void $onDelta
      */
     public function respondStreaming(string $message, callable $onDelta): array
     {
-        return $this->runner()->run(
-            new TurnContext($message, $this->sessionId, $this->userId, [], Closure::fromCallable($onDelta))
-        )->toArray();
+        return $this->turn($message, $onDelta);
     }
 
-    private function runner(): TurnRunner
+    /** @param (callable(string):void)|null $onDelta */
+    private function turn(string $message, ?callable $onDelta): array
     {
-        return $this->runner ??= ($this->buildRunner)();
+        $memory = new ChatbotMemory($this->pdo, $this->sessionId, $this->userId);
+        $remembered = $memory->rememberUserMessage($message);
+        $storedFingerprint = $remembered['slots'][self::FINGERPRINT_SLOT] ?? null;
+        $fingerprint = is_string($storedFingerprint) && $storedFingerprint !== '' ? $storedFingerprint : null;
+        $request = [
+            'message' => mb_substr($message, 0, self::MAX_MESSAGE_CHARS),
+            'user_id' => $this->userId !== null && $this->userId > 0 ? $this->userId : null,
+            'session_id' => $this->sessionId,
+            // Read before this turn is saved, so the window never contains the message being answered.
+            'history' => ChatHistoryWindow::fromRows((new ChatConversationRepository($this->pdo))->messagesForSession($this->sessionId)),
+            'memory' => ChatMemoryContext::build($remembered, $this->userId),
+            'freeship_fingerprint' => $fingerprint,
+            'stream' => $onDelta !== null,
+        ];
+
+        $sentText = false;
+        try {
+            $result = $this->graph()->turn($request, $onDelta === null ? null : static function (array $event) use ($onDelta, &$sentText): void {
+                if (($event['type'] ?? '') === 'delta' && is_string($event['text'] ?? null) && $event['text'] !== '') {
+                    $sentText = true;
+                    $onDelta($event['text']);
+                }
+            });
+        } catch (ChatGraphUnavailable $e) {
+            error_log(json_encode(['operation' => 'chat_graph', 'success' => false, 'error_category' => $e->category], JSON_UNESCAPED_SLASHES));
+            $result = self::busyResult();
+            if ($onDelta !== null && !$sentText) {
+                $onDelta($result['message']);
+            }
+        }
+
+        $cards = $result['products'];
+        (new PdoChatbotConversationStore($this->pdo, $this->sessionId))->saveMessages(
+            $message,
+            $result['message'],
+            $cards,
+            [],
+            [],
+            ['response_type' => $result['response_type'], 'tools_used' => $result['tools_used'], 'offered' => $result['offered']]
+        );
+        $memory->refreshSummary();
+        if ($result['freeship_fingerprint'] !== null && $result['freeship_fingerprint'] !== $fingerprint) {
+            $memory->rememberSlot(self::FINGERPRINT_SLOT, $result['freeship_fingerprint']);
+        }
+
+        return [
+            'message' => $result['message'],
+            'answer' => $result['message'],
+            'products' => $cards,
+            'cards' => $cards,
+            'response_type' => $result['response_type'],
+            'primary_intent' => $result['primary_intent'],
+            'outfits' => $result['outfits'],
+            'freeship_nudge' => $result['freeship_nudge'],
+            'trace_id' => $result['trace_id'],
+            'latency' => $result['latency'],
+        ];
+    }
+
+    /** @return array<string,mixed> a TurnResult for a turn chat-graph could not answer */
+    private static function busyResult(): array
+    {
+        return [
+            'message' => self::BUSY_MESSAGE,
+            'products' => [],
+            'response_type' => 'busy',
+            'primary_intent' => 'unknown',
+            'tools_used' => [],
+            'outfits' => [],
+            'offered' => [],
+            'freeship_nudge' => false,
+            'freeship_fingerprint' => null,
+            'trace_id' => bin2hex(random_bytes(16)),
+            'latency' => ['graph_unavailable' => true],
+        ];
+    }
+
+    private function graph(): ChatGraphClient
+    {
+        if ($this->graph === null) {
+            $config = HarnessConfig::fromEnvironment();
+            $this->graph = new ChatGraphClient($config->chatGraphUrl, $config->chatGraphToken, $config->chatGraphTimeout);
+        }
+
+        return $this->graph;
     }
 
     private function context(): ChatbotSessionContext
