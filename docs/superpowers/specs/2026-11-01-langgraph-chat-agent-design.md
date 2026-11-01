@@ -1,7 +1,7 @@
 # Spec: Thay luồng chat PHP bằng agent LangGraph (TypeScript), LLM tự gọi tool
 
 - Ngày: 2026-11-01
-- Trạng thái: CHỜ DUYỆT (đã qua builder check)
+- Trạng thái: ĐÃ DUYỆT (2026-11-01)
 - Nhánh: `feat/langgraph-chat-agent` (tách từ `develop` tại 5ddb46c)
 - Thay thế: phần "Chatbot architecture" trong `CLAUDE.md`, `.claude/rules/architecture.md` §Chat pipeline, `.claude/rules/eval.md`.
 
@@ -115,10 +115,12 @@ Cách chạy **[Claude chọn]**:
 ```json
 { "message": "…", "user_id": 12 | null, "session_id": 345,
   "history": [{"role": "user|assistant", "content": "…"}],
+  "memory": {"summary": "…", "slots": {…}, "profile": {…} | null},
+  "freeship_fingerprint": "…" | null,
   "stream": true }
 ```
 
-- **`history`**: 6 tin nhắn gần nhất của phiên, PHP đọc từ `chat_messages`. Node không giữ trạng thái giữa các lượt, nên không cần checkpointer. **[Claude chọn]** Với tin nhắn của assistant, PHP nối thêm vào `content` một dòng `[Thẻ đã hiện: mã 73 Quần Kaki Ống Rộng; mã 71 …]`, lấy từ `chat_messages.metadata.products`. Câu hỏi của `ask_alternatives` cũng lưu id các gợi ý vào metadata theo cách này. Nhờ đó "cái thứ 2" hay "ống rộng đi" vẫn tra được mã. Các slot cũ (chiều cao, cân nặng, size) không được gửi sang, LLM đọc chúng từ lịch sử. Body có thêm `freeship_fingerprint` (§6).
+- **`history`**: 6 tin nhắn gần nhất của phiên, PHP đọc từ `chat_messages`. Node không giữ trạng thái giữa các lượt, nên không cần checkpointer. **[Claude chọn]** Với tin nhắn của assistant, PHP nối thêm vào `content` một dòng `[Thẻ đã hiện: mã 73 Quần Kaki Ống Rộng; mã 71 …]`, lấy từ `chat_messages.metadata.products`. Câu hỏi của `ask_alternatives` cũng lưu id các gợi ý vào metadata theo cách này. Nhờ đó "cái thứ 2" hay "ống rộng đi" vẫn tra được mã. Body có thêm `memory` (§5.5) và `freeship_fingerprint` (§6).
 - **Phản hồi**: luồng NDJSON gồm các sự kiện sau.
   - `{"type":"delta","text":"…"}`
   - `{"type":"cards","products":[…]}`
@@ -131,6 +133,21 @@ Cách chạy **[Claude chọn]**:
   - Câu trả lời không nhắc mã nào thì lấy kết quả của lần gọi tool sản phẩm cuối cùng, theo thứ tự tool trả về, tối đa 6.
   - Với `build_outfit`, trường `outfits` lấy nguyên từ kết quả tool, và thẻ là các món trong những set đó (bỏ trùng).
   - Mọi thẻ đều qua `CardPolicy`.
+
+### 5.5 Memory **[người dùng: giữ cả 4 loại; Claude đề xuất 3 điều kiện, người dùng đồng ý]**
+
+| Loại | Lưu ở | Ai ghi | Gửi sang Node |
+|---|---|---|---|
+| Lịch sử chat + mã thẻ đã hiện | `chat_messages` (+ `metadata.products`) | PHP | `history`: 6 tin gần nhất (§5.3) |
+| Slot phiên | `chat_session_memory.slots` | PHP (`extractSlots`) | `memory.slots`: **chỉ** `size`, `height_cm`, `weight_kg`, `budget`/`min_price`/`max_price`, `gender` (giá trị khác null). Không gửi `product_type`, `color`, `category_id`, `style`, `occasion`, `material` |
+| Tóm tắt phiên | `chat_session_memory.summary` | PHP (`generateSummary`) | `memory.summary` |
+| Hồ sơ dài hạn (chỉ user đăng nhập) | `user_long_term_memory` | PHP (`mergeLongTerm`, lịch sử mua từ đơn) | `memory.profile`, chỉ theo danh sách trắng: `stable_facts.usual_size`, `preferences.favorite_color`/`favorite_style`/`favorite_texture`, `preferences.avoid_material`/`avoid_style`, tên ngắn 5 món mua gần nhất. Khách vãng lai: `null` |
+
+Điều kiện:
+
+1. **Memory chỉ là gợi ý.** Node đưa `memory` vào prompt dưới mục "Thông tin đã biết về khách (có thể đã cũ)". System prompt ghi rõ: câu hiện tại của khách luôn được ưu tiên hơn memory.
+2. **Không gửi dữ liệu nhạy cảm ra nhà cung cấp LLM.** `pregnant`, `skin_type`, `skin_tone`, `body_shape`, `important_events`, `feedback`, `avoid_ingredient`, `favorite_brand`, `favorite_country` không bao giờ rời PHP. Danh sách trắng nằm ở PHP, phía client gọi `chat-graph`, và có unit test riêng: mỗi trường bị cấm phải vắng mặt trong body.
+3. **PHP ghi, Node chỉ đọc.** Mỗi lượt PHP vẫn chạy `rememberUserMessage` trước khi gọi Node, như `TurnRunner::loadMemory` đang làm. Không có tool nào cho LLM ghi memory, bộ tool vẫn hoàn toàn chỉ-đọc. `ChatbotMemory` + `ChatMemoryRepository` được giữ. Ở commit xoá (§10), `ChatbotMemory` chuyển sang `src/service/chat/` (đúng tầng service), không bị xoá cùng `src/harness/`. `freeship_fingerprint` vẫn là một khoá trong `slots` như cũ.
 
 ### 5.4 Ranh giới streaming **[Claude chọn]**
 
@@ -232,7 +249,7 @@ Mỗi luật cũ đều có chỗ đặt mới, kèm test riêng trong CI (§9.1
 ## 10. Xoá và cập nhật
 
 - **Xoá**:
-  - Các component của luồng cũ trong `src/harness/`: `intent/`, `planning/`, `evidence/`, `loop/`, `response/`, `llm/`, `middleware/`, `turn/`, phần `memory/` không còn dùng.
+  - Các component của luồng cũ trong `src/harness/`: `intent/`, `planning/`, `evidence/`, `loop/`, `response/`, `llm/`, `middleware/`, `turn/`, phần `memory/` không còn dùng (`ChatbotMemory` không bị xoá, xem §5.5).
   - `src/llm_providers/`.
   - Phần của `AgentFactory`/`HarnessConfig` chỉ phục vụ luồng cũ.
   - Test tương ứng.
@@ -240,6 +257,7 @@ Mỗi luật cũ đều có chỗ đặt mới, kèm test riêng trong CI (§9.1
   - `src/harness/tools/` (`ToolApplicationService`, `ToolDefinitionCatalog`).
   - `AgentFactory::executeTool` hoặc bản kế nhiệm nó cho `/api/internal/mcp`.
   - Lưu tin nhắn và phiên chat.
+  - Cả 4 loại memory (§5.5): `ChatbotMemory` chuyển sang `src/service/chat/`, `ChatMemoryRepository` giữ nguyên.
 - **Cập nhật**:
   - `ArchitectureTest` và `src/harness/README.md` theo cấu trúc mới.
   - `CLAUDE.md`: thay câu "The LLM never writes SQL and never picks tools" bằng mô tả mới. LLM chọn tool trong allow-list chỉ-đọc; PHP vẫn là nơi duy nhất có SQL; policy middleware giữ các luật cứng.
