@@ -81,6 +81,11 @@ export function policyMiddleware(deps: Deps) {
     // An AI message without tool calls ends the agent loop.
     wrapModelCall: (request, handler) => {
       if (budget.expired() || !budget.takeModelCall()) return new AIMessage('');
+      // The last allowed model call, or one made after the tool budget is spent, could only ask for a tool
+      // that would be refused and end in an empty draft: take the tools away so it has to write the answer.
+      if (budget.modelCallsLeft() === 0 || budget.toolCallsLeft() === 0) {
+        return handler({ ...request, tools: [], toolChoice: undefined });
+      }
       return handler(request);
     },
 

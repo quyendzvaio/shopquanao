@@ -174,3 +174,16 @@ test('hasToolCallMarkup ignores ordinary text containing angle brackets', () => 
     assert.equal(hasToolCallMarkup(text), false, text);
   }
 });
+
+test('budget reports the model and tool calls it has left', () => {
+  const b = new TurnBudget({ maxToolCalls: 2, maxModelCalls: 2, turnTimeoutMs: 500 });
+  assert.equal(b.modelCallsLeft(), 2);
+  assert.equal(b.toolCallsLeft(), 2);
+  b.takeModelCall();
+  b.takeToolCall();
+  b.takeToolCall();
+  assert.equal(b.modelCallsLeft(), 1);
+  assert.equal(b.toolCallsLeft(), 0);
+  b.takeToolCall();
+  assert.equal(b.toolCallsLeft(), 0);
+});

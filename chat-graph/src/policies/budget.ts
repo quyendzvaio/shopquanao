@@ -22,6 +22,14 @@ export class TurnBudget {
     return true;
   }
 
+  modelCallsLeft(): number {
+    return Math.max(0, this.limits.maxModelCalls - this.models);
+  }
+
+  toolCallsLeft(): number {
+    return Math.max(0, this.limits.maxToolCalls - this.tools);
+  }
+
   remainingMs(): number {
     return Math.max(0, this.limits.turnTimeoutMs - (this.now() - this.startedAt));
   }

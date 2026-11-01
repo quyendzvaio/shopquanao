@@ -425,3 +425,53 @@ test('soldOutFrom: get_product_detail with stock <= 0 is sold out, in-stock or m
   assert.equal(soldOutFrom(rec({ error: 'Product not found' })), null);
   assert.equal(soldOutFrom(rec({ product: { name: 'x', stock: 0 } })), null);
 });
+
+function runWith(budget: GraphConfig['budget'], steps: ScriptedStep[], handlers: Handlers, request: TurnRequest = req()) {
+  const model = new ScriptedChatModel(steps);
+  const tools = fakeShopTools(handlers);
+  const graph = buildTurnGraph({ model, tools, budget: new TurnBudget(budget), config: { ...CONFIG, budget } });
+  return { model, tools, outcome: graph.invoke(request) };
+}
+
+const catHandlers = { get_categories: () => ({ categories: [{ id: 1, name: 'Áo' }] }), get_order_status: () => ({ orders: [] }) };
+const catCall = (id: string) => ai('', [call(id, 'get_categories', {})]);
+
+test('lastAllowedModelCallGetsNoToolsSoItMustAnswer', async () => {
+  const { model, outcome } = runWith(
+    { maxToolCalls: 8, maxModelCalls: 3, turnTimeoutMs: 45000 },
+    [catCall('c1'), catCall('c2'), ai('Shop có nhóm Áo.')],
+    catHandlers,
+  );
+  const out = await outcome;
+  assert.deepEqual(model.toolCounts, [2, 2, 0]);
+  assert.equal(out.message, 'Shop có nhóm Áo.');
+  assert.equal(out.response_type, 'final_answer');
+});
+
+test('modelCallAfterTheToolBudgetIsSpentGetsNoTools', async () => {
+  const { model, outcome } = runWith(
+    { maxToolCalls: 1, maxModelCalls: 5, turnTimeoutMs: 45000 },
+    [catCall('c1'), ai('Shop có nhóm Áo.')],
+    catHandlers,
+  );
+  const out = await outcome;
+  assert.deepEqual(model.toolCounts, [2, 0]);
+  assert.equal(out.message, 'Shop có nhóm Áo.');
+});
+
+test('firstModelCallStillGetsEveryTool', async () => {
+  const { model, outcome } = run([ai('Xin chào!')], catHandlers);
+  await outcome;
+  assert.deepEqual(model.toolCounts, [2]);
+});
+
+test('modelCallBeyondTheBudgetStillStopsWithAnEmptyMessage', async () => {
+  const { model, outcome } = runWith(
+    { maxToolCalls: 8, maxModelCalls: 1, turnTimeoutMs: 45000 },
+    [catCall('c1')],
+    catHandlers,
+  );
+  const out = await outcome;
+  assert.equal(model.calls.length, 1);
+  assert.equal(out.response_type, 'busy');
+});
