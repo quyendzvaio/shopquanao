@@ -1,5 +1,6 @@
 import { AIMessage, HumanMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import type { RunnableConfig } from '@langchain/core/runnables';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import { createAgent } from 'langchain';
 import type { GraphConfig } from '../config.js';
@@ -32,6 +33,13 @@ export type GraphDeps = {
   budget: TurnBudget | (() => TurnBudget);
   config: GraphConfig;
   onProgress?: (stage: string) => void;
+  /** Callback handlers (e.g. Langfuse) passed to every model and agent run of a turn. */
+  callbacks?: unknown[];
+};
+
+export type InvokeOptions = {
+  /** Aborts in-flight model calls; the graph does not enforce the turn deadline itself. */
+  signal?: AbortSignal;
 };
 
 const MAX_CARDS = 6;
@@ -81,7 +89,7 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
     return { refused: true, text: checkoutRefusal(s.req.message), responseType: 'refusal' };
   };
 
-  const agentNode = async (s: S): Promise<Partial<S>> => {
+  const agentNode = async (s: S, runConfig: RunnableConfig): Promise<Partial<S>> => {
     const agent = createAgent({
       model,
       tools: tools.tools,
@@ -92,7 +100,7 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
       ...s.req.history.map((m) => (m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content))),
       new HumanMessage(s.req.message),
     ];
-    const result = await agent.invoke({ messages: input });
+    const result = await agent.invoke({ messages: input }, runConfig);
     const messages = result.messages as BaseMessage[];
     const finalMessage = messages[messages.length - 1];
     return {
@@ -103,7 +111,7 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
     };
   };
 
-  const policyOut = async (s: S): Promise<Partial<S>> => {
+  const policyOut = async (s: S, runConfig: RunnableConfig): Promise<Partial<S>> => {
     const records = s.records;
     let text = s.draft;
     let claims = text === '' ? [] : ungroundedClaims(text, records);
@@ -112,7 +120,7 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
         new SystemMessage(systemPrompt(s.req)),
         ...s.messages,
         new HumanMessage(`Câu trả lời có thông tin không có trong kết quả công cụ: ${claims.join(', ')}. Viết lại, chỉ dùng dữ liệu từ công cụ.`),
-      ]);
+      ], runConfig);
       text = textOf(retry);
       claims = text === '' ? [] : ungroundedClaims(text, records);
     }
@@ -192,11 +200,14 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
   return compiled;
 }
 
-export function buildTurnGraph(deps: GraphDeps): { invoke(req: TurnRequest): Promise<GraphOutcome> } {
+export function buildTurnGraph(deps: GraphDeps): { invoke(req: TurnRequest, options?: InvokeOptions): Promise<GraphOutcome> } {
   return {
-    async invoke(req) {
+    async invoke(req, options = {}) {
       const budget = typeof deps.budget === 'function' ? deps.budget() : deps.budget;
-      const s = await compileTurnGraph(deps, budget, new TurnRecorder()).invoke({ req });
+      const s = await compileTurnGraph(deps, budget, new TurnRecorder()).invoke({ req }, {
+        signal: options.signal,
+        ...(deps.callbacks && deps.callbacks.length > 0 ? { callbacks: deps.callbacks as RunnableConfig['callbacks'] } : {}),
+      });
       return {
         message: s.text,
         response_type: s.responseType,
