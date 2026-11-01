@@ -28,11 +28,13 @@ export type GraphOutcome = {
 export type GraphDeps = {
   model: BaseChatModel;
   tools: ShopTools;
-  budget: TurnBudget;
+  /** A budget is per turn: pass a factory when one graph serves several `invoke` calls. */
+  budget: TurnBudget | (() => TurnBudget);
   config: GraphConfig;
   onProgress?: (stage: string) => void;
 };
 
+const MAX_CARDS = 6;
 const SHOPPING_TOOLS = ['search_products', 'get_product_detail', 'build_outfit', 'find_similar_in_stock', 'get_order_status'];
 
 const last = <T>(_: T, b: T): T => b;
@@ -70,9 +72,9 @@ function num(v: unknown): number {
   return typeof v === 'number' ? v : Number(v);
 }
 
-export function buildTurnGraph(deps: GraphDeps): { invoke(req: TurnRequest): Promise<GraphOutcome> } {
-  const { model, tools, budget, config, onProgress } = deps;
-  const recorder = new TurnRecorder();
+/** Builds the graph around one turn's budget and recorder; never reuse the result for a second turn. */
+function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRecorder) {
+  const { model, tools, config, onProgress } = deps;
 
   const guard = (s: S): Partial<S> => {
     if (!matchesCheckout(s.req.message)) return {};
@@ -114,9 +116,12 @@ export function buildTurnGraph(deps: GraphDeps): { invoke(req: TurnRequest): Pro
       text = textOf(retry);
       claims = text === '' ? [] : ungroundedClaims(text, records);
     }
-    if (claims.length > 0) text = summaryFromCards(selectCards('', records));
-
     const soldIds = new Set(s.soldOut?.ids ?? []);
+    if (claims.length > 0) {
+      // The summary must not name a sold-out product; the ask copy is the only place that does.
+      const safe = selectCards('', records).filter((c) => !soldIds.has(c.id));
+      text = safe.length === 0 && s.soldOut ? '' : summaryFromCards(safe);
+    }
     const cards = selectCards(text, records).filter((c) => !soldIds.has(c.id));
     const toolsUsed = [...new Set(records.map((r) => r.name))];
 
@@ -159,7 +164,7 @@ export function buildTurnGraph(deps: GraphDeps): { invoke(req: TurnRequest): Pro
       if (card.id <= 0 || !(card.stock > 0)) return {};
       return {
         text: `${s.text} ${nudgeText(gap, threshold, card)}`,
-        cards: s.cards.some((c) => c.id === card.id) ? s.cards : [...s.cards, card],
+        cards: s.cards.some((c) => c.id === card.id) || s.cards.length >= MAX_CARDS ? s.cards : [...s.cards, card],
         nudged: true,
         fingerprint,
       };
@@ -184,9 +189,14 @@ export function buildTurnGraph(deps: GraphDeps): { invoke(req: TurnRequest): Pro
     .addEdge('nudge', END)
     .compile();
 
+  return compiled;
+}
+
+export function buildTurnGraph(deps: GraphDeps): { invoke(req: TurnRequest): Promise<GraphOutcome> } {
   return {
     async invoke(req) {
-      const s = await compiled.invoke({ req });
+      const budget = typeof deps.budget === 'function' ? deps.budget() : deps.budget;
+      const s = await compileTurnGraph(deps, budget, new TurnRecorder()).invoke({ req });
       return {
         message: s.text,
         response_type: s.responseType,

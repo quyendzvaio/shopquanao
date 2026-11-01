@@ -269,3 +269,62 @@ test('onProgress reports tool names', async () => {
 test('askAlternatives copy is what the graph appends', () => {
   assert.equal(askAlternatives('A', [{ id: 1, name: 'B' }], true), 'Còn mẫu A đang hết hàng. Bạn có muốn xem B không?');
 });
+
+test('secondInvokeOnSameGraphStartsFresh', async () => {
+  const model = new ScriptedChatModel([
+    searchCall, ai(''),
+    ai('', [call('c2', 'search_products', { search: 'áo' })]), ai('Có mã 66.'),
+  ]);
+  let sold = true;
+  const tools = fakeShopTools({
+    search_products: () => (sold ? soldOutSearch : { products: [{ id: 66, name: 'Áo Thun', price: 150000, stock: 3 }] }),
+    find_similar_in_stock: () => similar,
+  });
+  const graph = buildTurnGraph({ model, tools, budget: () => new TurnBudget(BUDGET), config: CONFIG });
+  const first = await graph.invoke(req());
+  assert.equal(first.response_type, 'clarification');
+  sold = false;
+  const second = await graph.invoke(req({ message: 'áo thun' }));
+  assert.equal(second.response_type, 'final_answer');
+  assert.equal(second.message, 'Có mã 66.');
+  assert.deepEqual(second.cards.map((c) => c.id), [66]);
+  assert.deepEqual(second.offered, []);
+  assert.deepEqual(second.tools_used, ['search_products']);
+});
+
+test('ungroundedSummaryNeverNamesSoldOutProduct', async () => {
+  const shirt = { id: 66, name: 'Áo Thun', price: 150000, stock: 3 };
+  const { outcome } = run(
+    [ai('', [call('c1', 'search_products', { search: 'quần baggy' })]), ai('Bạn xem mã 999 nhé.'), ai('Mã 999 rất đẹp.')],
+    { search_products: () => ({ products: [baggy, shirt], out_of_stock_ids: [69] }), find_similar_in_stock: () => similar },
+  );
+  const out = await outcome;
+  const summary = summaryFromCards([productToCard(shirt)]);
+  assert.ok(out.message.startsWith(summary + ' '));
+  assert.ok(!summary.includes(baggy.name));
+  assert.ok(!out.message.slice(0, summary.length).includes(baggy.name));
+  assert.deepEqual(out.cards.map((c) => c.id), [66]);
+  assert.equal(out.response_type, 'clarification');
+});
+
+test('ungroundedSummaryWithOnlySoldOutProductIsJustTheAsk', async () => {
+  const { outcome } = run(
+    [ai('', [call('c1', 'search_products', { search: 'quần baggy' })]), ai('Mã 999.'), ai('Mã 999.')],
+    { search_products: () => ({ products: [baggy], out_of_stock_ids: [69] }), find_similar_in_stock: () => similar },
+  );
+  const out = await outcome;
+  assert.equal(out.message, 'Mẫu Quần Baggy Vải Tuyết Mưa đang hết hàng. Bạn có muốn xem Quần Kaki Ống Rộng hoặc Quần Bò Rách Gối không?');
+});
+
+test('nudgeKeepsTotalAtSixCards', async () => {
+  const six = Array.from({ length: 6 }, (_, i) => ({ id: 10 + i, name: `Áo ${i}`, price: 100000, stock: 2 }));
+  const out = await run(
+    [ai('', [call('c1', 'search_products', { search: 'áo' })]), ai('Có nhiều mẫu áo.')],
+    { search_products: () => ({ products: six }), suggest_freeship_items: () => freeship },
+    req({ user_id: 5 }),
+  ).outcome;
+  assert.equal(out.cards.length, 6);
+  assert.ok(!out.cards.some((c) => c.id === 90));
+  assert.equal(out.freeship_nudge, true);
+  assert.ok(out.message.endsWith(nudgeText(50000, 500000, { id: 90, name: 'Túi Xách Mini Thời Trang', price: 450000 })));
+});
