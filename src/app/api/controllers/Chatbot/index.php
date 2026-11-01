@@ -43,7 +43,7 @@ $response = [
     'session_id' => $chatbot->sessionId(),
 ];
 
-foreach (['response_type', 'primary_intent', 'outfits', 'freeship_nudge', 'trace_id', 'latency'] as $key) {
+foreach (['response_type', 'primary_intent', 'tools_used', 'outfits', 'offered', 'freeship_nudge', 'trace_id', 'latency'] as $key) {
     if (array_key_exists($key, $result)) {
         $response[$key] = $result[$key];
     }

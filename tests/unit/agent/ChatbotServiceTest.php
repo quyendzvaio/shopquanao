@@ -184,6 +184,8 @@ final class ChatbotServiceTest extends TestCase
         $this->assertSame('product_search', $result['primary_intent']);
         $this->assertSame('trace-1', $result['trace_id']);
         $this->assertSame([], $result['outfits']);
+        $this->assertSame(['search_products'], $result['tools_used']);
+        $this->assertSame([], $result['offered']);
         $this->assertFalse($result['freeship_nudge']);
         $rows = $this->messages($pdo);
         $this->assertSame(['user', 'bot'], array_column($rows, 'role'));
@@ -274,8 +276,10 @@ final class ChatbotServiceTest extends TestCase
             $this->completeEvent(['response_type' => 'clarification', 'offered' => $offered]),
         ]);
 
-        $this->service($pdo, $client)->respond('quần baggy còn hàng không');
+        $result = $this->service($pdo, $client)->respond('quần baggy còn hàng không');
 
+        $this->assertSame($offered, $result['offered']);
+        $this->assertSame(['search_products'], $result['tools_used']);
         $metadata = json_decode($this->messages($pdo)[1]['metadata'], true);
         $this->assertSame($offered, $metadata['offered']);
         $this->assertArrayNotHasKey('products', $metadata);
