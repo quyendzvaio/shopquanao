@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { scoreTurn, summarize, type TurnObservation } from '../eval/scorer.js';
+import { extractPrices, scoreTurn, summarize, type TurnObservation } from '../eval/scorer.js';
 
 const base: TurnObservation = {
   message: 'q',
@@ -54,6 +54,29 @@ test('offered_include needs every id offered', () => {
 test('message_contains needs every fragment, case-insensitively', () => {
   assert.deepEqual(scoreTurn({ message_contains: ['Quần Baggy Vải Tuyết Mưa', 'HẾT HÀNG'] }, base), []);
   assert.equal(scoreTurn({ message_contains: ['hết hàng', 'miễn phí ship'] }, base).length, 1);
+});
+
+test('message_contains_any: every group needs at least one alternative', () => {
+  const sold = [['hết hàng', 'hết sạch', 'tạm hết']];
+  assert.deepEqual(scoreTurn({ message_contains_any: sold }, base), []);
+  assert.deepEqual(scoreTurn({ message_contains_any: sold }, { ...base, answer: 'Mẫu này tạm hết rồi.' }), []);
+  assert.equal(scoreTurn({ message_contains_any: sold }, { ...base, answer: 'Mẫu này còn nhiều.' }).length, 1);
+  const two = [['hết hàng'], ['kaki', 'jeans']];
+  assert.deepEqual(scoreTurn({ message_contains_any: two }, base), []);
+  assert.equal(scoreTurn({ message_contains_any: [['hết hàng'], ['jeans']] }, base).length, 1);
+});
+
+test('message_mentions_price normalises price spellings', () => {
+  for (const text of ['còn thiếu 85.000đ', 'thiếu 85.000 đ nữa', 'thiếu 85,000đ', 'thiếu 85k', 'thiếu 85 nghìn', 'thiếu 85.000 vnđ', 'thiếu 85000₫']) {
+    assert.deepEqual(scoreTurn({ message_mentions_price: 85000 }, { ...base, answer: text }), [], text);
+  }
+  for (const text of ['còn thiếu 95.000đ', 'áo giá 485.000đ', 'mã 85000', 'size 85']) {
+    assert.equal(scoreTurn({ message_mentions_price: 85000 }, { ...base, answer: text }).length, 1, text);
+  }
+});
+
+test('extractPrices reads every amount', () => {
+  assert.deepEqual(extractPrices('áo 210.000đ và quần 1,250,000 đ, mũ 150k'), [210000, 1250000, 150000]);
 });
 
 test('message_not_contains rejects any fragment', () => {

@@ -6,7 +6,7 @@ export type EvalCase = { id: string; group: string; user: boolean; cart?: CartLi
 
 const EXPECT_KEYS = new Set<string>([
   'response_type', 'tools_include', 'no_tools', 'products_include', 'min_products', 'max_products',
-  'offered_include', 'message_contains', 'message_not_contains', 'nudge',
+  'offered_include', 'message_contains', 'message_contains_any', 'message_mentions_price', 'message_not_contains', 'nudge',
 ]);
 
 /** Parses cases.jsonl and rejects typos (unknown expect keys, duplicate ids, empty turns). */

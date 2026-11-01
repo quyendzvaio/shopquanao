@@ -33,7 +33,9 @@ One JSON object per line: `id`, `group`, `user` (true = register a fresh logged-
 | `products_include` | every id is among the returned cards |
 | `min_products` / `max_products` | the card count is within the bound |
 | `offered_include` | every id is in `offered` (alternatives asked about after a sold-out hit) |
-| `message_contains` / `message_not_contains` | every / no fragment appears in the answer (case-insensitive) |
+| `message_contains` / `message_not_contains` | every / no fragment appears in the answer (case-insensitive); use for product names, not LLM wording |
+| `message_contains_any` | `string[][]`: each inner list is a set of alternatives, at least one must appear, every list must be satisfied (wording-robust, e.g. sold-out phrases) |
+| `message_mentions_price` | the answer mentions this VND amount in any spelling (`85.000đ`, `85,000 đ`, `85k`, `85 nghìn`) |
 | `nudge` | `freeship_nudge` equals it |
 
 `parseCases` (`chat-graph/eval/cases.ts`) rejects unknown keys and duplicate ids; the scorer is `chat-graph/eval/scorer.ts`.
@@ -50,7 +52,7 @@ npm --prefix chat-graph run eval -- --only=S01,O02 --output=reports/eval/x.json
 
 - It talks to `http://localhost:${NGINX_HTTP_PORT:-80}` (override with `EVAL_BASE_URL`), through nginx, so it paces turns (about 2.3 s) and retries on HTTP 429 with backoff; it never bypasses the rate limit.
 - It scores against whatever database the running `app` uses (check `docker compose exec -T app printenv DB_NAME`; `shop_db` in the default stack, `shop_test` if you started the stack on it). It never repoints the stack.
-- Users and carts are created only through PHP: `chat-graph/eval/fixtures.php` is piped into the app container (`docker compose exec -T app php /dev/stdin '<json>' < fixtures.php`; the image has `src/` but does not bind-mount the repo, and plain `php -` is not accepted) and uses `UserService` and `CartService`. Each case gets a fresh `eval_user_<runid>_<n>` user, because a Bearer user reuses its latest chat session. Carts are emptied at the end; the users and their chat sessions stay (the services have no delete path), clearly named `eval_user_*`.
+- Users and carts are created only through PHP: `chat-graph/eval/fixtures.php` is piped into the app container (`docker compose exec -T app php /dev/stdin '<json>' < fixtures.php`; the image has `src/` but does not bind-mount the repo, and plain `php -` is not accepted) and uses `UserService` and `CartService`. Each case gets a fresh `eval_user_<runid>_<n>` user, because a Bearer user reuses its latest chat session. Carts are emptied at the end (`cleanup` refuses any id whose username is not `eval_user_*`); the users and their chat sessions stay (the services have no delete path), clearly named `eval_user_*`.
 - Exit code 0 only when the pass rate is >= 0.9.
 
 ## Reading `reports/eval/chat_graph_eval.json`

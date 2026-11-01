@@ -9,6 +9,8 @@ export type Expect = {
   max_products?: number;
   offered_include?: number[];
   message_contains?: string[];
+  message_contains_any?: string[][];
+  message_mentions_price?: number;
   message_not_contains?: string[];
   nudge?: boolean;
 };
@@ -31,6 +33,24 @@ export type Summary = {
   rate: number;
   by_group: Record<string, { passed: number; total: number }>;
 };
+
+/**
+ * Every price-like amount in the text, in VND: "85.000đ", "85,000 đ", "85.000 vnđ", "85k", "85 nghìn", "85 ngàn".
+ * A bare number only counts when it carries a currency or magnitude suffix.
+ */
+export function extractPrices(text: string): number[] {
+  const prices: number[] = [];
+  const re = /(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)\s*(k\b|nghìn|ngàn|vnđ|vnd|đ|₫)/giu;
+  for (const m of text.matchAll(re)) {
+    const raw = m[1] ?? '';
+    const unit = (m[2] ?? '').toLowerCase();
+    const thousands = /^\d{1,3}(?:[.,]\d{3})+$/.test(raw);
+    const value = thousands ? Number(raw.replace(/[.,]/g, '')) : Number(raw.replace(',', '.'));
+    if (Number.isNaN(value)) continue;
+    prices.push(Math.round(unit === 'k' || unit === 'nghìn' || unit === 'ngàn' ? value * 1000 : value));
+  }
+  return prices;
+}
 
 function missing<T>(wanted: readonly T[], have: readonly T[]): T[] {
   return wanted.filter((w) => !have.includes(w));
@@ -70,6 +90,14 @@ export function scoreTurn(expect: Expect, obs: TurnObservation): string[] {
   }
   for (const fragment of expect.message_contains ?? []) {
     if (!answer.includes(fragment.toLowerCase())) failures.push(`answer lacks "${fragment}"`);
+  }
+  for (const alternatives of expect.message_contains_any ?? []) {
+    if (!alternatives.some((a) => answer.includes(a.toLowerCase()))) {
+      failures.push(`answer has none of [${alternatives.join(' | ')}]`);
+    }
+  }
+  if (expect.message_mentions_price !== undefined && !extractPrices(obs.answer).includes(expect.message_mentions_price)) {
+    failures.push(`answer does not mention the price ${expect.message_mentions_price}`);
   }
   for (const fragment of expect.message_not_contains ?? []) {
     if (answer.includes(fragment.toLowerCase())) failures.push(`answer contains forbidden "${fragment}"`);

@@ -11,7 +11,9 @@
  *       -> {"user_id":int,"token":string}   registers the user (fresh name per run: a bearer user
  *          reuses its latest chat session, so a reused user would inherit old history) and fills its cart
  *   {"action":"cleanup","user_ids":[int,...]}
- *       -> {"cleared":int}                  removes every cart line of those users
+ *       -> {"cleared":int,"skipped":[int]}  removes every cart line of those users, but only users whose
+ *          username matches ^eval_user_ (looked up via UserService::adminList); any other id is skipped
+ *          with a note on stderr, so a wrong id can never empty a real customer's cart
  *
  * Users have no delete path in the services; eval users stay in the table, clearly named eval_user_*.
  */
@@ -52,13 +54,23 @@ switch ($request['action']) {
 
     case 'cleanup':
         $cleared = 0;
+        $skipped = [];
+        $names = [];
+        foreach ((new UserService($pdo))->adminList() as $user) {
+            $names[(int) $user['id']] = (string) $user['username'];
+        }
         foreach ((array) ($request['user_ids'] ?? []) as $userId) {
+            if (!preg_match('/^eval_user_/', $names[(int) $userId] ?? '')) {
+                fwrite(STDERR, "fixtures: refusing to clean user {$userId}: not an eval_user_* account\n");
+                $skipped[] = (int) $userId;
+                continue;
+            }
             foreach ($carts->list((int) $userId)['cart'] as $line) {
                 $carts->remove((int) $userId, (int) $line['cart_id']);
                 $cleared++;
             }
         }
-        echo json_encode(['cleared' => $cleared]);
+        echo json_encode(['cleared' => $cleared, 'skipped' => $skipped]);
         break;
 
     default:

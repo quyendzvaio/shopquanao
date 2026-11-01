@@ -21,3 +21,13 @@ test('parseCases rejects unknown expect keys, duplicate ids and carts without a 
   assert.throws(() => parseCases(`${ok}\n${ok}`), /duplicate id/);
   assert.throws(() => parseCases(ok.replace('"turns"', '"cart":[],"turns"')), /cart needs user/);
 });
+
+test('no shipped case asserts exact sold-out, login or price wording', () => {
+  for (const c of parseCases(shipped)) {
+    for (const t of c.turns) {
+      for (const f of t.expect.message_contains ?? []) {
+        assert.ok(!/hết hàng|đăng nhập|\d\.\d{3}\s*đ/i.test(f), `${c.id}: fragile fragment "${f}"`);
+      }
+    }
+  }
+});
