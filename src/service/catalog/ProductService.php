@@ -57,7 +57,7 @@ final class ProductService
             $freshProducts = $this->fetchFreshProductsByIds(array_map('intval', $cachedIds['product_ids']));
             $freshProducts = array_values(array_filter($freshProducts, fn($p) => ProductAttributeNormalizer::productMatchesConstraints($p, $args)));
             if (!empty($freshProducts)) {
-                return [
+                return $this->withSoldOut([
                     'products' => $freshProducts,
                     'pagination' => [
                         'page' => 1,
@@ -66,7 +66,7 @@ final class ProductService
                         'total_pages' => 1,
                     ],
                     'cache' => ['product_cache_hit' => true, 'cache_policy' => 'ids_only_fresh_price_stock'],
-                ];
+                ], $args);
             }
         }
 
@@ -74,9 +74,6 @@ final class ProductService
 
         if (!isset($result['error']) && !empty($result['products'])) {
             $result = (new ProductReranker($this->rerankerUrl))->apply($args['search'] ?? '', $result);
-        }
-        if (!isset($result['error']) && empty($result['products']) && ($args['in_stock'] ?? null) === true) {
-            $result['out_of_stock_matches'] = $this->soldOutMatchCount($args);
         }
 
         if (!isset($result['error'])) {
@@ -87,7 +84,7 @@ final class ProductService
             $result['cache'] = ['product_cache_hit' => false, 'cache_policy' => 'ids_only_fresh_price_stock'];
         }
 
-        return $result;
+        return $this->withSoldOut($result, $args);
     }
 
     public function detail(array $args): array {
@@ -374,10 +371,49 @@ final class ProductService
         ];
     }
 
-    /** A "còn hàng" search found nothing: how many products match every other filter (so they are sold out). */
-    private function soldOutMatchCount(array $args): int {
-        unset($args['in_stock']);
-        return count($this->executeSearchProductsDirect($args)['products'] ?? []);
+    /**
+     * Adds out_of_stock_ids (rank order) to a search result without an error, and out_of_stock_matches
+     * (their count) when there are any. Computed after the cache lookup, so the cached ids payload is unchanged.
+     */
+    private function withSoldOut(array $result, array $args): array {
+        if (isset($result['error'])) return $result;
+        $ids = $this->soldOutIds($args, $result);
+        $result['out_of_stock_ids'] = $ids;
+        if ($ids !== []) $result['out_of_stock_matches'] = count($ids);
+        return $result;
+    }
+
+    /**
+     * A "còn hàng" search that found nothing: the products matching every other filter, reranked like the main
+     * search. Without in_stock: the returned products when every one of them is sold out.
+     *
+     * @return list<int>
+     */
+    private function soldOutIds(array $args, array $result): array {
+        $products = $result['products'] ?? [];
+        if (($args['in_stock'] ?? null) === true) {
+            if ($products !== []) return [];
+            unset($args['in_stock']);
+            $matches = $this->executeSearchProductsDirect($args);
+            if (!isset($matches['error']) && !empty($matches['products'])) {
+                $matches = (new ProductReranker($this->rerankerUrl))->apply($args['search'] ?? '', $matches);
+            }
+            return array_values(array_map(fn($p) => (int)$p['id'], $matches['products'] ?? []));
+        }
+        if ($products === []) return [];
+        foreach ($products as $product) {
+            if ($this->isInStock($product)) return [];
+        }
+        return array_values(array_map(fn($p) => (int)$p['id'], $products));
+    }
+
+    /** Mirrors the in-stock clause of ProductRepository::search: row stock, or an active variant (hydrated stock is already COALESCEd). */
+    private function isInStock(array $product): bool {
+        if ((int)($product['stock'] ?? 0) > 0) return true;
+        foreach ($product['variants'] ?? [] as $variant) {
+            if (($variant['is_active'] ?? true) && (int)($variant['stock'] ?? 0) > 0) return true;
+        }
+        return false;
     }
 
     private function searchCriteria(array $args): ProductSearchCriteria {

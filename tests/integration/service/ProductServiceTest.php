@@ -91,18 +91,34 @@ final class ProductServiceTest extends TestCase
         $result = $this->products->search(['search' => 'quần baggy', 'in_stock' => true]);
 
         $this->assertSame([], $result['products']);
+        $this->assertSame([69], $result['out_of_stock_ids']);
         $this->assertSame(1, $result['out_of_stock_matches']);
     }
 
-    public function testSearchWithoutStockFilterOrWithResultsHasNoSoldOutCount(): void
+    public function testUnfilteredSearchWithOnlySoldOutReportsIds(): void
     {
         $all = $this->products->search(['search' => 'quần baggy']);
         $this->assertSame([69], array_column($all['products'], 'id'));
-        $this->assertArrayNotHasKey('out_of_stock_matches', $all);
+        $this->assertSame([69], $all['out_of_stock_ids']);
+        $this->assertSame(1, $all['out_of_stock_matches']);
+    }
 
+    public function testSearchWithInStockResultsHasEmptySoldOutIds(): void
+    {
         $inStock = $this->products->search(['search' => 'áo thun', 'in_stock' => true]);
         $this->assertNotSame([], $inStock['products']);
+        $this->assertSame([], $inStock['out_of_stock_ids']);
         $this->assertArrayNotHasKey('out_of_stock_matches', $inStock);
+    }
+
+    public function testCachedSearchAlsoReportsSoldOutIds(): void
+    {
+        $this->products->search(['search' => 'quần baggy']);
+        $cached = $this->products->search(['search' => 'quần baggy']);
+
+        $this->assertTrue($cached['cache']['product_cache_hit'] ?? false, 'second call must hit the id cache');
+        $this->assertSame([69], $cached['out_of_stock_ids']);
+        $this->assertSame(1, $cached['out_of_stock_matches']);
     }
 
     public function testSearchByProductReferenceRoutesToDetail(): void
