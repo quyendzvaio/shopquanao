@@ -386,3 +386,42 @@ test('toolCallMarkupWithOnlySoldOutProductIsJustTheAsk', async () => {
   const out = await outcome;
   assert.equal(out.message, 'Mẫu Quần Baggy Vải Tuyết Mưa đang hết hàng. Bạn có muốn xem Quần Kaki Ống Rộng hoặc Quần Bò Rách Gối không?');
 });
+
+const detail83 = { id: 83, name: 'Váy Hai Dây Lụa Satin', price: 390000, stock: 0 };
+const detailCall = ai('', [call('c1', 'get_product_detail', { product_id: 83 })]);
+const similar83 = { source: { id: 83, name: detail83.name, category_id: 3, style_tags: [] }, products: [kaki, bo] };
+
+test('soldOutProductDetailTriggersTheSoldOutAsk', async () => {
+  const { tools, outcome } = run(
+    [detailCall, ai('')],
+    { get_product_detail: () => ({ product: detail83 }), find_similar_in_stock: () => similar83 },
+  );
+  const out = await outcome;
+  assert.equal(out.response_type, 'clarification');
+  assert.equal(out.message, 'Mẫu Váy Hai Dây Lụa Satin đang hết hàng. Bạn có muốn xem Quần Kaki Ống Rộng hoặc Quần Bò Rách Gối không?');
+  assert.deepEqual(out.offered.map((o) => o.id), [73, 71]);
+  assert.ok(!out.cards.some((c) => c.id === 83));
+  assert.deepEqual(out.cards, []);
+  assert.ok(out.tools_used.includes('find_similar_in_stock'));
+  assert.deepEqual(tools.calls.find((c) => c.name === 'find_similar_in_stock')?.args, { product_id: 83, limit: 2 });
+});
+
+test('inStockProductDetailStaysAFinalAnswerWithItsCard', async () => {
+  const { outcome } = run(
+    [ai('', [call('c1', 'get_product_detail', { product_id: 73 })]), ai('Quần Kaki Ống Rộng (mã 73) còn hàng, giá 320.000đ.')],
+    { get_product_detail: () => ({ product: kaki }) },
+  );
+  const out = await outcome;
+  assert.equal(out.response_type, 'final_answer');
+  assert.deepEqual(out.cards.map((c) => c.id), [73]);
+  assert.deepEqual(out.offered, []);
+});
+
+test('soldOutFrom: get_product_detail with stock <= 0 is sold out, in-stock or malformed is not', () => {
+  const rec = (result: Record<string, unknown>) => ({ name: 'get_product_detail', args: { product_id: 83 }, result });
+  assert.deepEqual(soldOutFrom(rec({ product: detail83 })), { ids: [83], search: '' });
+  assert.deepEqual(soldOutFrom(rec({ product: { id: 83, stock: '0' } })), { ids: [83], search: '' });
+  assert.equal(soldOutFrom(rec({ product: kaki })), null);
+  assert.equal(soldOutFrom(rec({ error: 'Product not found' })), null);
+  assert.equal(soldOutFrom(rec({ product: { name: 'x', stock: 0 } })), null);
+});

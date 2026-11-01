@@ -9,8 +9,20 @@ export type SoldOutState = {
   ids: number[];
 };
 
-/** A `search_products` record whose `out_of_stock_ids` is non-empty (a missing key counts as empty). */
+/**
+ * A sold-out hit: a `search_products` record whose `out_of_stock_ids` is non-empty (a missing key counts as empty),
+ * or a `get_product_detail` record whose product has `stock` <= 0.
+ */
 export function soldOutFrom(record: ToolRecord): { ids: number[]; search: string } | null {
+  if (record.name === 'get_product_detail') {
+    const product = record.result.product;
+    if (typeof product !== 'object' || product === null) return null;
+    const row = product as Record<string, unknown>;
+    const id = Number(row.id);
+    if (!Number.isInteger(id) || id <= 0 || row.stock === undefined || row.stock === null || row.stock === '') return null;
+    const stock = Number(row.stock);
+    return Number.isFinite(stock) && stock <= 0 ? { ids: [id], search: '' } : null;
+  }
   if (record.name !== 'search_products') return null;
   const raw = record.result.out_of_stock_ids;
   if (!Array.isArray(raw)) return null;

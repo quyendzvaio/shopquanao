@@ -46,9 +46,11 @@ type Deps = {
 
 function toSoldOutState(found: { ids: number[]; search: string }, record: ToolRecord, similar: Record<string, unknown> | null): SoldOutState {
   const sourceId = found.ids[0] ?? 0;
-  const own = Array.isArray(record.result.products)
-    ? record.result.products.find((p): p is Record<string, unknown> => typeof p === 'object' && p !== null && Number((p as Record<string, unknown>).id) === sourceId)
-    : undefined;
+  const candidates: unknown[] = [
+    ...(Array.isArray(record.result.products) ? record.result.products : []),
+    record.result.product,
+  ];
+  const own = candidates.find((p): p is Record<string, unknown> => typeof p === 'object' && p !== null && Number((p as Record<string, unknown>).id) === sourceId);
   const fromSimilar = similar && typeof similar.source === 'object' && similar.source !== null
     ? (similar.source as Record<string, unknown>).name
     : undefined;
