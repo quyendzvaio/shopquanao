@@ -19,6 +19,9 @@ if ($message === '') errorResponse('Message is required', 400);
 $rejection = ChatStreamProtocol::rejectBrowserRequest($message, $_SERVER, AppConfig::fromEnvironment());
 if ($rejection !== null) errorResponse($rejection['message'], $rejection['status']);
 
+// A dropped browser must not kill PHP mid-turn: the turn is still saved (messages, summary, fingerprint).
+ignore_user_abort(true);
+
 header('Content-Type: text/event-stream; charset=utf-8');
 header('Cache-Control: no-store');
 header('X-Accel-Buffering: no');

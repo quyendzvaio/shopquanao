@@ -352,4 +352,58 @@ final class ChatbotServiceTest extends TestCase
         $this->assertSame('M', $requests[0]['memory']['profile']['usual_size']);
         $this->assertStringNotContainsString('feedback', json_encode($requests[0]['memory']));
     }
+
+    public function testClientDisconnectDuringStreamStillPersistsTheTurn(): void
+    {
+        $pdo = $this->pdo();
+        $client = $this->client([
+            ['type' => 'delta', 'text' => 'Chào '],
+            ['type' => 'delta', 'text' => 'bạn'],
+            $this->completeEvent(['freeship_fingerprint' => 'fp-3']),
+        ]);
+        $calls = 0;
+
+        $result = $this->service($pdo, $client)->respondStreaming('chào', static function (string $d) use (&$calls): void {
+            $calls++;
+            throw new RuntimeException('client gone');
+        });
+
+        $this->assertSame(1, $calls);
+        $this->assertSame('final_answer', $result['response_type']);
+        $this->assertSame('Chào bạn', $result['message']);
+        $this->assertSame(['user', 'bot'], array_column($this->messages($pdo), 'role'));
+        $slots = json_decode((string) $pdo->query('SELECT slots FROM chat_session_memory WHERE session_id = 5')->fetchColumn(), true);
+        $this->assertSame('fp-3', $slots['freeship_nudged_fingerprint']);
+    }
+
+    public function testAnyGraphErrorAnswersBusyAndSavesBothMessages(): void
+    {
+        $pdo = $this->pdo();
+        $requests = [];
+        $graph = new class ('http://graph', 't', 5) extends ChatGraphClient {
+            public function turn(array $request, ?callable $onEvent = null): array
+            {
+                throw new RuntimeException('unexpected');
+            }
+        };
+
+        $result = $this->service($pdo, $graph)->respond('áo thun');
+
+        $this->assertSame('busy', $result['response_type']);
+        $this->assertSame(self::BUSY, $result['message']);
+        $this->assertSame(['áo thun', self::BUSY], array_column($this->messages($pdo), 'message'));
+    }
+
+    public function testInvalidUtf8RequestAnswersBusy(): void
+    {
+        $pdo = $this->pdo();
+        $requests = [];
+        $client = $this->client([['type' => 'delta', 'text' => 'ok'], $this->completeEvent()], $requests);
+
+        $result = $this->service($pdo, $client)->respond("áo \xB1\x31 thun");
+
+        $this->assertSame('busy', $result['response_type']);
+        $this->assertSame([], $requests);
+        $this->assertCount(2, $this->messages($pdo));
+    }
 }

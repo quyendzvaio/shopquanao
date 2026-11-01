@@ -93,18 +93,33 @@ class ChatbotService
         ];
 
         $sentText = false;
+        $forwarding = $onDelta !== null;
         try {
-            $result = $this->graph()->turn($request, $onDelta === null ? null : static function (array $event) use ($onDelta, &$sentText): void {
-                if (($event['type'] ?? '') === 'delta' && is_string($event['text'] ?? null) && $event['text'] !== '') {
+            $result = $this->graph()->turn($request, $onDelta === null ? null : static function (array $event) use ($onDelta, &$sentText, &$forwarding): void {
+                if (!$forwarding || ($event['type'] ?? '') !== 'delta' || !is_string($event['text'] ?? null) || $event['text'] === '') {
+                    return;
+                }
+                try {
                     $sentText = true;
                     $onDelta($event['text']);
+                } catch (Throwable) {
+                    // The browser went away mid-stream: stop writing, but still finish and persist the turn.
+                    $forwarding = false;
                 }
             });
-        } catch (ChatGraphUnavailable $e) {
-            error_log(json_encode(['operation' => 'chat_graph', 'success' => false, 'error_category' => $e->category], JSON_UNESCAPED_SLASHES));
+        } catch (Throwable $e) {
+            error_log(json_encode([
+                'operation' => 'chat_graph',
+                'success' => false,
+                'error_category' => $e instanceof ChatGraphUnavailable ? $e->category : 'runtime_failure',
+            ], JSON_UNESCAPED_SLASHES));
             $result = self::busyResult();
-            if ($onDelta !== null && !$sentText) {
-                $onDelta($result['message']);
+            if ($forwarding && !$sentText) {
+                try {
+                    $onDelta($result['message']);
+                } catch (Throwable) {
+                    // Nothing left to write to; the busy answer is still saved below.
+                }
             }
         }
 
