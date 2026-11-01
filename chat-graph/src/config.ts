@@ -4,7 +4,7 @@ export type GraphConfig = {
   llm: { baseUrl: string; apiKey: string; model: string; timeoutMs: number };
   budget: { maxToolCalls: number; maxModelCalls: number; turnTimeoutMs: number };
   freeship: { threshold: number; maxGap: number };
-  langfuse: { enabled: boolean; baseUrl: string; publicKey: string; secretKey: string };
+  langfuse: { enabled: boolean; baseUrl: string; publicKey: string; secretKey: string; traceContent: boolean };
 };
 
 type Env = Record<string, string | undefined>;
@@ -51,6 +51,7 @@ export function loadConfig(env: Env = process.env): GraphConfig {
       baseUrl: str(env, 'LANGFUSE_INGESTION_URL', str(env, 'LANGFUSE_BASE_URL')),
       publicKey: str(env, 'LANGFUSE_PUBLIC_KEY'),
       secretKey: str(env, 'LANGFUSE_SECRET_KEY'),
+      traceContent: ['true', '1', 'yes', 'on'].includes(str(env, 'LANGFUSE_TRACE_CONTENT').toLowerCase()),
     },
   };
 }

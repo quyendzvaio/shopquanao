@@ -68,7 +68,18 @@ async function handleTurn(deps: ServerDeps, req: http.IncomingMessage, res: http
     throw err;
   }
 
-  const turnDeps = { config: deps.config, model: deps.makeModel(), openTools: deps.openTools, callbacks: deps.callbacks };
+  // A client that goes away mid-turn must not keep the turn running (and spending tokens).
+  const gone = new AbortController();
+  res.on('close', () => {
+    if (!res.writableFinished) gone.abort();
+  });
+  const turnDeps = {
+    config: deps.config,
+    model: deps.makeModel(),
+    openTools: deps.openTools,
+    callbacks: deps.callbacks,
+    signal: gone.signal,
+  };
   if (!turn.stream) {
     sendJson(res, 200, await runTurn(turn, turnDeps, () => {}));
     return;

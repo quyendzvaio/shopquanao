@@ -1,4 +1,5 @@
-import { AIMessage } from '@langchain/core/messages';
+import { AIMessage, type BaseMessage } from '@langchain/core/messages';
+import type { ChatResult } from '@langchain/core/outputs';
 import type { GraphConfig } from '../../src/config.js';
 import type { TurnRequest } from '../../src/contract.js';
 import { ScriptedChatModel, type ScriptedStep } from './scriptedModel.js';
@@ -40,3 +41,15 @@ export function setup(steps: ScriptedStep[], config: GraphConfig = CONFIG, model
   return { model, tools, deps, closed: () => closed };
 }
 
+
+/** ScriptedChatModel that records when a model call has settled (returned, thrown or aborted). */
+export class TrackedModel extends ScriptedChatModel {
+  settled = false;
+  override async _generate(messages: BaseMessage[], options: this['ParsedCallOptions']): Promise<ChatResult> {
+    try {
+      return await super._generate(messages, options);
+    } finally {
+      this.settled = true;
+    }
+  }
+}

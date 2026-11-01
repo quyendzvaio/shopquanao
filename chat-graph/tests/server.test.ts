@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import test from 'node:test';
 import type { GraphConfig } from '../src/config.js';
 import { createServer } from '../src/server.js';
 import { ScriptedChatModel } from './support/scriptedModel.js';
-import { CONFIG, req, searchTurn, setup } from './support/turnHarness.js';
+import { CONFIG, req, searchTurn, setup, TrackedModel } from './support/turnHarness.js';
 
 const TOKEN = 'secret-token';
 
@@ -81,4 +82,34 @@ test('unknownPathIs404', async () => {
     assert.equal((await fetch(`${base}/nope`)).status, 404);
     assert.equal((await fetch(`${base}/turn`)).status, 404);
   });
+});
+
+test('clientDisconnectAbortsTheTurn', async () => {
+  const model = new TrackedModel(['hang']);
+  const { deps } = setup([]);
+  const server = createServer({ config: { ...CONFIG, token: TOKEN } as GraphConfig, makeModel: () => model, openTools: deps.openTools });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const body = JSON.stringify(req({ stream: true }));
+    const request = http.request({
+      host: '127.0.0.1', port, path: '/turn', method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), 'X-CHAT-GRAPH-TOKEN': TOKEN },
+    });
+    request.on('error', () => {});
+    request.end(body);
+    const until = async (cond: () => boolean, what: string): Promise<void> => {
+      const deadline = Date.now() + 3000;
+      while (!cond()) {
+        if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    };
+    await until(() => model.calls.length > 0, 'the model call to start');
+    assert.equal(model.settled, false);
+    request.destroy();
+    await until(() => model.settled, 'the model call to be aborted');
+  } finally {
+    await new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections(); });
+  }
 });

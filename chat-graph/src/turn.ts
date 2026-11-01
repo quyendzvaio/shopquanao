@@ -13,6 +13,8 @@ export type TurnDeps = {
   openTools: (userId: number | null) => Promise<ShopTools>;
   /** Callback handlers (Langfuse) for the turn's model and agent runs. */
   callbacks?: unknown[];
+  /** Aborts the turn from outside (e.g. the client went away): in-flight model calls are cancelled and the result is busy. */
+  signal?: AbortSignal;
 };
 
 class TurnDeadline extends Error {}
@@ -22,6 +24,15 @@ const SENTENCE_END = /(?<=[.?!] )/;
 /** Splits after `.`, `?`, `!` followed by a space; the pieces concatenate back to `text`. */
 export function sentenceChunks(text: string): string[] {
   return text.split(SENTENCE_END).filter((c) => c !== '');
+}
+
+/** Fire-and-forget: a slow or failing close() must never delay or break the reply. */
+function closeQuietly(tools: ShopTools): void {
+  try {
+    tools.close().catch(() => {});
+  } catch {
+    // close() threw synchronously: nothing more to do.
+  }
 }
 
 function busyOutcome(): GraphOutcome {
@@ -60,8 +71,23 @@ export async function runTurn(
   let tools: ShopTools | null = null;
   let outcome: GraphOutcome;
 
+  // The deadline covers opening the tools, the graph run and (by not awaiting it) closing them.
+  const deadline = new Promise<never>((_, reject) => {
+    const stop = (reason: string): void => {
+      abort.abort();
+      reject(new TurnDeadline(reason));
+    };
+    timer = setTimeout(() => stop('turn deadline exceeded'), deps.config.budget.turnTimeoutMs);
+    if (deps.signal?.aborted) stop('turn aborted');
+    else deps.signal?.addEventListener('abort', () => stop('turn aborted'), { once: true });
+  });
+  deadline.catch(() => {});
+
   try {
-    tools = await deps.openTools(req.user_id);
+    const opening = deps.openTools(req.user_id);
+    // Tools that finish opening after the turn ended must still be closed.
+    opening.then((late) => { if (finished) closeQuietly(late); }, () => {});
+    tools = await Promise.race([opening, deadline]);
     const graph = buildTurnGraph({
       model: deps.model,
       tools,
@@ -72,12 +98,6 @@ export async function runTurn(
         if (!finished) emit({ type: 'progress', stage });
       },
     });
-    const deadline = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        abort.abort();
-        reject(new TurnDeadline('turn deadline exceeded'));
-      }, deps.config.budget.turnTimeoutMs);
-    });
     const run = graph.invoke(req, { signal: abort.signal });
     run.catch(() => {}); // A run abandoned at the deadline must not become an unhandled rejection.
     outcome = await Promise.race([run, deadline]);
@@ -87,13 +107,8 @@ export async function runTurn(
   } finally {
     finished = true;
     if (timer !== undefined) clearTimeout(timer);
-    if (tools !== null) {
-      try {
-        await tools.close();
-      } catch {
-        // Closing is best effort.
-      }
-    }
+    abort.abort(); // Nothing of this turn may keep running (or spending tokens) after the reply.
+    if (tools !== null) closeQuietly(tools);
   }
 
   const counts = budget.counts();
