@@ -1,7 +1,7 @@
 /**
  * Manual live eval: real LLM, full stack (nginx -> app -> chat-graph), not part of CI.
  *
- *   npm --prefix chat-graph run eval [-- --cases=eval/cases.jsonl] [--only=S01,O02] [--group=guardrail] [--output=reports/eval/chat_graph_eval.json]
+ *   npm --prefix chat-graph run eval [-- --cases=eval/cases.jsonl] [--only=S01,O02] [--group=guardrail] [--pace-ms=30000] [--output=reports/eval/chat_graph_eval.json]
  *
  * Users and carts are created through PHP (fixtures.php, run inside the app container); graph code runs no SQL.
  * Exit code 0 iff rate >= 0.9.
@@ -10,11 +10,11 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { paceMs } from './args.js';
 import { parseCases, type EvalCase } from './cases.js';
 import { scoreTurn, summarize, type TurnObservation } from './scorer.js';
 
 const THRESHOLD = 0.9;
-const PACE_MS = 2300; // nginx: 30 r/m on /api/chatbot, burst 6
 const MAX_429_RETRIES = 6;
 const REQUEST_TIMEOUT_MS = 150_000;
 
@@ -25,6 +25,8 @@ function arg(name: string): string | undefined {
   const prefix = `--${name}=`;
   return process.argv.find((a) => a.startsWith(prefix))?.slice(prefix.length);
 }
+
+const PACE_MS = paceMs(process.argv); // >= 2300 (nginx 30 r/m); raise it for a 10 req/min LLM tier
 
 const baseUrl = process.env.EVAL_BASE_URL ?? `http://localhost:${process.env.NGINX_HTTP_PORT ?? '80'}`;
 

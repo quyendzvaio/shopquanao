@@ -48,7 +48,10 @@ Needs the stack up (`docker compose up -d`, nginx, app and chat-graph healthy) a
 npm --prefix chat-graph run eval                         # all cases
 npm --prefix chat-graph run eval -- --group=guardrail    # a group (works with no LLM)
 npm --prefix chat-graph run eval -- --only=S01,O02 --output=reports/eval/x.json
+npm --prefix chat-graph run eval -- --pace-ms=30000      # slow LLM tier
 ```
+
+- `--pace-ms=N` sets the gap between requests to `max(2300, N)`: it can slow the run, never go faster than the nginx limit (30 r/m). A turn makes 2-5 model calls, so for a 10 requests/minute LLM tier use `--pace-ms=30000` (about 25 min for the whole file); otherwise the provider answers 429 and the turn comes back `busy`. A non-numeric value aborts with an error.
 
 - It talks to `http://localhost:${NGINX_HTTP_PORT:-80}` (override with `EVAL_BASE_URL`), through nginx, so it paces turns (about 2.3 s) and retries on HTTP 429 with backoff; it never bypasses the rate limit.
 - It scores against whatever database the running `app` uses (check `docker compose exec -T app printenv DB_NAME`; `shop_db` in the default stack, `shop_test` if you started the stack on it). It never repoints the stack.
