@@ -22,14 +22,14 @@ test('langfuseCallbacks: enabled builds one callback handler', async () => {
 test('redactContent: no customer text survives, only a size', () => {
   const payload = { messages: [{ role: 'user', content: 'tôi tên Lan, địa chỉ 12 Nguyễn Trãi' }], tool: { args: { search: 'áo thun' } } };
   const masked = redactContent(payload);
-  assert.ok(!JSON.stringify(masked).includes('Nguyễn Trãi'));
-  assert.ok(!JSON.stringify(masked).includes('áo thun'));
-  assert.equal(masked.redacted, true);
-  assert.equal(masked.chars, JSON.stringify(payload).length);
-  assert.deepEqual(redactContent('xin chào'), { redacted: true, chars: 8 });
+  assert.equal(typeof masked, 'string', 'the SDK expects a string attribute');
+  assert.ok(!masked.includes('Nguyễn Trãi'));
+  assert.ok(!masked.includes('áo thun'));
+  assert.deepEqual(JSON.parse(masked), { redacted: true, chars: JSON.stringify(payload).length });
+  assert.deepEqual(JSON.parse(redactContent('xin chào')), { redacted: true, chars: 8 });
   const circular: Record<string, unknown> = {};
   circular.self = circular;
-  assert.deepEqual(redactContent(circular), { redacted: true, chars: 0 });
+  assert.deepEqual(JSON.parse(redactContent(circular)), { redacted: true, chars: 0 });
 });
 
 test('LANGFUSE_TRACE_CONTENT defaults to false', () => {
