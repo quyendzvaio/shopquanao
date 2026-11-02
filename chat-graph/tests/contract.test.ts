@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseTurnRequest, RequestError } from '../src/contract.js';
-import { openShopTools } from '../src/shopTools.js';
+import { openShopTools, withoutNulls } from '../src/shopTools.js';
 
 const valid = {
   message: 'tìm áo sơ mi',
@@ -55,4 +55,9 @@ test('openShopTools exposes exactly the 9 read-only tools', async () => {
   } finally {
     await shop.close();
   }
+});
+
+test('null tool arguments count as not given', () => {
+  assert.deepEqual(withoutNulls({ order_id: null }), {});
+  assert.deepEqual(withoutNulls({ query: 'mũ', in_stock: false, limit: 0, color: null }), { query: 'mũ', in_stock: false, limit: 0 });
 });

@@ -11,6 +11,14 @@ export type ShopToolsHandle = {
 };
 
 /**
+ * Tool arguments without the ones set to `null`: models write `order_id: null` for "not given", while every optional
+ * shop tool argument is `.optional()` (absent), so a null would fail the tool's input validation.
+ */
+export function withoutNulls(args: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(args).filter(([, v]) => v !== null));
+}
+
+/**
  * Opens the shop's read-only MCP tools in-process (no child process, no network for listing).
  * `tools` are LangChain tools for the model; `call` runs a tool directly (policies, graph nodes).
  */
@@ -24,7 +32,7 @@ export async function openShopTools(userId: number | null): Promise<ShopToolsHan
   return {
     tools,
     async call(name, args) {
-      const res = await client.callTool({ name, arguments: args });
+      const res = await client.callTool({ name, arguments: withoutNulls(args) });
       const structured = res.structuredContent as { data?: unknown } | undefined;
       if (res.isError || !structured || typeof structured.data !== 'object' || structured.data === null) {
         const text = Array.isArray(res.content) ? JSON.stringify(res.content) : '';

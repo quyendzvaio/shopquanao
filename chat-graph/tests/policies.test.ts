@@ -141,6 +141,19 @@ test('groundingAcceptsPriceSpellings', () => {
   }
 });
 
+test('grounding reads thousands grouped by spaces', () => {
+  const rec: ToolRecord = { name: 'build_outfit', args: {}, result: { budget: 500000, cheapest_total: 710000, products: [] } };
+  for (const a of ['ngân sách 500 000 ₫, set rẻ nhất 710 000 ₫', 'giá 710\u00a0000\u00a0đ', 'giá 710\u202f000 đ', 'tổng 710.000 đ, ngân sách 500,000 đ']) {
+    assert.deepEqual(ungroundedClaims(a, [rec]), [], a);
+  }
+  assert.deepEqual(ungroundedClaims('giá 690 000 ₫', [rec]), ['690 000 ₫']);
+  assert.deepEqual(ungroundedClaims('giá 1 200 000 đ', [priced(1200000)]), []);
+  // Mixed separators are not one amount, and a space before a multiplier unit is "N × amount".
+  assert.deepEqual(ungroundedClaims('mua 3 500.000đ', [rec]), []);
+  assert.deepEqual(ungroundedClaims('mua 2 500k', [rec]), []);
+  assert.deepEqual(ungroundedClaims('mua 2 690k', [rec]), ['2 690k']);
+});
+
 test('grounding ignores unit-less numbers and letters after unit', () => {
   assert.deepEqual(ungroundedClaims('size 42 và 2kg đẹp', [search([1])]), []);
 });
