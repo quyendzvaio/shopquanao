@@ -17,7 +17,7 @@ App uses `${APP_IMAGE:-shop_quan_ao-app:latest}`.
 
 ## Layers
 
-`app` (`src/app/api`, `src/app/web`) -> `agent` -> `harness` -> `service` -> `repository` -> `core`, with `model` below all of them. `app` uses `agent`/`service`/`model`/`core` (never `repository`); `service` uses `repository`/`model`/`core`; `repository` uses `model`/`core`. Web pages: `public/*.php` entry file -> `src/app/web/<Page>.php` handler -> `templates/pages/*.php` view. Env is read only in `src/agent/` and `src/core/` (app settings in `src/core/config/`: `ServiceConfig`, `AppConfig`). `tests/unit/ArchitectureTest.php` enforces all of it; the only allowlist is the permanent SQL exceptions (`MigrationRunner`, the Langfuse outbox files).
+`app` (`src/app/api`, `src/app/web`) -> `agent` -> `harness` (`tools/`, `memory/` only) -> `service` -> `repository` -> `core`, with `model` below all of them. `app` uses `agent`/`service`/`model`/`core` (never `repository`); `service` uses `repository`/`model`/`core`; `repository` uses `model`/`core`. Web pages: `public/*.php` entry file -> `src/app/web/<Page>.php` handler -> `templates/pages/*.php` view. Env is read only in `src/agent/` and `src/core/` (app settings in `src/core/config/`: `ServiceConfig`, `AppConfig`). `tests/unit/ArchitectureTest.php` enforces all of it; the only allowlist is the permanent SQL exceptions (`MigrationRunner`, the Langfuse outbox files).
 
 - Add a page: handler in `src/app/web/` (admin: `src/app/web/admin/`) returning a `PageResult`, a view in `templates/pages/`, a thin entry file in `public/`.
 - Add an endpoint: route in `src/app/api/routes.php`, controller in `src/app/api/controllers/`, logic in a `src/service/` class.
@@ -25,7 +25,7 @@ App uses `${APP_IMAGE:-shop_quan_ao-app:latest}`.
 
 ## Chat pipeline internals (`chat-graph/`, `src/agent/`)
 
-`ChatbotService` (`src/agent/`) is a facade: PHP loads the session, the last 6 messages and the memory (`summary`/`slots`/`profile`), then POSTs `/turn` to `chat-graph` (`CHAT_GRAPH_URL`, header `X-CHAT-GRAPH-TOKEN`, `CHAT_GRAPH_TIMEOUT` seconds) and reads the NDJSON events `delta` / `cards` / `complete`. `AgentFactory`/`HarnessConfig` stay the only PHP readers of chatbot env. `chat-graph` is stateless between turns (no checkpointer); the graph's own env is read only in `chat-graph/src/config.ts` (the imported `mcp-server/src/config.ts` reads `SHOP_INTERNAL_URL`, `MCP_SERVICE_TOKEN`, `MCP_REQUEST_TIMEOUT_MS` itself).
+`ChatbotService` (`src/agent/`) is a facade: PHP loads the session, the last 6 messages and the memory (`summary`/`slots`/`profile`), then POSTs `/turn` to `chat-graph` (`CHAT_GRAPH_URL`, header `X-CHAT-GRAPH-TOKEN`, `CHAT_GRAPH_TIMEOUT` seconds) and reads the NDJSON events `delta` / `cards` / `complete`. `HarnessConfig` stays the only PHP reader of chatbot env (`AgentFactory` is just the `executeTool` bridge). `chat-graph` is stateless between turns (no checkpointer); the graph's own env is read only in `chat-graph/src/config.ts` (the imported `mcp-server/src/config.ts` reads `SHOP_INTERNAL_URL`, `MCP_SERVICE_TOKEN`, `MCP_REQUEST_TIMEOUT_MS` itself).
 
 Graph (`chat-graph/src/graph/`, policies in `chat-graph/src/policies/`):
 
@@ -37,7 +37,7 @@ Graph (`chat-graph/src/graph/`, policies in `chat-graph/src/policies/`):
 
 The proactive free-shipping nudge (threshold `FREE_SHIPPING_THRESHOLD`=500000, max gap `FREESHIP_NUDGE_MAX_GAP`=200000) is decided in `chat-graph` from the cart fingerprint PHP sends; PHP stores the new fingerprint in `chat_session_memory.slots`.
 
-Legacy: `src/harness/`, `config/harness.php` and `config/chatbot_tools.php` (the old deterministic pipeline: `TurnRunner`, `IntentResolver`, `EvidenceExecutionLoop`, middleware stack) remain in the tree until Task 10 of the migration removes them; they are off the chat path. `tests/unit/ArchitectureTest.php` still enforces their component table while they exist.
+Removed: the old deterministic PHP pipeline (`TurnRunner`, `IntentResolver`, `EvidenceExecutionLoop`, the middleware stack, `llm_providers/`, `config/harness.php`, `config/chatbot_tools.php`) was deleted in Task 10 of the migration. `src/harness/` keeps `tools/` (`ToolDefinitionCatalog`, `ToolApplicationService`, reached through `AgentFactory::executeTool`) and `memory/` (`ChatbotConversationStore`, `PdoChatbotConversationStore`, `ChatbotSessionContext`); `ChatbotMemory` moved to `src/service/chat/`. `tests/unit/ArchitectureTest.php` enforces that component table.
 
 ## MCP contract
 

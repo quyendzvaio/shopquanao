@@ -1,11 +1,11 @@
 <?php
 
 /**
- * Canonical tool contracts shared by the legacy in-process gateway and MCP.
+ * Canonical tool contracts shared by the MCP bridge and chat-graph.
  *
- * The chatbot planner intentionally sees only the original read-oriented tool
- * surface. Cart and order mutation tools are exposed by MCP for explicit calls,
- * but remain outside the deterministic chatbot planner guardrails.
+ * chatbotDefinitions() is the allow-list AgentFactory::executeTool enforces: the
+ * chat agent sees only this read-oriented surface. Cart and order mutation tools
+ * are not exposed anywhere.
  */
 final class ToolDefinitionCatalog
 {

@@ -1,8 +1,8 @@
-# Fashion Shop — Chatbot RAG Deterministic
+# Fashion Shop — Chatbot LangGraph
 
-Ứng dụng bán quần áo chạy bằng PHP 8.2, MariaDB và Docker Compose. Chatbot dùng luật deterministic để chọn intent/tool, RAG cho chính sách, MCP stdio cho application tools. Hai use case chính: phối set theo tag phong cách (UC-A) và gợi ý đạt free ship (UC-C). Sản phẩm hiển thị luôn lấy từ private shop catalog.
+Ứng dụng bán quần áo chạy bằng PHP 8.2, MariaDB và Docker Compose. Chatbot là agent LangGraph (`chat-graph/`): LLM chọn trong 9 tool chỉ-đọc, RAG cho chính sách, tool gọi lại PHP qua MCP nội bộ. Hai use case chính: phối set theo tag phong cách (UC-A) và gợi ý đạt free ship (UC-C). Sản phẩm hiển thị luôn lấy từ private shop catalog.
 
-LLM không tự viết SQL và không tự chọn tool. Dữ liệu trả về cho người dùng phải đi qua Product Search, evidence normalization và validation của PHP.
+LLM không tự viết SQL; SQL chỉ nằm trong PHP (`src/repository/`). Policy middleware của `chat-graph` ép luật cứng (từ chối checkout, allow-list tool, ngân sách lượt gọi, card và giá phải khớp kết quả tool).
 
 ## Chức năng
 
@@ -21,34 +21,33 @@ LLM không tự viết SQL và không tự chọn tool. Dữ liệu trả về c
 ```text
 Browser
   -> Nginx
-  -> PHP ChatbotService (facade) -> TurnRunner
-      -> middleware beforeTurn (CheckoutGuardrail)
-      -> deterministic IntentResolver
-      -> ToolPlanner + PlanValidator
-      -> MCP stdio child process (hoặc ToolRegistry in-process)
-          -> PHP internal application services
-              -> Product / Size / Policy / Order / Outfit / Free-shipping tools
-      -> EvidenceNormalizer + ProductConstraintVerifier
-      -> grounded ResponseGenerator -> native LLM token stream (SSE tới browser; AnswerTemplateFallback phát bản nháp grounded nếu LLM lỗi)
-      -> middleware afterTurn: FreeShippingNudge (gợi ý chủ động UC-C), TraceOutbox
+  -> PHP ChatbotService (facade): session, giới hạn, lịch sử, memory
+      -> POST chat-graph /turn (NDJSON)
+          -> policy_in (CheckoutGuardrail, không gọi LLM)
+          -> agent <-> tools (LLM chọn tool; budget, allow-list, grounding)
+              -> mcp-server (in-process) -> POST app /api/internal/mcp
+                  -> Product / Size / Policy / Order / Outfit / Free-shipping tools
+          -> policy_out (CardPolicy, kiểm giá/tồn kho)
+      <- delta / cards / complete; PHP lọc lại card và lưu lượt chat
 ```
 
 | Service | Vai trò |
 | --- | --- |
 | `nginx` | Public gateway và chatbot rate limit |
-| `app` | PHP/Apache, REST API, chatbot và MCP client |
+| `app` | PHP-FPM + nginx, REST API, session/memory chat, endpoint MCP nội bộ, client của `chat-graph` |
+| `chat-graph` | Agent LangGraph (Node 22, private): LLM chọn tool chỉ-đọc, policy middleware |
 | `db` | MariaDB 10.11 |
 | `redis` | Shared cache |
 | `qdrant` | Knowledge vector store |
 | `rag-ml` | Embedding và knowledge rerank |
 | `reranker` | Product rerank sidecar |
 
-MCP dùng private child process, không mở public MCP port. Nginx trả `404` cho `/api/internal/mcp`; app container cũng không publish port trực tiếp.
+MCP là endpoint nội bộ (`chat-graph` -> `app`), không mở public MCP port. Nginx trả `404` cho `/api/internal/mcp`; app container cũng không publish port trực tiếp.
 
 Chat widget gọi `POST /api/chatbot/stream` và đọc phản hồi dạng Server-Sent
 Events (cùng origin, không có service stream riêng). PHP chỉ stream text sau khi
 validator hoàn tất và chỉ gửi private shop cards đã allow-list; không stream raw
-MCP payload. Nếu LLM lỗi, PHP gửi bản nháp grounded thay vì báo lỗi; nếu stream
+MCP payload. Nếu LLM lỗi, `chat-graph` trả câu báo bận cố định (`response_type=busy`); nếu stream
 hỏng trước khi có chữ, widget gửi lại một lần qua `POST /api/chatbot`.
 
 ## Cài đặt local
@@ -60,7 +59,6 @@ cp .env.example .env
 Điền ít nhất:
 
 ```env
-LLM_PROVIDER=openai_compatible
 LLM_API_KEY=replace-me
 LLM_BASE_URL=https://your-openai-compatible-endpoint/v1
 LLM_MODEL=your-model
@@ -108,7 +106,7 @@ Content-Type: application/json
 }
 ```
 
-Response chỉ trả product cards của shop đã qua `ProductConstraintVerifier`.
+Response chỉ trả product cards của shop đã qua policy card/grounding của `chat-graph` và allow-list `ChatStreamProtocol` của PHP.
 
 ## Cấu trúc thư mục
 
@@ -117,16 +115,15 @@ Response chỉ trả product cards của shop đã qua `ProductConstraintVerifie
 | `public/` | Web root duy nhất: trang storefront, `admin/`, `assets/`, REST front controller `public/api/index.php` |
 | `src/app/api/` | `routes.php` + controllers REST (`controllers/`), `support/ChatStreamProtocol` |
 | `src/app/web/` | Handler cho từng trang storefront (`admin/` cho trang quản trị); `public/*.php` chỉ là entry file gọi handler, view ở `templates/pages/` |
-| `src/agent/` | `AgentFactory` (nơi duy nhất đọc env chatbot, ghép harness + LLM) và `ChatbotService` (facade) |
-| `src/harness/` | Agent trừ LLM, theo component: `llm/ turn/ intent/ planning/ loop/ evidence/ tools/ response/ memory/ middleware/`; xem [`src/harness/README.md`](src/harness/README.md) |
+| `src/agent/` | `ChatbotService` (facade), `ChatGraphClient`, `HarnessConfig` (nơi duy nhất đọc env chatbot), `AgentFactory::executeTool` (cầu MCP) |
+| `src/harness/` | Còn hai component: `tools/` (hợp đồng và thực thi tool) và `memory/` (lưu hội thoại); xem [`src/harness/README.md`](src/harness/README.md) |
 | `src/service/`, `src/model/`, `src/repository/` | Nghiệp vụ (catalog, cart, order, size, outfit, freeship, knowledge, user, review, admin), đối tượng dữ liệu, truy cập dữ liệu (nơi duy nhất có SQL); xem README trong từng thư mục |
 | `src/core/` | Bootstrap, `config/` (`ServiceConfig`, `AppConfig`), cache, `database/MigrationRunner`, observability (Langfuse outbox) |
-| `src/llm_providers/` | Provider LLM cụ thể (ngoài harness) |
-| `config/` | `chatbot_tools.php` (manifest tool), `harness.php` (danh sách middleware, thứ tự chạy) |
+| `config/` | `db.php` (kết nối DB) |
 | `tests/` | `unit/` (gồm `ArchitectureTest`), `integration/`, `support/` (fixture SQLite) |
 | `templates/` | `partials/` (header/footer/chat widget) và `pages/` (view từng trang) |
 | `database/` | `schema.sql` và `migrations/` (đặt tên theo ngày) |
-| `mcp-server/` | MCP stdio server (TypeScript) |
+| `mcp-server/` | Định nghĩa tool MCP (TypeScript), được `chat-graph` nạp in-process |
 | `chat-graph/` | Agent LangGraph (TypeScript): LLM chọn tool chỉ-đọc, policy middleware; có image riêng |
 | `scripts/` | Migration gate, eval, ingest; `scripts/dev/` là wrapper chạy PHP/Composer trong Docker |
 
@@ -203,7 +200,7 @@ App dùng image `${APP_IMAGE:-shop_quan_ao-app:latest}`.
 | File | Nội dung |
 | --- | --- |
 | `reports/eval/` (gitignored) | Báo cáo eval thủ công mới nhất |
-| `docs/chatbot-spec.md` | Chatbot deterministic pipeline spec |
+| `docs/chatbot-spec.md` | Spec pipeline deterministic cũ (đã thay bằng `chat-graph`, xem `docs/superpowers/specs/2026-11-01-langgraph-chat-agent-design.md`) |
 | `docs/technical-spec.md` | Tổng quan kiến trúc hệ thống |
 | `docs/langfuse-observability.md` | Langfuse self-hosted setup |
 | `docs/superpowers/specs/2026-10-15-outfit-tags-freeship-design.md` | Thiết kế UC-A / UC-C |

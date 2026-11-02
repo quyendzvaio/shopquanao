@@ -53,10 +53,10 @@ class ChatbotService
         $this->context()->touch($this->pdo);
     }
 
-    /** Log category of a failed turn: the transport category for LLM failures, otherwise runtime_failure. */
+    /** Log category of a failed turn: the chat-graph transport category, otherwise runtime_failure. */
     public static function errorCategory(Throwable $e): string
     {
-        return $e instanceof LLMTransportException ? $e->category : 'runtime_failure';
+        return $e instanceof ChatGraphUnavailable ? $e->category : 'runtime_failure';
     }
 
     public function respond(string $message): array

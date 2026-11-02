@@ -7,7 +7,7 @@
  * Long-term memory is stored per logged-in user only.
  */
 
-class ChatbotMemory implements ChatbotMemoryStore {
+class ChatbotMemory {
     private ChatMemoryRepository $memory;
     private OrderRepository $orders;
     private int $sessionId;
@@ -335,7 +335,7 @@ class ChatbotMemory implements ChatbotMemoryStore {
     private function generateSummary(string $oldSummary, array $slots): string {
         $slotBullets = [];
         foreach ($this->compactArray($slots) as $key => $value) {
-            // Internal bookkeeping (FreeShippingNudge ledger), not a user fact.
+            // Internal bookkeeping (the free-shipping nudge fingerprint ledger), not a user fact.
             if ($key === 'freeship_nudged_fingerprint') continue;
             $slotBullets[$key] = "- $key: " . (is_array($value) ? json_encode($value, JSON_UNESCAPED_UNICODE) : $value);
         }

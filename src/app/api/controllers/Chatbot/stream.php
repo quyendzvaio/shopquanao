@@ -33,7 +33,7 @@ $emit = static function (array $event): void {
 };
 
 try {
-    // open() resolves the session only; the harness is assembled on the first turn, after this progress event.
+    // open() resolves the session only; the chat-graph client is built on the first turn, after this progress event.
     $chatbot = ChatbotService::open($pdo, $sessionToken, getBearerToken());
     $emit(['type' => 'chat.progress', 'stage' => 'pipeline']);
     $result = $chatbot->respondStreaming($message, static function (string $delta) use ($emit): void {

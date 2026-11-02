@@ -142,10 +142,10 @@ final class ChatbotServiceTest extends TestCase
         $this->assertNull($pdo->query('SELECT user_id FROM chat_sessions WHERE id = ' . $service->sessionId())->fetchColumn());
     }
 
-    public function testErrorCategoryIsTheTransportCategoryForLlmFailures(): void
+    public function testErrorCategoryIsTheTransportCategoryForChatGraphFailures(): void
     {
-        $this->assertSame('timeout', ChatbotService::errorCategory(new LLMTransportException('timeout', 'slow')));
-        $this->assertSame('rate_limited', ChatbotService::errorCategory(new LLMTransportException('rate_limited', 'busy', 3)));
+        $this->assertSame('timeout', ChatbotService::errorCategory(new ChatGraphUnavailable('timeout', 'slow')));
+        $this->assertSame('rate_limited', ChatbotService::errorCategory(new ChatGraphUnavailable('rate_limited', 'busy')));
     }
 
     public function testErrorCategoryIsRuntimeFailureForAnyOtherThrowable(): void

@@ -162,7 +162,6 @@ jobs:
       - name: Run Integration Tests
         env:
           APP_ENV: test
-          CHATBOT_TOOL_TRANSPORT: internal
           DB_HOST: 127.0.0.1
           DB_NAME: shop_test
           DB_USER: root
@@ -386,8 +385,7 @@ jobs:
             echo "✅ Repo: $(git rev-parse --short HEAD)"
 
             # Write .env
-            echo "LLM_PROVIDER=${{ secrets.LLM_PROVIDER || 'deepseek' }}" > .env
-            echo "LLM_API_KEY=${{ secrets.LLM_API_KEY }}" >> .env
+            echo "LLM_API_KEY=${{ secrets.LLM_API_KEY }}" > .env
             echo "LLM_BASE_URL=${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}" >> .env
             echo "LLM_MODEL=${{ secrets.LLM_MODEL || 'deepseek-chat' }}" >> .env
             echo "LLM_TIMEOUT=${{ secrets.LLM_TIMEOUT || '25' }}" >> .env
@@ -397,11 +395,8 @@ jobs:
             echo "PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}" >> .env
             echo "RERANKER_URL=http://reranker:8000" >> .env
             echo "RAG_ML_WARMUP_ON_START=${{ secrets.RAG_ML_WARMUP_ON_START || 'true' }}" >> .env
-            echo "CHATBOT_TOOL_TRANSPORT=mcp" >> .env
             echo "MCP_SERVICE_TOKEN=${{ secrets.MCP_SERVICE_TOKEN }}" >> .env
             echo "CHAT_GRAPH_TOKEN=${{ secrets.CHAT_GRAPH_TOKEN }}" >> .env
-            echo "MCP_REQUEST_TIMEOUT_MS=80000" >> .env
-            echo "MCP_REQUEST_TIMEOUT=85" >> .env
             echo "REDIS_TIMEOUT=0.15" >> .env
             echo "CLIENT_CACHE_TTL=60" >> .env
             echo "CLIENT_CACHE_STALE_TTL=30" >> .env

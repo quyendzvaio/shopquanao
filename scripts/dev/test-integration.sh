@@ -3,6 +3,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 set -a; . ./.env; set +a
-DEV_DOCKER_NETWORK=shop_quan_ao_default APP_ENV=test CHATBOT_TOOL_TRANSPORT=internal \
+DEV_DOCKER_NETWORK=shop_quan_ao_default APP_ENV=test \
   DB_HOST=db DB_NAME=shop_test DB_USER=root DB_PASS="${MARIADB_ROOT_PASSWORD:-root_pass}" \
   scripts/dev/php vendor/bin/phpunit --testsuite=Integration "$@"

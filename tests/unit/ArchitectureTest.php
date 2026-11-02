@@ -5,7 +5,7 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 
 /**
- * Enforces spec §3.1 and the §4.1 component table on src/harness.
+ * Enforces spec §3.1 (layer rules, SQL and env boundaries) and the component table of src/harness (tools, memory).
  * Class names are mapped to components through the Composer classmap;
  * comments and string literals are stripped before scanning.
  */
@@ -13,54 +13,28 @@ final class ArchitectureTest extends TestCase
 {
     private const MAX_FUNCTION_LINES = 80;
 
-    /** Spec §3.1 + D3: harness may use service, model and core; repository only via ALLOWED/LIMITED (memory: any; middleware: ChatMemoryRepository). */
+    /** Spec §3.1 + D3: harness may use service, model and core; repository only where ALLOWED says so (memory). */
     private const DOMAIN = ['service', 'model', 'core'];
 
-    /** Spec §4.1 "Được dùng" column, per harness component (domain layers are added for all). */
+    /** Components left in src/harness after the chat-graph migration, with the components each may use (domain layers are added for all). */
     private const ALLOWED = [
-        'llm' => ['middleware'],
-        'turn' => ['llm', 'intent', 'planning', 'loop', 'evidence', 'tools', 'response', 'memory', 'middleware'],
-        'intent' => ['llm', 'planning'],
-        'planning' => [],
-        'loop' => ['planning', 'tools', 'evidence'],
-        'evidence' => [],
         'tools' => [],
-        'response' => ['llm'],
         'memory' => ['repository'],
-        'middleware' => ['turn', 'llm', 'intent', 'response', 'evidence', 'repository'],
     ];
 
-    /** Edges the table limits to named classes: [from][to] => classes. */
-    private const LIMITED = [
-        'middleware' => [
-            'turn' => ['TurnContext', 'TurnResult'],
-            'intent' => ['CheckoutDetector'],
-            'repository' => ['ChatMemoryRepository'],
-        ],
-        'llm' => [
-            'middleware' => ['Middleware', 'MiddlewareStack'],
-        ],
-    ];
-
-    private const OUTSIDE = ['app', 'agent', 'llm_providers'];
+    private const OUTSIDE = ['app', 'agent'];
 
     /**
      * Spec §3.1 layer table: layer => layers it may use. Every harness component is the layer `harness`
-     * (its inner rules live in ALLOWED/LIMITED); files directly under src/ are the composition root, layer `app`.
+     * (its inner rules live in ALLOWED); files directly under src/ are the composition root, layer `app`.
      */
     private const LAYERS = [
         'app' => ['agent', 'service', 'model', 'core'],
-        'agent' => ['harness', 'llm_providers', 'service', 'repository', 'model', 'core'],
+        'agent' => ['harness', 'service', 'repository', 'model', 'core'],
         'service' => ['repository', 'model', 'core'],
         'repository' => ['model', 'core'],
         'model' => [],
         'core' => [],
-        'llm_providers' => ['harness', 'core'],
-    ];
-
-    /** Layer edges limited to one harness component: [from][to] => component. */
-    private const LAYER_LIMITED = [
-        'llm_providers' => ['harness' => 'llm'],
     ];
 
     /** Layers whose files must never read request/session superglobals (getenv/$_ENV are allowed only in agent and core). */
@@ -85,17 +59,18 @@ final class ArchitectureTest extends TestCase
     {
         $components = $this->components();
 
-        $this->assertSame('turn', $components['TurnRunner'] ?? null);
-        $this->assertSame('llm', $components['MiddlewareModel'] ?? null);
+        $this->assertSame('tools', $components['ToolDefinitionCatalog'] ?? null);
+        $this->assertSame('memory', $components['PdoChatbotConversationStore'] ?? null);
         $this->assertSame('agent', $components['AgentFactory'] ?? null);
         $this->assertContains($components['AgentFactory'], self::OUTSIDE);
-        $this->assertSame('middleware', $this->referencedClasses(ROOT_DIR . '/src/harness/turn/TurnRunner.php')['MiddlewareStack'] ?? null);
+        $this->assertSame('tools', $this->referencedClasses(ROOT_DIR . '/src/agent/AgentFactory.php')['ToolApplicationService'] ?? null);
 
         // One known class per layer, so the layer, SQL and env tests cannot pass vacuously.
         $this->assertSame('service', $this->layerOfComponent($components['CartService'] ?? ''));
         $this->assertSame('repository', $this->layerOfComponent($components['OutfitCatalogRepository'] ?? ''));
         $this->assertSame('model', $this->layerOfComponent($components['StyleTag'] ?? ''));
-        $this->assertSame('harness', $this->layerOfComponent($components['TurnRunner'] ?? ''));
+        $this->assertSame('harness', $this->layerOfComponent($components['ToolDefinitionCatalog'] ?? ''));
+        $this->assertSame('service', $this->layerOfComponent($components['ChatbotMemory'] ?? ''));
     }
 
     public function testLayerDependenciesFollowTable(): void
@@ -204,7 +179,7 @@ final class ArchitectureTest extends TestCase
             }
         }
 
-        $this->assertSame([], $violations, "harness must not use app/agent/llm_providers:\n" . implode("\n", $violations));
+        $this->assertSame([], $violations, "harness must not use app/agent:\n" . implode("\n", $violations));
     }
 
     public function testHarnessReadsNoEnvironment(): void
@@ -231,25 +206,22 @@ final class ArchitectureTest extends TestCase
                 if ($to === $from || in_array($to, self::DOMAIN, true)) {
                     continue;
                 }
-                if (!$this->componentEdgeAllowed($from, $class, $to)) {
+                if (!$this->componentEdgeAllowed($from, $to)) {
                     $violations[] = $this->relative($file) . " ({$from}) -> {$class} ({$to})";
                 }
             }
         }
 
-        $this->assertSame([], $violations, "dependency not allowed by spec §4.1:\n" . implode("\n", $violations));
+        $this->assertSame([], $violations, "dependency not allowed by the src/harness component table:\n" . implode("\n", $violations));
     }
 
-    /** Decision function behind the table, fed synthetic edges so D3 cannot be dead config. */
-    public function testComponentEdgeDecisionHonoursAllowedAndLimited(): void
+    /** Decision function behind the table, fed synthetic edges so it cannot be dead config. */
+    public function testComponentEdgeDecisionHonoursAllowed(): void
     {
-        $this->assertTrue($this->componentEdgeAllowed('middleware', 'ChatMemoryRepository', 'repository'));
-        $this->assertFalse($this->componentEdgeAllowed('middleware', 'OutfitCatalogRepository', 'repository'));
-        $this->assertFalse($this->componentEdgeAllowed('middleware', 'SomeOtherRepository', 'repository'));
-        $this->assertTrue($this->componentEdgeAllowed('memory', 'AnyRepository', 'repository'));
-        $this->assertFalse($this->componentEdgeAllowed('turn', 'ChatMemoryRepository', 'repository'));
-        $this->assertTrue($this->componentEdgeAllowed('middleware', 'TurnContext', 'turn'));
-        $this->assertFalse($this->componentEdgeAllowed('middleware', 'TurnRunner', 'turn'));
+        $this->assertTrue($this->componentEdgeAllowed('memory', 'repository'));
+        $this->assertFalse($this->componentEdgeAllowed('tools', 'repository'));
+        $this->assertFalse($this->componentEdgeAllowed('memory', 'tools'));
+        $this->assertFalse($this->componentEdgeAllowed('tools', 'memory'));
     }
 
     public function testNoHarnessFunctionOver80Lines(): void
@@ -318,9 +290,7 @@ final class ArchitectureTest extends TestCase
             if ($to === $from) {
                 continue;
             }
-            $allowed = in_array($to, self::LAYERS[$from] ?? [], true);
-            $only = self::LAYER_LIMITED[$from][$to] ?? null;
-            if (!$allowed || ($only !== null && $component !== $only)) {
+            if (!in_array($to, self::LAYERS[$from] ?? [], true)) {
                 $violations[$class] = $to;
             }
         }
@@ -406,15 +376,10 @@ final class ArchitectureTest extends TestCase
         return $patterns;
     }
 
-    /** Spec §4.1: `to` must be in ALLOWED[from]; when LIMITED names classes for that edge, only those classes pass. */
-    private function componentEdgeAllowed(string $from, string $class, string $to): bool
+    /** `to` must be in ALLOWED[from]. */
+    private function componentEdgeAllowed(string $from, string $to): bool
     {
-        if (!in_array($to, self::ALLOWED[$from] ?? [], true)) {
-            return false;
-        }
-        $limit = self::LIMITED[$from][$to] ?? null;
-
-        return $limit === null || in_array($class, $limit, true);
+        return in_array($to, self::ALLOWED[$from] ?? [], true);
     }
 
     /** @return list<string> */
