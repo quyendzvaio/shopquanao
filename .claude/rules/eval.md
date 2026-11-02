@@ -31,7 +31,7 @@ One JSON object per line: `id`, `group`, `user` (true = register a fresh logged-
 
 | Key | Passes when |
 | --- | --- |
-| `response_type` | the response type equals it (string) or is one of it (list) |
+| `response_type` | the response type equals it (string) or is one of it (list); without it, a `busy` answer fails the turn |
 | `tools_include` | every listed tool is in `tools_used` |
 | `no_tools` | `true`: `tools_used` is empty |
 | `products_include` | every id is among the returned cards |

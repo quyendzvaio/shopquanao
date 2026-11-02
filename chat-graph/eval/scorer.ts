@@ -66,6 +66,9 @@ export function scoreTurn(expect: Expect, obs: TurnObservation): string[] {
     if (!allowed.includes(obs.response_type)) {
       failures.push(`response_type ${obs.response_type} not in [${allowed.join(', ')}]`);
     }
+  } else if (obs.response_type === 'busy') {
+    // The busy text answers nothing: it fails every case that does not ask for it by name.
+    failures.push('response_type busy (the case does not expect busy)');
   }
   if (expect.tools_include !== undefined) {
     const lacking = missing(expect.tools_include, obs.tools);

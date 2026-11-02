@@ -154,6 +154,15 @@ test('grounding reads thousands grouped by spaces', () => {
   assert.deepEqual(ungroundedClaims('mua 2 690k', [rec]), ['2 690k']);
 });
 
+test('grounding accepts amounts written inside tool text and order ids', () => {
+  const policy: ToolRecord = { name: 'retrieve_knowledge', args: {}, result: { items: [{ content: 'Miễn phí ship cho đơn từ 500,000đ. Dưới 500,000đ: 30,000đ nội thành, 50,000đ ngoại tỉnh.' }] } };
+  assert.deepEqual(ungroundedClaims('Phí ship 30.000đ nội thành, 50k ngoại tỉnh; đơn từ 500.000 đ được miễn phí.', [policy]), []);
+  assert.deepEqual(ungroundedClaims('Phí ship 40.000đ', [policy]), ['40.000đ']);
+  const orders: ToolRecord = { name: 'get_order_status', args: {}, result: { orders: [{ id: 15, status: 'Chờ xử lý', total: 415000 }] } };
+  assert.deepEqual(ungroundedClaims('Đơn mã 15 đang chờ xử lý, tổng 415.000đ', [orders]), []);
+  assert.deepEqual(ungroundedClaims('Đơn mã 16 đang giao', [orders]), ['mã 16']);
+});
+
 test('grounding ignores unit-less numbers and letters after unit', () => {
   assert.deepEqual(ungroundedClaims('size 42 và 2kg đẹp', [search([1])]), []);
 });

@@ -26,9 +26,20 @@ function moneyValue(amount: string, separator: string | undefined, unit: string)
   return base;
 }
 
+function amountOf(m: RegExpMatchArray): number {
+  const g = m.groups ?? {};
+  return moneyValue(g.amount ?? '', g.sep, (g.unit ?? '').toLowerCase());
+}
+
+function moneyAmounts(text: string): number[] {
+  return [...text.matchAll(MONEY)].map((m) => Math.round(amountOf(m)));
+}
+
 function collectNumbers(value: unknown, into: Set<number>): void {
   if (typeof value === 'number' && Number.isFinite(value)) into.add(Math.round(value));
   else if (typeof value === 'string' && /^-?\d+(?:\.\d+)?$/.test(value.trim())) into.add(Math.round(Number(value)));
+  // Amounts written inside tool text (a policy passage: "phí ship 30,000đ") back the answer too.
+  else if (typeof value === 'string') for (const amount of moneyAmounts(value)) into.add(amount);
   else if (Array.isArray(value)) for (const v of value) collectNumbers(v, into);
   else if (typeof value === 'object' && value !== null) for (const v of Object.values(value)) collectNumbers(v, into);
 }
@@ -45,6 +56,14 @@ function productIds(records: ToolRecord[]): Set<number> {
     if (Array.isArray(hidden)) {
       for (const p of hidden) {
         const id = typeof p === 'object' && p !== null ? Number((p as Record<string, unknown>).id) : NaN;
+        if (Number.isFinite(id)) ids.add(id);
+      }
+    }
+    // Order ids ("đơn mã 15") from get_order_status are as real as product ids.
+    const orders = record.result.orders;
+    if (Array.isArray(orders)) {
+      for (const o of orders) {
+        const id = typeof o === 'object' && o !== null ? Number((o as Record<string, unknown>).id) : NaN;
         if (Number.isFinite(id)) ids.add(id);
       }
     }
@@ -66,9 +85,7 @@ export function ungroundedClaims(answer: string, records: ToolRecord[]): string[
   const numbers = new Set<number>();
   for (const record of records) collectNumbers(record.result, numbers);
   for (const m of answer.matchAll(MONEY)) {
-    const g = m.groups ?? {};
-    const value = moneyValue(g.amount ?? '', g.sep, (g.unit ?? '').toLowerCase());
-    if (!numbers.has(Math.round(value))) claims.push(m[0]);
+    if (!numbers.has(Math.round(amountOf(m)))) claims.push(m[0]);
   }
   return claims;
 }

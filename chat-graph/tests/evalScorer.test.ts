@@ -16,6 +16,12 @@ test('an empty expectation always passes', () => {
   assert.deepEqual(scoreTurn({}, base), []);
 });
 
+test('a busy answer fails unless the case expects busy', () => {
+  const busy = { ...base, response_type: 'busy', product_ids: [], tools: ['retrieve_knowledge'], offered_ids: [] };
+  assert.equal(scoreTurn({ tools_include: ['retrieve_knowledge'], max_products: 0 }, busy).length, 1);
+  assert.deepEqual(scoreTurn({ response_type: 'busy' }, busy), []);
+});
+
 test('response_type: string and list forms', () => {
   assert.deepEqual(scoreTurn({ response_type: 'clarification' }, base), []);
   assert.deepEqual(scoreTurn({ response_type: ['refusal', 'clarification'] }, base), []);
