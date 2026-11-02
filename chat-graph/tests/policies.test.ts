@@ -119,6 +119,14 @@ test('groundingFlagsInventedIdAndPrice', () => {
   assert.equal(ungroundedClaims('mã 999 giá 123.000đ', [search([1, 2])]).length, 2);
 });
 
+test('a sold-out name match a search hid is grounded but never a card', () => {
+  const hidden = search([62], { search: 'mũ', in_stock: true }, {
+    out_of_stock_products: [{ id: 91, name: 'Mũ Lưỡi Trai Thêu Logo', price: 190000 }],
+  });
+  assert.deepEqual(ungroundedClaims('Mũ Lưỡi Trai Thêu Logo (mã 91) giá 190.000đ đang hết hàng', [hidden]), []);
+  assert.deepEqual(selectCards('mã 91 hết, còn mã 62', [hidden]).map((c) => c.id), [62]);
+});
+
 test('groundingAcceptsPriceSpellings', () => {
   const rec: ToolRecord = { name: 'search_products', args: {}, result: { products: [product(1, 490000)] } };
   for (const a of ['mã 1 giá 490.000đ', 'mã 1 giá 490k', 'mã 1 giá 490.000 đ', 'mã 1 giá 490,000 VND', 'mã 1 giá 490 nghìn']) {

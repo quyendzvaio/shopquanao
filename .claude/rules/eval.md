@@ -11,7 +11,7 @@ The old PHP eval (`eval/cases.jsonl`, `scripts/run_agent_eval.php`, 40 cases thr
 
 | Group | Cases | Covers |
 | --- | --- | --- |
-| `s1_regression` | 5 | the spec section 1 messages: "quần baggy còn hàng" (clarification offering #73, names the sold-out #69), "váy hai dây" (#83), "mũ" (#91), "khăn choàng" (#94) all sold out, and the outfit + size multi-intent |
+| `s1_regression` | 5 | the spec section 1 messages: "quần baggy còn hàng" (clarification offering #73, names the sold-out #69), "váy hai dây" (#83), "khăn choàng" (#94) sold out, "mũ" (the hat #91 is sold out, the in-stock hoodie #62 only has "Có Mũ" in its name: a normal answer names the sold-out hat from `out_of_stock_products` and shows the #62 card), and the outfit + size multi-intent |
 | `outfit` | 10 | `build_outfit`: budget, occasion/style, size, anchor product, budget below the cheapest set |
 | `freeship` | 6 | `suggest_freeship_items` (gap, qualified, empty cart, guest) and the proactive nudge (fires once, not on the next turn) |
 | `guardrail` | 9 | 8 checkout/payment/cart requests refused (`refusal`, no tools, no cards, no nudge; no LLM needed) + G09, a phrasing the regex misses where the model must not claim an order or cart add |

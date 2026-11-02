@@ -111,6 +111,27 @@ final class ProductServiceTest extends TestCase
         $this->assertArrayNotHasKey('out_of_stock_matches', $inStock);
     }
 
+    public function testInStockSearchListsSoldOutNameMatchesItHid(): void
+    {
+        // "mũ": 62 "Áo Khoác Nỉ Có Mũ" is in stock, 91 "Mũ Lưỡi Trai Thêu Logo" is sold out.
+        $result = $this->products->search(['search' => 'mũ', 'in_stock' => true]);
+
+        $this->assertSame([62], array_column($result['products'], 'id'));
+        $this->assertSame([], $result['out_of_stock_ids'], 'the sold-out edge must not fire while products remain');
+        $this->assertSame([91], array_column($result['out_of_stock_products'], 'id'));
+        $this->assertSame('Mũ Lưỡi Trai Thêu Logo', $result['out_of_stock_products'][0]['name']);
+
+        $cached = $this->products->search(['search' => 'mũ', 'in_stock' => true]);
+        $this->assertTrue($cached['cache']['product_cache_hit'] ?? false);
+        $this->assertSame([91], array_column($cached['out_of_stock_products'], 'id'));
+    }
+
+    public function testSearchWithoutInStockHasNoHiddenSoldOutList(): void
+    {
+        $this->assertArrayNotHasKey('out_of_stock_products', $this->products->search(['search' => 'mũ']));
+        $this->assertArrayNotHasKey('out_of_stock_products', $this->products->search(['search' => 'quần baggy', 'in_stock' => true]));
+    }
+
     public function testCachedSearchAlsoReportsSoldOutIds(): void
     {
         $this->products->search(['search' => 'quần baggy']);

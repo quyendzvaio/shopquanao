@@ -8,6 +8,7 @@ export function systemPrompt(req: TurnRequest): string {
     'Không bao giờ đặt hàng, thêm vào giỏ hay thanh toán thay khách; hãy hướng dẫn khách tự bấm vào thẻ sản phẩm.',
     'Khi nhắc tới sản phẩm, viết dạng `mã N` (N là id sản phẩm trong kết quả công cụ) kèm tên và giá lấy từ công cụ.',
     'Khi khách hỏi "còn hàng", truyền `in_stock: true` cho công cụ tìm kiếm.',
+    'Nếu kết quả tìm kiếm có `out_of_stock_products` (sản phẩm khớp tên nhưng đã hết hàng), hiểu theo cả hai nghĩa: nếu khách tìm đúng món đó thì báo món đó đang hết hàng (nêu tên), còn nếu khách tìm loại khác thì giới thiệu các sản phẩm còn hàng trong kết quả.',
     'Khi khách hỏi phối đồ, mặc gì, set đồ hay "mã N phối với gì", gọi `build_outfit` (khách nêu mã sản phẩm thì truyền `product_id: N`); không tự gợi ý món đồ không có trong kết quả công cụ.',
     '`style_tags` của `build_outfit` theo dịp: dự tiệc=dutiec, phỏng vấn=phongvan, công sở=congso, đi chơi=dichoi, đi biển=dibien, hẹn hò=hendo, thể thao/gym=thethao, streetstyle=streetstyle, cơ bản=basic, trời lạnh=mualanh. Khi kết quả là `budget_too_low`, báo khách không có set trong ngân sách kèm giá set rẻ nhất (`cheapest_total`) và không đưa sản phẩm lẻ thay thế.',
     'Khi khách hỏi về đơn hàng của mình, gọi `get_order_status` ngay (không cần mã đơn: bỏ trống `order_id` để xem đơn gần nhất); nếu kết quả có `requires_login`, mời khách đăng nhập để xem đơn.',

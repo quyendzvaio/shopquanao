@@ -32,6 +32,14 @@ function productIds(records: ToolRecord[]): Set<number> {
       const id = Number(f.product.id);
       if (Number.isFinite(id)) ids.add(id);
     }
+    // A "còn hàng" search lists the sold-out name matches it hid: the answer may name them, they never get a card.
+    const hidden = record.result.out_of_stock_products;
+    if (Array.isArray(hidden)) {
+      for (const p of hidden) {
+        const id = typeof p === 'object' && p !== null ? Number((p as Record<string, unknown>).id) : NaN;
+        if (Number.isFinite(id)) ids.add(id);
+      }
+    }
     const source = record.result.source;
     if (typeof source === 'object' && source !== null && Number.isFinite(Number((source as Record<string, unknown>).id))) {
       ids.add(Number((source as Record<string, unknown>).id));

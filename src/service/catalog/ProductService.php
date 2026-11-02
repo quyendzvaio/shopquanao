@@ -418,7 +418,32 @@ final class ProductService
         $ids = $this->soldOutIds($args, $result);
         $result['out_of_stock_ids'] = $ids;
         if ($ids !== []) $result['out_of_stock_matches'] = count($ids);
+        $hidden = $this->hiddenSoldOutProducts($args, $result);
+        if ($hidden !== []) $result['out_of_stock_products'] = $hidden;
         return $result;
+    }
+
+    /**
+     * A "còn hàng" search that still found products: the name matches it dropped for being sold out (max 3, as
+     * {id, name, price}), so the agent can tell a sold-out "Mũ Lưỡi Trai" apart from an in-stock "Áo Khoác Có Mũ".
+     * Never in `products`, so they never become cards, and never in out_of_stock_ids, so the sold-out edge is unchanged.
+     *
+     * @return list<array{id:int,name:string,price:float}>
+     */
+    private function hiddenSoldOutProducts(array $args, array $result): array {
+        $products = $result['products'] ?? [];
+        if (($args['in_stock'] ?? null) !== true || $products === []) return [];
+        $shown = array_map(fn($p) => (int)$p['id'], $products);
+        unset($args['in_stock']);
+        $matches = $this->executeSearchProductsDirect($args);
+        if (isset($matches['error'])) return [];
+        $hidden = [];
+        foreach ($matches['products'] ?? [] as $p) {
+            if (in_array((int)$p['id'], $shown, true) || $this->isInStock($p)) continue;
+            $hidden[] = ['id' => (int)$p['id'], 'name' => (string)($p['name'] ?? ''), 'price' => (float)$p['price']];
+            if (count($hidden) === 3) break;
+        }
+        return $hidden;
     }
 
     /**

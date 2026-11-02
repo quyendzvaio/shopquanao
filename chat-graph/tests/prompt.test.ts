@@ -37,3 +37,7 @@ test('order questions call get_order_status without asking for an order id', () 
 test('every part of a multi-part question gets its own tool call', () => {
   assert.match(systemPrompt(req), /nhiều ý[^\n]*từng ý/);
 });
+
+test('a sold-out name match a search hid is offered as the other reading of the question', () => {
+  assert.match(systemPrompt(req), /`out_of_stock_products`[^\n]*hết hàng/);
+});
