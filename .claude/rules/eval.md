@@ -7,7 +7,7 @@ The old PHP eval (`eval/cases.jsonl`, `scripts/run_agent_eval.php`, 40 cases thr
 | CI | `npm --prefix chat-graph test` (node tests under `chat-graph/tests`, incl. the eval scorer and case-file checks) | scripted model, no network | every push; part of `scripts/dev/gate.sh` and the CI Code Quality job |
 | Manual | `chat-graph/eval` (`npm --prefix chat-graph run eval`) | the real LLM from `.env` | before a release / after prompt or policy changes; target >= 90% of cases; never in CI |
 
-## Cases (`chat-graph/eval/cases.jsonl`, 51)
+## Cases (`chat-graph/eval/cases.jsonl`, 57)
 
 | Group | Cases | Covers |
 | --- | --- | --- |
@@ -22,12 +22,13 @@ The old PHP eval (`eval/cases.jsonl`, `scripts/run_agent_eval.php`, 40 cases thr
 | `knowledge` | 2 | standalone `retrieve_knowledge` (returns policy, shipping fee), no cards |
 | `order` | 2 | `get_order_status` (fresh user has no orders; guest is asked to log in) |
 | `memory` | 2 | two-turn sessions: size then outfit, search then a thanks turn with no tools |
+| `ticket` | 6 | support tickets: T01 draft then "đồng ý" creates the ticket (PHP, no tools), T02 guest asked to log in, T03 draft then "thôi" declines, T04 status question after creating (`get_support_tickets`, "Mới"), T05 the same request again is a duplicate (no new draft), T06 "áo bị rách" with no order id: the bot looks the orders up and asks which one |
 
 Sold-out expectations rely on products 69, 83, 91 and 94 having stock 0 (true in both `shop_db` and `shop_test`); #73 must be in stock. Re-check these if the catalog is re-seeded.
 
 ## Case schema
 
-One JSON object per line: `id`, `group`, `user` (true = register a fresh logged-in user and chat with its Bearer token), optional `cart` (`[{product_id, quantity, size}]`, needs `user`), and `turns` (`[{message, expect}]`; the session token is carried between turns). `expect` keys, all optional:
+One JSON object per line: `id`, `group`, `user` (true = register a fresh logged-in user and chat with its Bearer token), optional `cart` (`[{product_id, quantity, size}]`, needs `user`), optional `orders` (`[{total, status}]`, needs `user`: `fixtures.php` creates these order rows for the fresh user through `OrderRepository`/`OrderService`, with no items and no stock change, and returns their ids; a turn's `message` and the string expectations `message_contains`, `message_contains_any`, `message_not_contains` may use `{order1}`, which `run.ts` replaces with the first order id before sending and scoring), and `turns` (`[{message, expect}]`; the session token is carried between turns). `expect` keys, all optional:
 
 | Key | Passes when |
 | --- | --- |
@@ -41,6 +42,10 @@ One JSON object per line: `id`, `group`, `user` (true = register a fresh logged-
 | `message_contains_any` | `string[][]`: each inner list is a set of alternatives, at least one must appear, every list must be satisfied (wording-robust, e.g. sold-out phrases) |
 | `message_mentions_price` | the answer mentions this VND amount in any spelling (`85.000đ`, `85,000 đ`, `85k`, `85 nghìn`) |
 | `nudge` | `freeship_nudge` equals it |
+| `ticket_pending` | the response's `ticket_pending` equals it (a draft waits for confirmation) |
+| `ticket_created` | `true`: the response's `ticket_id` is not null (PHP created the ticket this turn); `false`: it is null |
+
+Eval users, their orders and their support tickets stay in the database after a run (`cleanup` only empties carts; the services have no delete path), all tied to `eval_user_*` accounts.
 
 `parseCases` (`chat-graph/eval/cases.ts`) rejects unknown keys and duplicate ids; the scorer is `chat-graph/eval/scorer.ts`.
 
