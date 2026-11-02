@@ -19,8 +19,8 @@ test('initialize and tools/list expose the complete contract', async (t) => {
   const response = await client.listTools();
   const names = response.tools.map(tool => tool.name).sort();
   assert.deepEqual(names, [
-    'build_outfit', 'find_similar_in_stock', 'get_categories', 'get_order_status', 'get_product_detail',
-    'retrieve_knowledge', 'search_products', 'suggest_freeship_items', 'suggest_size',
+    'build_outfit', 'draft_support_ticket', 'find_similar_in_stock', 'get_categories', 'get_order_status', 'get_product_detail',
+    'get_support_tickets', 'retrieve_knowledge', 'search_products', 'suggest_freeship_items', 'suggest_size',
   ]);
   assert.ok(response.tools.every(tool => tool.annotations?.readOnlyHint === true));
   const searchSchema = response.tools.find(tool => tool.name === 'search_products')?.inputSchema as {
@@ -56,4 +56,16 @@ test('cart and order tools are not exposed', async (t) => {
     assert.equal(response.isError, true, name);
     assert.match(JSON.stringify(response.content), /not found/i, name);
   }
+});
+
+test('draft_support_ticket validates its input and get_support_tickets takes an optional ticket_id', async (t) => {
+  const { client, server } = await connect(10);
+  t.after(async () => { await client.close(); await server.close(); });
+  for (const args of [{ type: 'bay', summary: 'x' }, { type: 'khac', summary: '' }, { type: 'khac', summary: 'a'.repeat(501) }, { type: 'doi_tra', order_id: -1, summary: 'x' }]) {
+    const response = await client.callTool({ name: 'draft_support_ticket', arguments: args });
+    assert.equal(response.isError, true, JSON.stringify(args));
+    assert.match(JSON.stringify(response.content), /Input validation error/);
+  }
+  const bad = await client.callTool({ name: 'get_support_tickets', arguments: { ticket_id: 0 } });
+  assert.equal(bad.isError, true);
 });

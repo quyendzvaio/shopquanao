@@ -91,4 +91,51 @@ final class ExecuteToolBridgeTest extends TestCase
         $this->assertNotContains('create_order', $names);
         $this->assertContains('search_products', $names);
     }
+
+    public function testDraftSupportTicketReturnsADraftAndWritesNothing(): void
+    {
+        $pdo = SqliteShop::pdo();
+        SqliteShop::supportTables($pdo);
+        $pdo->exec("INSERT INTO orders (id, user_id, total_price, status) VALUES (12, 1, 100000, 'Chờ xử lý')");
+
+        $result = AgentFactory::executeTool($pdo, 1, 'draft_support_ticket', ['type' => 'doi_tra', 'order_id' => 12, 'summary' => 'Đổi size M']);
+
+        $this->assertSame('draft', $result['status']);
+        $this->assertSame(0, (int) $pdo->query('SELECT COUNT(*) FROM support_tickets')->fetchColumn());
+    }
+
+    public function testDraftSupportTicketAsGuestRequiresLogin(): void
+    {
+        $pdo = SqliteShop::pdo();
+        SqliteShop::supportTables($pdo);
+
+        $result = AgentFactory::executeTool($pdo, null, 'draft_support_ticket', ['type' => 'khac', 'summary' => 'x']);
+
+        $this->assertSame('requires_login', $result['status']);
+    }
+
+    public function testGetSupportTicketsListsTheUsersTickets(): void
+    {
+        $pdo = SqliteShop::pdo();
+        SqliteShop::supportTables($pdo);
+        $pdo->exec("INSERT INTO support_tickets (user_id, order_id, type, summary, status, created_at, updated_at)
+            VALUES (1, NULL, 'khac', 'hỏi thêm', 'moi', '2026-11-01 10:00:00', '2026-11-01 10:00:00')");
+
+        $result = AgentFactory::executeTool($pdo, 1, 'get_support_tickets', []);
+
+        $this->assertCount(1, $result['tickets']);
+        $this->assertTrue(AgentFactory::executeTool($pdo, null, 'get_support_tickets', [])['requires_login']);
+    }
+
+    public function testSupportToolsAreCatalogued(): void
+    {
+        $names = array_map(
+            static fn (array $definition): string => (string) $definition['function']['name'],
+            ToolDefinitionCatalog::chatbotDefinitions()
+        );
+
+        $this->assertContains('draft_support_ticket', $names);
+        $this->assertContains('get_support_tickets', $names);
+        $this->assertCount(11, $names);
+    }
 }

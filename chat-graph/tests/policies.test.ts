@@ -27,8 +27,11 @@ test('checkout trailing word boundary is Unicode aware', () => {
   assert.equal(matchesCheckout('thêm áo vào giỏ.'), true);
 });
 
-test('allowListHasNineReadOnlyTools', () => {
-  assert.equal(ALLOWED_TOOLS.length, 9);
+test('allowListHasElevenNonWritingTools', () => {
+  assert.equal(ALLOWED_TOOLS.length, 11);
+  assert.equal(isAllowedTool('draft_support_ticket'), true);
+  assert.equal(isAllowedTool('get_support_tickets'), true);
+  assert.equal(isAllowedTool('create_support_ticket'), false);
   assert.equal(isAllowedTool('add_to_cart'), false);
   assert.equal(isAllowedTool('search_products'), true);
 });

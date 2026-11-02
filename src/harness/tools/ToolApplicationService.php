@@ -30,6 +30,8 @@ final class ToolApplicationService
             'suggest_size' => $this->sizes->suggest($arguments),
             'retrieve_knowledge' => $this->knowledge->retrieve($arguments),
             'get_order_status' => $this->orders->status($this->userId, $arguments),
+            'draft_support_ticket' => (new SupportTicketService($this->pdo))->draft($this->userId, $arguments),
+            'get_support_tickets' => (new SupportTicketService($this->pdo))->listForUser($this->userId, $arguments),
             default => throw new InvalidArgumentException("Unknown tool: $tool"),
         };
     }

@@ -106,5 +106,21 @@ export function createMcpServer(principal: Principal): McpServer {
     inputSchema: { order_id: z.number().int().positive().optional() }, outputSchema, annotations: readOnly,
   }, async (args) => result(await callTool('get_order_status', args, principal)));
 
+  server.registerTool('draft_support_ticket', {
+    title: 'Draft a support ticket',
+    description: 'Soạn nháp yêu cầu hỗ trợ đơn hàng (đổi trả, hàng lỗi, huỷ đơn, đổi địa chỉ, khác) để hỏi khách xác nhận; không tạo yêu cầu.',
+    inputSchema: {
+      type: z.enum(['doi_tra', 'hang_loi', 'huy_don', 'doi_dia_chi', 'khac']),
+      order_id: z.number().int().positive().optional(),
+      summary: z.string().min(1).max(500),
+    }, outputSchema, annotations: readOnly,
+  }, async (args) => result(await callTool('draft_support_ticket', args, principal)));
+
+  server.registerTool('get_support_tickets', {
+    title: 'Get support tickets',
+    description: 'Xem các yêu cầu hỗ trợ khách đã gửi và trạng thái xử lý.',
+    inputSchema: { ticket_id: z.number().int().positive().optional() }, outputSchema, annotations: readOnly,
+  }, async (args) => result(await callTool('get_support_tickets', args, principal)));
+
   return server;
 }
