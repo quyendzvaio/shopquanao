@@ -18,11 +18,16 @@ const SOLD_OUT_PHRASES = ['hết hàng', 'hết sạch', 'không còn hàng', '�
  * sold out, and (when there are alternatives) names at least one of them by name or `mã N`.
  */
 export function answersSoldOut(text: string, so: SoldOutState): boolean {
-  const t = text.toLowerCase();
-  if (!t.includes(so.source.name.toLowerCase())) return false;
+  const t = plain(text);
+  if (!t.includes(plain(so.source.name))) return false;
   if (!SOLD_OUT_PHRASES.some((p) => t.includes(p))) return false;
   if (so.alternatives.length === 0) return true;
-  return so.alternatives.some((a) => t.includes(a.name.toLowerCase()) || new RegExp(`mã\\s*${a.id}(?!\\d)`, 'u').test(t));
+  return so.alternatives.some((a) => t.includes(plain(a.name)) || new RegExp(`mã ?${a.id}(?!\\d)`, 'u').test(t));
+}
+
+/** Lower case without markdown emphasis and with every kind of space as one space: "Quần **Baggy**" matches "quần baggy". */
+function plain(text: string): string {
+  return text.replace(/[*_`~]/g, '').replace(/\s+/gu, ' ').toLowerCase().trim();
 }
 
 /**

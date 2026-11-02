@@ -8,7 +8,7 @@ import { TurnBudget } from '../src/policies/budget.js';
 import { summaryFromCards } from '../src/policies/grounding.js';
 import { productToCard } from '../src/policies/cards.js';
 import { buildTurnGraph } from '../src/graph/buildGraph.js';
-import { soldOutFrom } from '../src/graph/soldOut.js';
+import { answersSoldOut, soldOutFrom } from '../src/graph/soldOut.js';
 import { ScriptedChatModel, type ScriptedStep } from './support/scriptedModel.js';
 import { fakeShopTools } from './support/fakeTools.js';
 
@@ -100,6 +100,15 @@ test('soldOutAnswerWrittenByTheModelIsKeptWithoutTheFixedQuestion', async () => 
   assert.deepEqual(out.offered.map((o) => o.id), [73, 71]);
   assert.deepEqual(out.cards, [], 'neither the sold-out item nor the alternatives get a card');
   assert.equal(model.calls.length, 2, 'no retry: the alternative price is grounded by the find_similar result');
+});
+
+test('soldOutAnswerCheckIgnoresMarkdownAndSpacing', () => {
+  const so = { source: { id: 69, name: baggy.name }, alternatives: [{ id: 73, name: kaki.name }], count: 1, search: 'quần baggy', ids: [69], similar };
+  assert.ok(answersSoldOut('Quần **Baggy Vải Tuyết Mưa** hiện đang **hết hàng**. Xem `mã\u202f73` nhé?', so));
+  assert.ok(answersSoldOut('quần baggy vải  tuyết mưa đã hết, bạn xem **Quần Kaki Ống Rộng** không?', so));
+  assert.ok(!answersSoldOut('Quần Baggy Vải Tuyết Mưa đang hết hàng.', so), 'no alternative named');
+  assert.ok(!answersSoldOut('Bạn xem Quần Kaki Ống Rộng (mã 73) nhé, quần baggy hết hàng rồi.', so), 'sold-out item not named');
+  assert.ok(!answersSoldOut('Quần Baggy Vải Tuyết Mưa rất đẹp, xem mã 73 nhé.', so), 'not said to be sold out');
 });
 
 test('multiIntentAnswerWrittenByTheModelKeepsEveryPart', async () => {
