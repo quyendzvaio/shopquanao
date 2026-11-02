@@ -40,12 +40,13 @@ export type Summary = {
  */
 export function extractPrices(text: string): number[] {
   const prices: number[] = [];
-  const re = /(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)\s*(k\b|nghìn|ngàn|vnđ|vnd|đ|₫)/giu;
+  // Thousands may be grouped by `.`, `,` or a space (plain, no-break, narrow no-break), one separator throughout.
+  const re = /(\d{1,3}([., \u00a0\u202f])\d{3}(?:\2\d{3})*|\d+(?:[.,]\d+)?)\s*(k\b|nghìn|ngàn|vnđ|vnd|đ|₫)/giu;
   for (const m of text.matchAll(re)) {
     const raw = m[1] ?? '';
-    const unit = (m[2] ?? '').toLowerCase();
-    const thousands = /^\d{1,3}(?:[.,]\d{3})+$/.test(raw);
-    const value = thousands ? Number(raw.replace(/[.,]/g, '')) : Number(raw.replace(',', '.'));
+    const unit = (m[3] ?? '').toLowerCase();
+    const thousands = m[2] !== undefined;
+    const value = thousands ? Number(raw.replace(/[.,\s]/gu, '')) : Number(raw.replace(',', '.'));
     if (Number.isNaN(value)) continue;
     prices.push(Math.round(unit === 'k' || unit === 'nghìn' || unit === 'ngàn' ? value * 1000 : value));
   }

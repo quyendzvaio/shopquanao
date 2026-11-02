@@ -4,13 +4,33 @@ import type { Offered, ToolRecord } from '../contract.js';
 import { soldOutCorrection, soldOutNote, type AlternativeFact } from '../copy.js';
 import { isAllowedTool } from '../policies/allowList.js';
 import type { TurnBudget } from '../policies/budget.js';
-import type { ShopTools } from '../shopTools.js';
+import { withoutNulls, type ShopTools } from '../shopTools.js';
 import { answersSoldOut, soldOutFrom, type SoldOutState } from './soldOut.js';
 import { textOf } from './text.js';
 
 export const EMPTY_ANSWER_CORRECTION = 'Bạn chưa trả lời khách. Hãy trả lời đủ mọi ý trong câu của khách, gọi công cụ nếu cần.';
 
 export const TOOL_REFUSED = 'Công cụ không được phép hoặc đã hết lượt gọi.';
+
+export const REPEATED_TOOL_CALL = 'Công cụ này đã được gọi với đúng các tham số này trong câu hiện tại. Hãy dùng kết quả ở trên, không gọi lại.';
+
+export const NO_MORE_TOOLS = 'Đã hết lượt gọi công cụ cho câu này. Hãy trả lời khách ngay bằng dữ liệu công cụ ở trên, không gọi thêm công cụ.';
+
+/** One key per tool call: the name plus the arguments with nulls dropped and keys sorted at every level. */
+function toolCallKey(name: string, args: Record<string, unknown>): string {
+  const sorted = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(sorted);
+    if (typeof v !== 'object' || v === null) return v;
+    return Object.fromEntries(Object.keys(v).sort().map((k) => [k, sorted((v as Record<string, unknown>)[k])]));
+  };
+  return `${name}:${JSON.stringify(sorted(withoutNulls(args)))}`;
+}
+
+/** The text of a reply made without tools: a tool call the model writes anyway cannot run, so it is dropped. */
+function answerOnly(message: unknown): unknown {
+  if (!AIMessage.isInstance(message) || (message.tool_calls?.length ?? 0) === 0) return message;
+  return new AIMessage({ content: message.content, id: message.id });
+}
 
 /** What the policy middleware observed during one agent run. Only tool results the LLM asked for are kept in `records`. */
 export class TurnRecorder {
@@ -20,6 +40,19 @@ export class TurnRecorder {
   branchToolUsed = false;
   /** The agent loop was sent back to the model once for an incomplete answer. */
   continued = false;
+  private readonly called = new Set<string>();
+
+  /** False when the same tool call (name and arguments) already ran this turn; true marks it as running. */
+  firstCall(key: string): boolean {
+    if (this.called.has(key)) return false;
+    this.called.add(key);
+    return true;
+  }
+
+  /** A failed call may be tried again. */
+  forgetCall(key: string): void {
+    this.called.delete(key);
+  }
 
   reserve(): number {
     this.slots.push(undefined);
@@ -116,9 +149,15 @@ export function policyMiddleware(deps: Deps) {
     wrapModelCall: async (request, handler) => {
       if (budget.expired() || !budget.takeModelCall()) return new AIMessage('');
       // The last allowed model call, or one made after the tool budget is spent, could only ask for a tool
-      // that would be refused and end in an empty draft: take the tools away so it has to write the answer.
+      // that would be refused and end in an empty draft: take the tools away, tell the model so, and drop a
+      // tool call it writes anyway, so it has to write the answer.
       const call = budget.modelCallsLeft() === 0 || budget.toolCallsLeft() === 0
-        ? () => handler({ ...request, tools: [], toolChoice: undefined })
+        ? async () => answerOnly(await handler({
+          ...request,
+          tools: [],
+          toolChoice: undefined,
+          messages: [...request.messages, new HumanMessage(NO_MORE_TOOLS)],
+        })) as Awaited<ReturnType<typeof handler>>
         : () => handler(request);
       if (!recorder.continued) return call();
       // The continuation step is a second chance, not a requirement: if it fails, the answer so far goes to
@@ -134,14 +173,23 @@ export function policyMiddleware(deps: Deps) {
       const { name, args, id } = request.toolCall;
       const reply = (content: string, status?: 'error') => new ToolMessage({ content, tool_call_id: id ?? '', name, status });
 
+      if (!isAllowedTool(name)) return reply(TOOL_REFUSED);
+      // The same call twice in one turn returns the same data: answer from the first result instead of
+      // spending the budget on a loop.
+      const key = toolCallKey(name, args as Record<string, unknown>);
+      if (!recorder.firstCall(key)) return reply(REPEATED_TOOL_CALL);
       // Budget slots are taken synchronously so parallel calls in one AIMessage are counted in order.
-      if (!isAllowedTool(name) || !budget.takeToolCall()) return reply(TOOL_REFUSED);
+      if (!budget.takeToolCall()) {
+        recorder.forgetCall(key);
+        return reply(TOOL_REFUSED);
+      }
       const slot = recorder.reserve();
 
       let data: Record<string, unknown>;
       try {
         data = await tools.call(name, args as Record<string, unknown>);
       } catch {
+        recorder.forgetCall(key);
         return reply('Công cụ gặp lỗi, không có dữ liệu.', 'error');
       }
 

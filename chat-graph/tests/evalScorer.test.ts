@@ -117,3 +117,8 @@ test('summarize counts cases, groups and the rate', () => {
 test('summarize of nothing is rate 0', () => {
   assert.equal(summarize([]).rate, 0);
 });
+
+test('extractPrices reads thousands grouped by spaces', () => {
+  assert.deepEqual(extractPrices('cần thêm 85 000 đ, ngưỡng 500\u00a0000\u00a0đ, tổng 1\u202f250\u202f000 ₫'), [85000, 500000, 1250000]);
+  assert.deepEqual(extractPrices('85.000đ và 85,000 đ'), [85000, 85000]);
+});

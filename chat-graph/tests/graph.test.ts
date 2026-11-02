@@ -8,7 +8,7 @@ import { TurnBudget } from '../src/policies/budget.js';
 import { summaryFromCards } from '../src/policies/grounding.js';
 import { productToCard } from '../src/policies/cards.js';
 import { buildTurnGraph } from '../src/graph/buildGraph.js';
-import { EMPTY_ANSWER_CORRECTION } from '../src/graph/middleware.js';
+import { EMPTY_ANSWER_CORRECTION, NO_MORE_TOOLS, REPEATED_TOOL_CALL } from '../src/graph/middleware.js';
 import { answersSoldOut, soldOutFrom } from '../src/graph/soldOut.js';
 import { ScriptedChatModel, type ScriptedStep } from './support/scriptedModel.js';
 import { fakeShopTools } from './support/fakeTools.js';
@@ -575,6 +575,39 @@ test('lastAllowedModelCallGetsNoToolsSoItMustAnswer', async () => {
   assert.deepEqual(model.toolCounts, [2, 2, 0]);
   assert.equal(out.message, 'Shop có nhóm Áo.');
   assert.equal(out.response_type, 'final_answer');
+});
+
+test('theLastModelCallIsToldToAnswerAndAToolCallItWritesAnywayIsDropped', async () => {
+  const { model, tools, outcome } = runWith(
+    { maxToolCalls: 8, maxModelCalls: 2, turnTimeoutMs: 45000 },
+    [catCall('c1'), ai('Shop có nhóm Áo.', [call('c2', 'get_categories', { page: 2 })])],
+    catHandlers,
+  );
+  const out = await outcome;
+  assert.equal(tools.calls.length, 1, 'the dropped tool call never runs');
+  assert.equal(model.calls[1]?.at(-1)?.content, NO_MORE_TOOLS);
+  assert.equal(out.message, 'Shop có nhóm Áo.');
+  assert.equal(out.response_type, 'final_answer');
+});
+
+test('aRepeatedToolCallIsNotRunAgainAndDoesNotSpendTheBudget', async () => {
+  const search = (id: string, args: Record<string, unknown>) => ai('', [call(id, 'search_products', args)]);
+  const { model, tools, outcome } = runWith(
+    { maxToolCalls: 2, maxModelCalls: 5, turnTimeoutMs: 45000 },
+    [
+      search('c1', { max_price: 500000, in_stock: true }),
+      search('c2', { in_stock: true, max_price: 500000, color: null }),
+      search('c3', { search: 'áo', max_price: 500000 }),
+      ai('Có Áo Thun (mã 1).'),
+    ],
+    { search_products: () => ({ products: [{ id: 1, name: 'Áo Thun', price: 100000, stock: 3 }] }) },
+  );
+  const out = await outcome;
+  assert.equal(tools.calls.length, 2, 'c1 and c3 run; c2 repeats c1');
+  const repeated = toolMessages(model.calls[2] ?? []).find((m) => m.tool_call_id === 'c2');
+  assert.equal(repeated?.content, REPEATED_TOOL_CALL);
+  assert.deepEqual(model.toolCounts, [1, 1, 1, 0], 'the repeat left a tool call for c3; then the tool budget is spent');
+  assert.equal(out.message, 'Có Áo Thun (mã 1).');
 });
 
 test('modelCallAfterTheToolBudgetIsSpentGetsNoTools', async () => {
