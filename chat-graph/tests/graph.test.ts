@@ -725,3 +725,35 @@ test('aTurnWithoutADraftHasNullPendingTicket', async () => {
   );
   assert.equal((await outcome).pending_ticket, null);
 });
+
+test('anUngroundedDraftAnswerIsReplacedByTheDraftLine', async () => {
+  const bad = 'Phí đổi là 99.000đ. Mình sẽ gửi yêu cầu cho đơn #12.';
+  const { outcome } = run([draftCall(), ai(bad), ai('Phí đổi chỉ 88.000đ nhé.')], { draft_support_ticket: () => draftResult }, ticketReq());
+  const out = await outcome;
+  assert.equal(out.message, `${ticketDraftLine(ticketDraft)} ${TICKET_CONFIRM_QUESTION}`);
+  assert.deepEqual(out.pending_ticket, ticketDraft);
+  assert.equal(out.response_type, 'clarification');
+});
+
+test('anUngroundedDraftAnswerNeverBecomesACardSummaryEvenWhenAProductToolRan', async () => {
+  const shirt = { id: 66, name: 'Áo Thun', price: 150000, stock: 3 };
+  const { outcome } = run(
+    [ai('', [call('c1', 'search_products', { search: 'áo thun' }), call('t1', 'draft_support_ticket', { type: 'doi_tra', order_id: 12, summary: ticketDraft.summary })]),
+      ai('Phí đổi là 99.000đ.'), ai('Phí đổi chỉ 88.000đ nhé.')],
+    { search_products: () => ({ products: [shirt] }), draft_support_ticket: () => draftResult },
+    ticketReq(),
+  );
+  const out = await outcome;
+  assert.equal(out.message, `${ticketDraftLine(ticketDraft)} ${TICKET_CONFIRM_QUESTION}`);
+  assert.ok(!out.message.includes('thẻ sản phẩm'));
+  assert.deepEqual(out.cards, []);
+});
+
+test('aDraftWithoutAPositiveIntegerOrderIdIsNoDraft', async () => {
+  for (const order_id of [0, -3, 1.5, 'abc']) {
+    const { outcome } = run([draftCall(), ai('Ok.')], { draft_support_ticket: () => ({ status: 'draft', draft: { ...ticketDraft, order_id } }) }, ticketReq());
+    const out = await outcome;
+    assert.equal(out.pending_ticket, null, String(order_id));
+    assert.equal(out.response_type, 'final_answer', String(order_id));
+  }
+});

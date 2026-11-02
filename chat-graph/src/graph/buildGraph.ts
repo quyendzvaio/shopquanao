@@ -57,7 +57,7 @@ function lastValidDraft(records: ToolRecord[]): PendingTicket | null {
     const { type, order_id: orderId, summary } = d as Record<string, unknown>;
     if (typeof type !== 'string' || typeof summary !== 'string' || summary.trim() === '') continue;
     const order = orderId === null || orderId === undefined ? null : Number(orderId);
-    if (order !== null && !Number.isInteger(order)) continue;
+    if (order !== null && !(Number.isInteger(order) && order > 0)) continue;
     return { type, order_id: order, summary };
   }
   return null;
@@ -168,7 +168,10 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
       }
     }
     const soldIds = new Set(s.soldOut?.ids ?? []);
-    if (found.markup || found.claims.length > 0) {
+    const pending = so === null ? lastValidDraft(records) : null;
+    if (pending !== null && (found.markup || found.claims.length > 0)) {
+      text = ''; // a draft turn has no cards: the fixed draft line below replaces an unusable answer
+    } else if (found.markup || found.claims.length > 0) {
       // The summary must not name a sold-out product; the ask copy is the only place that does.
       const safe = selectCards('', records).filter((c) => !soldIds.has(c.id));
       text = safe.length === 0 ? '' : summaryFromCards(safe); // '' -> busy below (or the ask alone on a sold-out turn)
@@ -180,7 +183,6 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
     const soldOutAnswered = so !== null && !found.markup && found.claims.length === 0 && !found.soldOut;
 
     // A valid draft always ends in the fixed confirmation question; PHP stores the draft and creates the ticket on "yes".
-    const pending = so === null ? lastValidDraft(records) : null;
     if (pending !== null) {
       if (text === '') text = `${ticketDraftLine(pending)} ${TICKET_CONFIRM_QUESTION}`;
       else if (!text.includes(TICKET_CONFIRM_QUESTION)) text = `${text} ${TICKET_CONFIRM_QUESTION}`;
