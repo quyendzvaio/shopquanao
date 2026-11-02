@@ -65,6 +65,11 @@ browser -> POST /api/chatbot/stream (SSE) -> nginx -> app (PHP): session, origin
 - The MCP bridge only runs tools listed in `ToolDefinitionCatalog` and `chat-graph` only exposes the 9 allow-listed tools, so cart and checkout tools exist nowhere.
 - Web checkout and add-to-cart go through `OrderService`/`CartService` like the API: checkout locks stock, saves the size and writes status `Chờ xử lý`. Orders already stored as `pending` are not migrated.
 
+## Fixing failures (eval cases, bugs)
+
+- A fix found while investigating one failing case is only a provisional answer to that case. Before adopting it, check what it does to the other cases and paths it touches (other eval groups, other tools, the prompt as a whole, other search terms), and say what you checked. Do not adopt a fix that makes other cases worse.
+- Prefer a general fix at the root cause over a case-specific patch: give the model the data or tool it is missing rather than adding a keyword rule, a special branch or a prompt line for one message. A small case-specific fix is acceptable only when it leaves the rest of the system unaffected and still improves results overall; propose it with that reasoning and wait for the user's approval before applying it.
+
 ## Rules index (`.claude/rules/`)
 
 | File | Scope |
