@@ -24,9 +24,25 @@ export function checkoutRefusal(message: string): string {
     + 'Bạn vui lòng bấm vào thẻ sản phẩm hoặc vào trang chi tiết sản phẩm để tự thêm giỏ hàng và thanh toán.';
 }
 
-export function soldOutNote(sourceName: string): string {
-  return `Mẫu ${sourceName} đã hết hàng; hệ thống sẽ tự hỏi khách về mẫu thay thế. `
-    + 'Đừng nhắc tới mẫu này. Chỉ trả lời các ý khác của khách; nếu không còn ý nào, trả lời chuỗi rỗng.';
+export type AlternativeFact = { id: number; name: string; price?: number };
+
+/** What the model sees instead of the sold-out tool result: the facts, so it writes the whole answer itself (§5.2a). */
+export function soldOutNote(sourceName: string, alts: AlternativeFact[]): string {
+  if (alts.length === 0) {
+    return `Mẫu ${sourceName} đã hết hàng và chưa có mẫu thay thế. `
+      + `Trả lời các ý khác của khách trước (nếu có), sau đó báo mẫu ${sourceName} đang hết hàng.`;
+  }
+  const facts = alts.map((a) => `${a.name} (mã ${a.id})${a.price !== undefined ? ` giá ${money(a.price)}` : ''}`).join('; ');
+  const names = alts.map((a) => a.name).join(' hoặc ');
+  return `Mẫu ${sourceName} đã hết hàng. Mẫu thay thế còn hàng: ${facts}. `
+    + `Trả lời các ý khác của khách trước (nếu có), sau đó báo mẫu ${sourceName} đang hết hàng `
+    + `và hỏi khách có muốn xem ${names} không. Viết đúng tên các mẫu, không gợi ý mẫu nào khác.`;
+}
+
+/** The retry instruction when an answer on a sold-out turn left out the sold-out item or its alternatives. */
+export function soldOutCorrection(sourceName: string, alts: Array<{ name: string }>): string {
+  const ask = alts.length > 0 ? ` và hỏi khách có muốn xem ${alts.map((a) => a.name).join(' hoặc ')} không` : '';
+  return `Câu trả lời phải báo mẫu ${sourceName} đang hết hàng${ask}, đồng thời vẫn trả lời các ý khác của khách.`;
 }
 
 export function askAlternatives(sourceName: string, alts: Offered[], afterOtherAnswer: boolean): string {

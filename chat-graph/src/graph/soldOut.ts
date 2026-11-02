@@ -7,7 +7,23 @@ export type SoldOutState = {
   search: string;
   /** Ids the search reported as sold out; their cards are never shown. */
   ids: number[];
+  /** The find_similar_in_stock result: grounds the alternatives the answer names, never a source of cards. */
+  similar: Record<string, unknown> | null;
 };
+
+const SOLD_OUT_PHRASES = ['hết hàng', 'hết sạch', 'không còn hàng', 'đã hết', 'tạm hết'];
+
+/**
+ * True when an answer on a sold-out turn does the sold-out branch's job: names the sold-out item, says it is
+ * sold out, and (when there are alternatives) names at least one of them by name or `mã N`.
+ */
+export function answersSoldOut(text: string, so: SoldOutState): boolean {
+  const t = text.toLowerCase();
+  if (!t.includes(so.source.name.toLowerCase())) return false;
+  if (!SOLD_OUT_PHRASES.some((p) => t.includes(p))) return false;
+  if (so.alternatives.length === 0) return true;
+  return so.alternatives.some((a) => t.includes(a.name.toLowerCase()) || new RegExp(`mã\\s*${a.id}(?!\\d)`, 'u').test(t));
+}
 
 /**
  * A sold-out hit: a `search_products` record whose `out_of_stock_ids` is non-empty (a missing key counts as empty),

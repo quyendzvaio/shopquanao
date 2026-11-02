@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  BUSY, PRIMARY_INTENT, askAlternatives, checkoutRefusal, money, nudgeText, soldOutNoAlternatives, soldOutNote,
+  BUSY, PRIMARY_INTENT, askAlternatives, checkoutRefusal, money, nudgeText, soldOutCorrection, soldOutNoAlternatives, soldOutNote,
 } from '../src/copy.js';
 
 const TAIL = ', mình không thể tự thêm giỏ hàng hoặc thanh toán giúp bạn. Bạn vui lòng bấm vào thẻ sản phẩm hoặc vào trang chi tiết sản phẩm để tự thêm giỏ hàng và thanh toán.';
@@ -47,10 +47,23 @@ test('askAlternatives with one alternative has no hoặc', () => {
   assert.ok(!s.includes(' hoặc '));
 });
 
-test('soldOutNote', () => {
+test('soldOutNote gives the model the facts and asks it to write the whole answer', () => {
   assert.equal(
-    soldOutNote('A'),
-    'Mẫu A đã hết hàng; hệ thống sẽ tự hỏi khách về mẫu thay thế. Đừng nhắc tới mẫu này. Chỉ trả lời các ý khác của khách; nếu không còn ý nào, trả lời chuỗi rỗng.',
+    soldOutNote('A', [{ id: 1, name: 'B', price: 320000 }, { id: 2, name: 'C' }]),
+    'Mẫu A đã hết hàng. Mẫu thay thế còn hàng: B (mã 1) giá 320.000đ; C (mã 2). '
+      + 'Trả lời các ý khác của khách trước (nếu có), sau đó báo mẫu A đang hết hàng và hỏi khách có muốn xem B hoặc C không. '
+      + 'Viết đúng tên các mẫu, không gợi ý mẫu nào khác.',
+  );
+  assert.equal(
+    soldOutNote('A', []),
+    'Mẫu A đã hết hàng và chưa có mẫu thay thế. Trả lời các ý khác của khách trước (nếu có), sau đó báo mẫu A đang hết hàng.',
+  );
+});
+
+test('soldOutCorrection names the sold-out item and the alternatives', () => {
+  assert.equal(
+    soldOutCorrection('A', [{ name: 'B' }, { name: 'C' }]),
+    'Câu trả lời phải báo mẫu A đang hết hàng và hỏi khách có muốn xem B hoặc C không, đồng thời vẫn trả lời các ý khác của khách.',
   );
 });
 

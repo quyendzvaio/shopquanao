@@ -41,7 +41,7 @@ browser -> POST /api/chatbot/stream (SSE) -> nginx -> app (PHP): session, origin
   -> ChatbotService (src/agent facade) -> POST http://chat-graph:8090/turn (NDJSON, header X-CHAT-GRAPH-TOKEN)
   chat-graph (Node 22, LangChain.js createAgent on LangGraph):
     policy_in (CheckoutGuardrail: refusal, no LLM) -> agent <-> tools (LLM picks tools; budget, allow-list, grounding middleware)
-      -> [sold-out edge: find_similar_in_stock + fixed question] | policy_out (CardPolicy, price/stock grounding) -> END
+      -> policy_out (CardPolicy, price/stock grounding; sold-out turn: the model's answer must name the sold-out item + an alternative, else the fixed question) -> END
     tools = mcp-server createMcpServer in-process (InMemoryTransport) -> POST app:8080/api/internal/mcp -> ToolApplicationService
   <- delta / cards / complete events; PHP re-filters cards with ChatStreamProtocol and persists the turn
 ```

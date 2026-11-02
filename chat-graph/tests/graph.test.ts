@@ -83,8 +83,70 @@ test('soldOutBranchAsksAboutAlternatives', async () => {
   assert.deepEqual(similarCall?.args, { product_id: 69, limit: 2 });
   const seen = toolMessages(model.calls[1] ?? []).map((m) => String(m.content));
   assert.equal(seen.length, 1);
-  assert.equal(seen[0], soldOutNote('Quần Baggy Vải Tuyết Mưa'));
+  assert.equal(seen[0], soldOutNote('Quần Baggy Vải Tuyết Mưa', [{ id: 73, name: kaki.name, price: 320000 }, { id: 71, name: bo.name, price: 410000 }]));
   assert.ok(!seen[0]!.includes('out_of_stock'));
+});
+
+const fullSoldOutAnswer = 'Mẫu Quần Baggy Vải Tuyết Mưa đang hết hàng. Bạn có muốn xem Quần Kaki Ống Rộng (mã 73) giá 320.000đ hoặc Quần Bò Rách Gối không?';
+
+test('soldOutAnswerWrittenByTheModelIsKeptWithoutTheFixedQuestion', async () => {
+  const { model, outcome } = run(
+    [searchCall, ai(fullSoldOutAnswer)],
+    { search_products: () => soldOutSearch, find_similar_in_stock: () => similar },
+  );
+  const out = await outcome;
+  assert.equal(out.message, fullSoldOutAnswer);
+  assert.equal(out.response_type, 'clarification');
+  assert.deepEqual(out.offered.map((o) => o.id), [73, 71]);
+  assert.deepEqual(out.cards, [], 'neither the sold-out item nor the alternatives get a card');
+  assert.equal(model.calls.length, 2, 'no retry: the alternative price is grounded by the find_similar result');
+});
+
+test('multiIntentAnswerWrittenByTheModelKeepsEveryPart', async () => {
+  const answer = 'Với 160cm, 50kg bạn mặc size S. Mẫu Quần Baggy Vải Tuyết Mưa thì đang hết hàng, bạn có muốn xem Quần Kaki Ống Rộng không?';
+  const { outcome } = run(
+    [
+      ai('', [call('c1', 'search_products', { search: 'quần baggy', in_stock: true }), call('c2', 'suggest_size', { height: 160, weight: 50 })]),
+      ai(answer),
+    ],
+    { search_products: () => soldOutSearch, find_similar_in_stock: () => similar, suggest_size: () => ({ size: 'S' }) },
+  );
+  const out = await outcome;
+  assert.equal(out.message, answer);
+  assert.equal(out.response_type, 'clarification');
+});
+
+test('soldOutAnswerMissingTheNewsIsRetriedOnce', async () => {
+  const { model, outcome } = run(
+    [searchCall, ai('Shop có nhiều mẫu quần đẹp lắm.'), ai(fullSoldOutAnswer)],
+    { search_products: () => soldOutSearch, find_similar_in_stock: () => similar },
+  );
+  const out = await outcome;
+  assert.equal(out.message, fullSoldOutAnswer);
+  assert.equal(out.response_type, 'clarification');
+  assert.equal(model.calls.length, 3);
+  const correction = String(model.calls[2]?.at(-1)?.content);
+  assert.ok(correction.includes('Quần Baggy Vải Tuyết Mưa đang hết hàng'), correction);
+});
+
+test('soldOutRetryStillMissingFallsBackToTheFixedQuestion', async () => {
+  const { outcome } = run(
+    [searchCall, ai('Shop có nhiều mẫu quần đẹp lắm.'), ai('Shop có nhiều mẫu quần đẹp lắm.')],
+    { search_products: () => soldOutSearch, find_similar_in_stock: () => similar },
+  );
+  const out = await outcome;
+  assert.equal(out.message, 'Shop có nhiều mẫu quần đẹp lắm. ' + askAlternatives(baggy.name, [kaki, bo], true));
+  assert.equal(out.response_type, 'clarification');
+});
+
+test('soldOutRetryErrorFallsBackToTheFixedQuestionNotBusy', async () => {
+  const { outcome } = run(
+    [searchCall, ai(''), new Error('429')],
+    { search_products: () => soldOutSearch, find_similar_in_stock: () => similar },
+  );
+  const out = await outcome;
+  assert.equal(out.message, askAlternatives(baggy.name, [kaki, bo], false));
+  assert.equal(out.response_type, 'clarification');
 });
 
 test('soldOutFiresWithoutInStockArg', async () => {
@@ -137,7 +199,7 @@ test('soldOutWhenFindSimilarFails: falls back to the search result name, then no
   );
   const out = await outcome;
   assert.equal(out.message, soldOutNoAlternatives(1, 'quần baggy'));
-  assert.equal(String(toolMessages(model.calls[1] ?? [])[0]?.content), soldOutNote('Quần Baggy Vải Tuyết Mưa'));
+  assert.equal(String(toolMessages(model.calls[1] ?? [])[0]?.content), soldOutNote('Quần Baggy Vải Tuyết Mưa', []));
 });
 
 test('search without out_of_stock_ids key never branches', async () => {
@@ -272,7 +334,7 @@ test('askAlternatives copy is what the graph appends', () => {
 
 test('secondInvokeOnSameGraphStartsFresh', async () => {
   const model = new ScriptedChatModel([
-    searchCall, ai(''),
+    searchCall, ai(''), ai(''), // the empty sold-out draft gets its one retry, then the fixed question
     ai('', [call('c2', 'search_products', { search: 'áo' })]), ai('Có mã 66.'),
   ]);
   let sold = true;

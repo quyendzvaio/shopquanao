@@ -5,7 +5,7 @@ import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import { createAgent } from 'langchain';
 import type { GraphConfig } from '../config.js';
 import type { Card, Offered, ResponseType, ToolRecord, TurnRequest } from '../contract.js';
-import { BUSY, askAlternatives, checkoutRefusal, nudgeText, soldOutNoAlternatives } from '../copy.js';
+import { BUSY, askAlternatives, checkoutRefusal, nudgeText, soldOutCorrection, soldOutNoAlternatives } from '../copy.js';
 import type { TurnBudget } from '../policies/budget.js';
 import { outfitsFrom, productToCard, selectCards } from '../policies/cards.js';
 import { matchesCheckout } from '../policies/checkout.js';
@@ -13,7 +13,7 @@ import { hasToolCallMarkup, summaryFromCards, ungroundedClaims } from '../polici
 import type { ShopTools } from '../shopTools.js';
 import { policyMiddleware, TurnRecorder } from './middleware.js';
 import { systemPrompt } from './prompt.js';
-import type { SoldOutState } from './soldOut.js';
+import { answersSoldOut, type SoldOutState } from './soldOut.js';
 
 export type GraphOutcome = {
   message: string;
@@ -54,6 +54,8 @@ const State = Annotation.Root({
   messages: Annotation<BaseMessage[]>({ reducer: last, default: () => [] }),
   records: Annotation<ToolRecord[]>({ reducer: last, default: () => [] }),
   soldOut: Annotation<SoldOutState | null>({ reducer: last, default: () => null }),
+  /** The answer already tells the sold-out news and offers the alternatives, so no fixed question is appended. */
+  soldOutAnswered: Annotation<boolean>({ reducer: last, default: () => false }),
   text: Annotation<string>({ reducer: last, default: () => '' }),
   responseType: Annotation<ResponseType>({ reducer: last, default: () => 'final_answer' }),
   cards: Annotation<Card[]>({ reducer: last, default: () => [] }),
@@ -113,24 +115,34 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
 
   const policyOut = async (s: S, runConfig: RunnableConfig): Promise<Partial<S>> => {
     const records = s.records;
+    const so = s.soldOut;
+    // The alternatives the sold-out note told the model about ground its answer; they never become cards.
+    const evidence: ToolRecord[] = so?.similar ? [...records, { name: 'find_similar_in_stock', args: {}, result: so.similar }] : records;
     let text = s.draft;
-    // A draft is bad when it carries raw tool-call markup or claims no tool result backs.
+    // A draft is bad when it carries raw tool-call markup, claims no tool result backs, or (on a sold-out turn)
+    // leaves out the sold-out news.
     const problems = (draft: string) => ({
       markup: hasToolCallMarkup(draft),
-      claims: draft === '' ? [] : ungroundedClaims(draft, records),
+      claims: draft === '' ? [] : ungroundedClaims(draft, evidence),
+      soldOut: so !== null && !answersSoldOut(draft, so),
     });
     let found = problems(text);
-    if ((found.markup || found.claims.length > 0) && budget.takeModelCall()) {
+    if ((found.markup || found.claims.length > 0 || found.soldOut) && budget.takeModelCall()) {
       const corrections: string[] = [];
       if (found.markup) corrections.push('Câu trả lời chứa văn bản gọi công cụ thô (tool-call). Viết lại thành câu trả lời tiếng Việt bình thường, chỉ dùng dữ liệu từ công cụ.');
       if (found.claims.length > 0) corrections.push(`Câu trả lời có thông tin không có trong kết quả công cụ: ${found.claims.join(', ')}. Viết lại, chỉ dùng dữ liệu từ công cụ.`);
-      const retry = await model.invoke([
-        new SystemMessage(systemPrompt(s.req)),
-        ...s.messages,
-        new HumanMessage(corrections.join(' ')),
-      ], runConfig);
-      text = textOf(retry);
-      found = problems(text);
+      if (found.soldOut && so) corrections.push(soldOutCorrection(so.source.name, so.alternatives));
+      try {
+        const retry = await model.invoke([
+          new SystemMessage(systemPrompt(s.req)),
+          ...s.messages,
+          new HumanMessage(corrections.join(' ')),
+        ], runConfig);
+        text = textOf(retry);
+        found = problems(text);
+      } catch {
+        // A failed retry leaves the first draft and its problems; the fallbacks below handle them.
+      }
     }
     const soldIds = new Set(s.soldOut?.ids ?? []);
     if (found.markup || found.claims.length > 0) {
@@ -140,6 +152,7 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
     }
     const cards = selectCards(text, records).filter((c) => !soldIds.has(c.id));
     const toolsUsed = [...new Set(records.map((r) => r.name))];
+    const soldOutAnswered = so !== null && !found.markup && found.claims.length === 0 && !found.soldOut;
 
     if (text === '' && !s.soldOut) {
       text = cards.length > 0 ? summaryFromCards(cards) : BUSY;
@@ -147,7 +160,7 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
         return { text, cards, outfits: outfitsFrom(records), toolsUsed, responseType: 'busy' };
       }
     }
-    return { text, cards, outfits: outfitsFrom(records), toolsUsed, responseType: 'final_answer' };
+    return { text, cards, outfits: outfitsFrom(records), toolsUsed, responseType: 'final_answer', soldOutAnswered };
   };
 
   // The fixed sold-out branch: the alternatives were fetched in wrapToolCall, here they become the offer.
@@ -159,6 +172,8 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
   const askAlt = (s: S): Partial<S> => {
     const so = s.soldOut;
     if (!so) return {};
+    if (s.soldOutAnswered) return { responseType: 'clarification' };
+    // Fallback: the model's answer missed the sold-out news, so the fixed question is appended (§5.2a).
     const question = so.alternatives.length > 0
       ? askAlternatives(so.source.name, so.alternatives, s.text !== '')
       : soldOutNoAlternatives(so.count, so.search);

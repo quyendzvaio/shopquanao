@@ -1,7 +1,7 @@
 import { AIMessage, ToolMessage } from '@langchain/core/messages';
 import { createMiddleware } from 'langchain';
 import type { Offered, ToolRecord } from '../contract.js';
-import { soldOutNote } from '../copy.js';
+import { soldOutNote, type AlternativeFact } from '../copy.js';
 import { isAllowedTool } from '../policies/allowList.js';
 import type { TurnBudget } from '../policies/budget.js';
 import type { ShopTools } from '../shopTools.js';
@@ -68,7 +68,17 @@ function toSoldOutState(found: { ids: number[]; search: string }, record: ToolRe
       }
     }
   }
-  return { source: { id: sourceId, name }, alternatives, count: found.ids.length, search: found.search, ids: found.ids };
+  return { source: { id: sourceId, name }, alternatives, count: found.ids.length, search: found.search, ids: found.ids, similar };
+}
+
+/** The offered alternatives with their price from the find_similar_in_stock result, for the model's note. */
+function alternativeFacts(so: SoldOutState): AlternativeFact[] {
+  const rows = so.similar && Array.isArray(so.similar.products) ? so.similar.products : [];
+  return so.alternatives.map((a) => {
+    const row = rows.find((p): p is Record<string, unknown> => typeof p === 'object' && p !== null && Number((p as Record<string, unknown>).id) === a.id);
+    const price = row !== undefined ? Number(row.price) : NaN;
+    return Number.isFinite(price) ? { ...a, price } : { ...a };
+  });
 }
 
 /** Policy middleware: budget, allow-list, recording, and the fixed sold-out branch (§5.2, §5.2a, §6). */
@@ -120,7 +130,7 @@ export function policyMiddleware(deps: Deps) {
         similar = null;
       }
       recorder.soldOut = toSoldOutState(found, record, similar);
-      return reply(soldOutNote(recorder.soldOut.source.name));
+      return reply(soldOutNote(recorder.soldOut.source.name, alternativeFacts(recorder.soldOut)));
     },
   });
 }

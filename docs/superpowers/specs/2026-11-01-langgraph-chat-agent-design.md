@@ -83,11 +83,11 @@ START
 ```
 
 - **Cạnh "hết hàng"** chạy khi trong lượt có một kết quả `search_products` mà `out_of_stock_ids` khác rỗng (§8.1). **[Claude chọn]** Việc này không phụ thuộc vào chuyện LLM có truyền `in_stock:true` hay không, vì PHP luôn tính trường đó: có lọc tồn kho thì là các mẫu bị loại vì hết hàng, không lọc thì là trường hợp mọi mẫu trả về đều đã hết. System prompt vẫn dặn LLM truyền `in_stock:true` khi khách hỏi "còn hàng". Trường `out_of_stock_matches` (PR #23) được giữ, có giá trị bằng `count(out_of_stock_ids)`.
-  - Ngay khi gặp kết quả đó, graph rẽ nhánh: tìm mẫu thay thế và tự hỏi khách. LLM không được tự viết về mẫu hết hàng, nhưng vẫn trả lời các ý khác (§5.2a).
+  - Ngay khi gặp kết quả đó, graph rẽ nhánh: tìm mẫu thay thế bằng code cố định. LLM nhận dữ liệu (mẫu đã hết, các mẫu thay thế) và tự viết cả câu trả lời; code kiểm tra câu đó, sai thì dùng câu hỏi cố định (§5.2a). **[người dùng, 2026-11-02]** thay cho cách cũ "LLM không được nhắc tới mẫu hết hàng, code ghép câu hỏi cố định": LLM không làm theo lệnh im lặng ổn định (S02/X01 nói lặp, M01 mất phần size).
   - **[Claude chọn]** Cạnh được dựng bằng code TypeScript cố định (một middleware hoặc conditional edge xét kết quả tool), không để LLM quyết. Người dùng muốn bước này phải luôn chạy giống nhau.
   - Câu có nhiều ý mà một ý chạm cạnh hết hàng: xem §5.2a.
 - **`find_alternatives`** gọi tool mới `find_similar_in_stock` (§8.1) với `product_id` là mẫu đã hết. Node này không gọi LLM.
-- **`ask_alternatives`** trả lời bằng mẫu câu cố định **[Claude chọn]**:
+- **`ask_alternatives`** giữ câu LLM viết khi câu đó đạt kiểm tra (§5.2a); nếu không, dùng mẫu câu cố định **[Claude chọn]**:
   - Có từ 1 gợi ý trở lên: `"Mẫu {tên mẫu đã hết} đang hết hàng. Bạn có muốn xem {tên 1} hoặc {tên 2} không?"`. Khi chỉ có 1 gợi ý: `"…Bạn có muốn xem {tên 1} không?"`.
   - Không có gợi ý nào: dùng lại câu của PR #23, `"Shop có N mẫu {loại} nhưng hiện đang hết hàng. Bạn thử màu hoặc mẫu khác giúp mình nhé."`.
   - Không kèm thẻ sản phẩm, `response_type = clarification`.
@@ -102,11 +102,11 @@ Ví dụ: "quần baggy còn hàng không, mình cao 160 nặng 50 mặc size g�
 Cách chạy **[Claude chọn]**:
 
 1. Cạnh hết hàng chạy ngay sau node tools (code cố định), gọi `find_alternatives` và lưu `{sold_out, alternatives}` vào state của graph.
-2. Kết quả `search_products` mà LLM nhìn thấy được **thay** bằng một ghi chú ngắn: "Mẫu {tên} đã hết hàng; hệ thống sẽ tự hỏi khách về mẫu thay thế. Đừng nhắc tới mẫu này. Chỉ trả lời các ý khác của khách; nếu không còn ý nào, trả lời chuỗi rỗng."
-3. Agent chạy tiếp như bình thường cho các ý còn lại, vẫn trong ngân sách §6.
-4. `ask_alternatives` ghép câu trả lời: phần LLM viết (nếu khác rỗng, đã qua `policy_out`), cộng thêm câu hỏi theo mẫu ở trên. Khi ghép, mẫu câu dùng "Còn mẫu …" thay cho "Mẫu …". LLM trả rỗng thì chỉ còn câu hỏi.
+2. Kết quả `search_products` (hoặc `get_product_detail`) mà LLM nhìn thấy được **thay** bằng ghi chú dữ liệu (`soldOutNote`): "Mẫu {tên} đã hết hàng. Mẫu thay thế còn hàng: {tên 1} (mã N) giá …; {tên 2} …. Trả lời các ý khác của khách trước (nếu có), sau đó báo mẫu {tên} đang hết hàng và hỏi khách có muốn xem {tên 1} hoặc {tên 2} không. Viết đúng tên các mẫu, không gợi ý mẫu nào khác." **[người dùng, 2026-11-02]**
+3. Agent chạy tiếp như bình thường cho các ý còn lại, vẫn trong ngân sách §6, và viết một câu trả lời liền mạch cho mọi ý.
+4. `policy_out` kiểm tra câu đó bằng code (`answersSoldOut`): có tên mẫu đã hết, có cụm báo hết hàng, và (khi có gợi ý) có tên hoặc `mã N` của ít nhất một mẫu thay thế. Giá và mã của các mẫu thay thế được tính là có căn cứ (kết quả `find_similar_in_stock` nằm trong dữ liệu kiểm tra grounding) nhưng không bao giờ thành thẻ. Câu không đạt dùng chung một lần gọi lại với lỗi grounding/markup. Vẫn không đạt (hoặc hết ngân sách, hoặc lần gọi lại lỗi) thì quay về cách cũ: phần LLM viết (nếu khác rỗng, đã qua `policy_out`) cộng câu hỏi theo mẫu ở trên, mẫu câu dùng "Còn mẫu …" khi ghép; LLM trả rỗng thì chỉ còn câu hỏi.
 5. Thẻ sản phẩm của các ý khác (ví dụ set phối đồ) vẫn được hiện. Không có thẻ nào cho mẫu hết hàng hay cho các mẫu gợi ý. `response_type = clarification`.
-6. Câu chỉ có một ý ("quần baggy còn hàng") vẫn tốn thêm một lần gọi LLM, và lần gọi đó trả rỗng. Builder có thể bỏ lần gọi này khi lượt không có tool call nào khác.
+6. Câu chỉ có một ý ("quần baggy còn hàng") vẫn tốn thêm một lần gọi LLM; lần gọi đó viết câu báo hết hàng và hỏi về mẫu thay thế.
 
 ### 5.3 Giao kèo PHP ↔ Node **[Claude chọn]**
 
