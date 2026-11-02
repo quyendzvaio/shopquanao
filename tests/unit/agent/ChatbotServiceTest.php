@@ -36,7 +36,9 @@ final class ChatbotServiceTest extends TestCase
             status TEXT DEFAULT 'active', created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
         $pdo->exec("CREATE TABLE chat_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER, role TEXT DEFAULT 'user',
             message TEXT, metadata TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
-        $pdo->exec("INSERT INTO users (id, username, api_token) VALUES (1, 'A', 'token-a')");
+        $pdo->exec("INSERT INTO users (id, username, api_token) VALUES (1, 'A', 'token-a'), (2, 'B', 'token-b')");
+        SqliteShop::supportTables($pdo);
+        $pdo->exec("INSERT INTO orders (id, user_id, total_price, status) VALUES (12, 1, 100000, 'Chờ xử lý'), (13, 2, 200000, 'Chờ xử lý')");
 
         return $pdo;
     }
@@ -94,6 +96,247 @@ final class ChatbotServiceTest extends TestCase
     private function messages(PDO $pdo): array
     {
         return $pdo->query('SELECT role, message, metadata FROM chat_messages WHERE session_id = 5 ORDER BY id')->fetchAll();
+    }
+
+    private const NOW = 1_800_000_000;
+    private const CREATED = 'Đã gửi yêu cầu #%d cho shop. Shop sẽ xử lý và cập nhật trạng thái; bạn có thể hỏi mình hoặc xem ở trang tài khoản.';
+    private const DECLINED = 'Mình đã huỷ yêu cầu, chưa gửi gì cho shop.';
+
+    /** A graph that must not be called, or records the request when it is. */
+    private function replyingClient(array &$requests): ChatGraphClient
+    {
+        return $this->client([['type' => 'delta', 'text' => 'Trả lời thường.'], $this->completeEvent()], $requests);
+    }
+
+    private function serviceAt(PDO $pdo, ChatGraphClient $client, ?int $userId, int $now = self::NOW): ChatbotService
+    {
+        $pdo->exec('INSERT INTO chat_sessions (id, user_id, session_token) VALUES (5, ' . ($userId ?? 'NULL') . ", 'tok-5')");
+
+        return new ChatbotService($pdo, 5, $userId, $client, static fn (): int => $now);
+    }
+
+    /** @param array<string,mixed> $override */
+    private function storePendingSlot(PDO $pdo, array $override = []): void
+    {
+        $slot = $override + [
+            'type' => 'doi_tra', 'order_id' => 12, 'summary' => 'Đổi sang size L', 'user_id' => 1, 'expires_at' => self::NOW + 600,
+        ];
+        $memory = new ChatbotMemory($pdo, 5, 1);
+        $memory->ensureSchema();
+        $memory->rememberSlot('pending_ticket', json_encode($slot, JSON_UNESCAPED_UNICODE));
+    }
+
+    /** @return array<string,mixed> */
+    private function slots(PDO $pdo): array
+    {
+        $json = $pdo->query('SELECT slots FROM chat_session_memory WHERE session_id = 5')->fetchColumn();
+
+        return is_string($json) ? json_decode($json, true) : [];
+    }
+
+    private function ticketCount(PDO $pdo): int
+    {
+        return (int) $pdo->query('SELECT COUNT(*) FROM support_tickets')->fetchColumn();
+    }
+
+    public function testDraftTurnStoresPendingSlotAndFlagsResponse(): void
+    {
+        $pdo = $this->pdo();
+        $draft = ['type' => 'doi_tra', 'order_id' => 12, 'summary' => 'Đổi sang size L'];
+        $client = $this->client([['type' => 'delta', 'text' => 'Bạn xác nhận gửi yêu cầu này cho shop không?'], $this->completeEvent(['pending_ticket' => $draft])]);
+
+        $result = $this->serviceAt($pdo, $client, 1)->respond('đổi size đơn 12');
+
+        $this->assertTrue($result['ticket_pending']);
+        $this->assertNull($result['ticket_id']);
+        $slot = json_decode($this->slots($pdo)['pending_ticket'], true);
+        $this->assertSame($draft + ['user_id' => 1, 'expires_at' => self::NOW + 900], $slot);
+        $this->assertSame(0, $this->ticketCount($pdo));
+    }
+
+    public function testGuestTurnNeverStoresPendingSlot(): void
+    {
+        $pdo = $this->pdo();
+        $client = $this->client([['type' => 'delta', 'text' => 'x'], $this->completeEvent(['pending_ticket' => ['type' => 'khac', 'order_id' => null, 'summary' => 'x']])]);
+
+        $result = $this->serviceAt($pdo, $client, null)->respond('gửi yêu cầu');
+
+        $this->assertFalse($result['ticket_pending']);
+        $this->assertArrayNotHasKey('pending_ticket', $this->slots($pdo));
+    }
+
+    public function testPendingSlotStaysOutOfTheSummaryAndTheGraphRequest(): void
+    {
+        $pdo = $this->pdo();
+        $this->storePendingSlot($pdo);
+        (new ChatbotMemory($pdo, 5, 1))->refreshSummary();
+
+        $summary = (string) $pdo->query('SELECT summary FROM chat_session_memory WHERE session_id = 5')->fetchColumn();
+        $this->assertStringNotContainsString('pending_ticket', $summary);
+        $this->assertArrayNotHasKey('pending_ticket', ChatMemoryContext::build((new ChatbotMemory($pdo, 5, 1))->load(), 1)['slots']);
+    }
+
+    public function testYesCreatesTicketWithoutCallingChatGraph(): void
+    {
+        $pdo = $this->pdo();
+        $this->storePendingSlot($pdo);
+        $requests = [];
+        $service = $this->serviceAt($pdo, $this->replyingClient($requests), 1);
+
+        $result = $service->respond('đồng ý');
+
+        $this->assertSame([], $requests);
+        $row = $pdo->query('SELECT * FROM support_tickets')->fetch();
+        $this->assertSame(sprintf(self::CREATED, (int) $row['id']), $result['message']);
+        $this->assertSame((int) $row['id'], $result['ticket_id']);
+        $this->assertFalse($result['ticket_pending']);
+        $this->assertSame('final_answer', $result['response_type']);
+        $this->assertSame([], $result['tools_used']);
+        $this->assertSame(['user_id' => 1, 'order_id' => 12, 'type' => 'doi_tra', 'summary' => 'Đổi sang size L', 'status' => 'moi', 'chat_session_id' => 5],
+            array_map(static fn ($v) => is_numeric($v) ? (int) $v : $v, array_intersect_key($row, array_flip(['user_id', 'order_id', 'type', 'summary', 'status', 'chat_session_id']))));
+        $this->assertArrayNotHasKey('pending_ticket', $this->slots($pdo));
+        $rows = $this->messages($pdo);
+        $this->assertSame(['user', 'bot'], array_column($rows, 'role'));
+        $this->assertSame(['đồng ý', $result['message']], array_column($rows, 'message'));
+        $pipeline = json_decode($rows[1]['metadata'], true)['pipeline'];
+        $this->assertSame('final_answer', $pipeline['response_type']);
+        $this->assertSame([], $pipeline['tools_used']);
+    }
+
+    public function testNoDropsDraft(): void
+    {
+        $pdo = $this->pdo();
+        $this->storePendingSlot($pdo);
+        $requests = [];
+
+        $result = $this->serviceAt($pdo, $this->replyingClient($requests), 1)->respond('thôi');
+
+        $this->assertSame([], $requests);
+        $this->assertSame(self::DECLINED, $result['message']);
+        $this->assertNull($result['ticket_id']);
+        $this->assertSame(0, $this->ticketCount($pdo));
+        $this->assertArrayNotHasKey('pending_ticket', $this->slots($pdo));
+        $this->assertSame(['thôi', self::DECLINED], array_column($this->messages($pdo), 'message'));
+    }
+
+    public function testConfirmationWithExtraWordsIsNotAConfirmation(): void
+    {
+        $pdo = $this->pdo();
+        $this->storePendingSlot($pdo);
+        $requests = [];
+
+        $result = $this->serviceAt($pdo, $this->replyingClient($requests), 1)->respond('đồng ý, mà đổi sang size XL luôn');
+
+        $this->assertCount(1, $requests);
+        $this->assertArrayNotHasKey('pending_ticket', $requests[0]['memory']['slots']);
+        $this->assertSame('Trả lời thường.', $result['message']);
+        $this->assertSame(0, $this->ticketCount($pdo));
+        $this->assertArrayNotHasKey('pending_ticket', $this->slots($pdo));
+    }
+
+    public function testExpiredDraftIsDroppedAndTurnGoesToChatGraph(): void
+    {
+        $pdo = $this->pdo();
+        $this->storePendingSlot($pdo, ['expires_at' => self::NOW - 1]);
+        $requests = [];
+
+        $result = $this->serviceAt($pdo, $this->replyingClient($requests), 1)->respond('đồng ý');
+
+        $this->assertCount(1, $requests);
+        $this->assertSame('Trả lời thường.', $result['message']);
+        $this->assertSame(0, $this->ticketCount($pdo));
+        $this->assertArrayNotHasKey('pending_ticket', $this->slots($pdo));
+    }
+
+    public function testSecondYesCreatesNothing(): void
+    {
+        $pdo = $this->pdo();
+        $this->storePendingSlot($pdo);
+        $requests = [];
+        $service = $this->serviceAt($pdo, $this->replyingClient($requests), 1);
+
+        $first = $service->respond('đồng ý');
+        $second = $service->respond('đồng ý');
+
+        $this->assertSame(1, $this->ticketCount($pdo));
+        $this->assertNotNull($first['ticket_id']);
+        $this->assertNull($second['ticket_id']);
+        $this->assertCount(1, $requests);
+        $this->assertSame('Trả lời thường.', $second['message']);
+    }
+
+    public function testOtherUserCannotConfirm(): void
+    {
+        foreach ([2, null] as $userId) {
+            $pdo = $this->pdo();
+            $this->storePendingSlot($pdo, ['user_id' => 1]);
+            $requests = [];
+
+            $result = $this->serviceAt($pdo, $this->replyingClient($requests), $userId)->respond('đồng ý');
+
+            $this->assertCount(1, $requests);
+            $this->assertSame('Trả lời thường.', $result['message']);
+            $this->assertSame(0, $this->ticketCount($pdo));
+            $this->assertArrayNotHasKey('pending_ticket', $this->slots($pdo));
+        }
+    }
+
+    public function testCreateRefusedOnRecheckAnswersWithReason(): void
+    {
+        $pdo = $this->pdo();
+        $this->storePendingSlot($pdo);
+        $pdo->exec("INSERT INTO support_tickets (id, user_id, order_id, type, summary, status) VALUES (7, 1, 12, 'doi_tra', 'có rồi', 'moi')");
+        $requests = [];
+
+        $result = $this->serviceAt($pdo, $this->replyingClient($requests), 1)->respond('đồng ý');
+
+        $this->assertSame([], $requests);
+        $this->assertSame('Chưa gửi được yêu cầu: Bạn đã có yêu cầu #7 cho đơn này đang được xử lý.', $result['message']);
+        $this->assertNull($result['ticket_id']);
+        $this->assertSame(1, $this->ticketCount($pdo));
+        $this->assertArrayNotHasKey('pending_ticket', $this->slots($pdo));
+    }
+
+    public function testRememberUserMessageKeepsTheUnknownPendingSlot(): void
+    {
+        $pdo = $this->pdo();
+        $pdo->exec("INSERT INTO chat_sessions (id, user_id, session_token) VALUES (5, 1, 'tok-5')");
+        $this->storePendingSlot($pdo);
+
+        $remembered = (new ChatbotMemory($pdo, 5, 1))->rememberUserMessage('áo thun size M');
+
+        $this->assertArrayHasKey('pending_ticket', $remembered['slots']);
+        $this->assertArrayHasKey('pending_ticket', $this->slots($pdo));
+        $this->assertSame('M', $this->slots($pdo)['size']);
+    }
+
+    public function testForgetSlotLeavesTheOtherSlots(): void
+    {
+        $pdo = $this->pdo();
+        $this->storePendingSlot($pdo);
+        $memory = new ChatbotMemory($pdo, 5, 1);
+        $memory->rememberSlot('freeship_nudged_fingerprint', 'fp-1');
+
+        $memory->forgetSlot('pending_ticket');
+        $memory->forgetSlot('pending_ticket');
+        $memory->forgetSlot('never_set');
+
+        $this->assertSame(['freeship_nudged_fingerprint' => 'fp-1'], $this->slots($pdo));
+    }
+
+    public function testCorruptPendingSlotIsDroppedAndTurnGoesToChatGraph(): void
+    {
+        $pdo = $this->pdo();
+        $memory = new ChatbotMemory($pdo, 5, 1);
+        $memory->ensureSchema();
+        $memory->rememberSlot('pending_ticket', '{not json');
+        $requests = [];
+
+        $this->serviceAt($pdo, $this->replyingClient($requests), 1)->respond('đồng ý');
+
+        $this->assertCount(1, $requests);
+        $this->assertSame(0, $this->ticketCount($pdo));
+        $this->assertArrayNotHasKey('pending_ticket', $this->slots($pdo));
     }
 
     public function testBearerUserWinsOverTheGuestToken(): void

@@ -137,6 +137,20 @@ class ChatbotMemory {
         }
     }
 
+    /** Removes one key from the session slots (no-op when absent), leaving the others and the summary untouched. */
+    public function forgetSlot(string $key): void {
+        try {
+            $json = $this->memory->slotsJson($this->sessionId);
+            if ($json === false) return;
+            $slots = $this->decodeJson($json, []);
+            if (!is_array($slots) || !array_key_exists($key, $slots)) return;
+            unset($slots[$key]);
+            $this->memory->updateSlots($this->sessionId, json_encode($slots === [] ? new stdClass() : $slots, JSON_UNESCAPED_UNICODE));
+        } catch (Throwable $e) {
+            error_log("Memory slot forget error: " . $e->getMessage());
+        }
+    }
+
     public function refreshSummary(): void {
         $memory = $this->load();
         $summary = $this->generateSummary($memory['summary'], $memory['slots']);
@@ -335,8 +349,8 @@ class ChatbotMemory {
     private function generateSummary(string $oldSummary, array $slots): string {
         $slotBullets = [];
         foreach ($this->compactArray($slots) as $key => $value) {
-            // Internal bookkeeping (the free-shipping nudge fingerprint ledger), not a user fact.
-            if ($key === 'freeship_nudged_fingerprint') continue;
+            // Internal bookkeeping (the free-shipping nudge fingerprint ledger, a drafted support ticket), not a user fact.
+            if ($key === 'freeship_nudged_fingerprint' || $key === 'pending_ticket') continue;
             $slotBullets[$key] = "- $key: " . (is_array($value) ? json_encode($value, JSON_UNESCAPED_UNICODE) : $value);
         }
 

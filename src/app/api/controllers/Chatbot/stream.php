@@ -52,6 +52,8 @@ try {
         'trace_id' => $result['trace_id'] ?? null,
         'outfits' => $result['outfits'] ?? [],
         'freeship_nudge' => (bool)($result['freeship_nudge'] ?? false),
+        'ticket_pending' => (bool)($result['ticket_pending'] ?? false),
+        'ticket_id' => is_int($result['ticket_id'] ?? null) ? $result['ticket_id'] : null,
         'product_count' => count($cards),
         'latency' => array_filter(
             is_array($result['latency'] ?? null) ? $result['latency'] : [],

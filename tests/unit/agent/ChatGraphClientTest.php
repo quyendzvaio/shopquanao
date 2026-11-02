@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class ChatGraphClientTest extends TestCase
@@ -76,6 +77,46 @@ final class ChatGraphClientTest extends TestCase
         $this->assertSame([], $result['products']);
         $this->assertSame('final_answer', $result['response_type']);
         $this->assertFalse(json_decode($seen['body'], true)['stream']);
+    }
+
+    /** @return array<string,array{mixed,mixed}> */
+    public static function pendingTickets(): array
+    {
+        $ok = ['type' => 'doi_tra', 'order_id' => 12, 'summary' => 'Đổi size'];
+        return [
+            'valid with order' => [$ok, $ok],
+            'valid khac without order' => [['type' => 'khac', 'order_id' => null, 'summary' => 'x'], ['type' => 'khac', 'order_id' => null, 'summary' => 'x']],
+            'missing key' => [null, null],
+            'unknown type' => [['type' => 'sua_gia', 'order_id' => null, 'summary' => 'x'], null],
+            'empty summary' => [['type' => 'khac', 'order_id' => null, 'summary' => ''], null],
+            'non string summary' => [['type' => 'khac', 'order_id' => null, 'summary' => 5], null],
+            'zero order id' => [['type' => 'doi_tra', 'order_id' => 0, 'summary' => 'x'], null],
+            'string order id' => [['type' => 'doi_tra', 'order_id' => '12', 'summary' => 'x'], null],
+            'not an array' => ['doi_tra', null],
+        ];
+    }
+
+    #[DataProvider('pendingTickets')]
+    public function testPendingTicketIsKeptOnlyWhenValid(mixed $pending, mixed $expected): void
+    {
+        $body = json_encode(['message' => 'Xác nhận?', 'products' => [], 'pending_ticket' => $pending] + array_diff_key(self::COMPLETE, ['type' => 1]));
+        if ($pending === null) {
+            $body = json_encode(['message' => 'Xác nhận?', 'products' => []] + array_diff_key(self::COMPLETE, ['type' => 1]));
+        }
+
+        $result = $this->client([$body])->turn($this->request(false));
+
+        $this->assertSame($expected, $result['pending_ticket']);
+    }
+
+    public function testPendingTicketComesFromTheCompleteEventWhenStreaming(): void
+    {
+        $draft = ['type' => 'huy_don', 'order_id' => 9, 'summary' => 'Huỷ đơn'];
+        $complete = json_encode(['pending_ticket' => $draft] + self::COMPLETE);
+
+        $result = $this->client([json_encode(['type' => 'delta', 'text' => 'Xác nhận?']) . "\n", $complete . "\n"])->turn($this->request());
+
+        $this->assertSame($draft, $result['pending_ticket']);
     }
 
     public function testNon200Throws(): void
