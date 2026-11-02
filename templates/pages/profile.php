@@ -96,6 +96,7 @@
                     <th style="padding: 20px; text-align: left;">Loại</th>
                     <th style="padding: 20px; text-align: left;">Đơn</th>
                     <th style="padding: 20px; text-align: left;">Nội dung</th>
+                    <th style="padding: 20px; text-align: left;">Ngày tạo</th>
                     <th style="padding: 20px; text-align: center;">Trạng thái</th>
                     <th style="padding: 20px; text-align: left;">Phản hồi của shop</th>
                 </tr>
@@ -108,6 +109,7 @@
                         <td style="padding: 20px; font-size: 14px;"><?= htmlspecialchars((string) $t['type_label'], ENT_QUOTES, 'UTF-8') ?></td>
                         <td style="padding: 20px; font-size: 14px;"><?= $t['order_id'] !== null ? '#' . (int) $t['order_id'] : '-' ?></td>
                         <td style="padding: 20px; color: #666; font-size: 14px;"><?= htmlspecialchars((string) $t['summary'], ENT_QUOTES, 'UTF-8') ?></td>
+                        <td style="padding: 20px; color: #666; font-size: 14px;"><?= htmlspecialchars(date('d/m/Y H:i', strtotime((string) $t['created_at'])), ENT_QUOTES, 'UTF-8') ?></td>
                         <td style="padding: 20px; text-align: center;">
                             <span style="background: #eee; color: #555; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 700;">
                                 <?= htmlspecialchars((string) $t['status_label'], ENT_QUOTES, 'UTF-8') ?>
@@ -118,7 +120,7 @@
                     <?php endforeach; ?>
                 <?php else: ?>
                     <tr>
-                        <td colspan="6" style="padding: 40px; text-align: center; color: #999;">
+                        <td colspan="7" style="padding: 40px; text-align: center; color: #999;">
                             Bạn chưa có yêu cầu hỗ trợ nào. Hãy nhờ trợ lý chat để gửi yêu cầu cho shop.
                         </td>
                     </tr>

@@ -95,6 +95,17 @@ final class AdminTicketsPageTest extends TestCase
         $this->assertSame(['status' => 'moi', 'admin_note' => 'ghi chú cũ'], $this->row(1));
     }
 
+    public function testUnknownTicketIdWritesNothing(): void
+    {
+        $result = $this->post(['ticket_id' => '999']);
+
+        $this->assertSame('redirect', $result->kind());
+        $this->assertSame('manage_tickets.php', $result->payload());
+        $this->assertSame(4, (int) $this->pdo->query('SELECT COUNT(*) FROM support_tickets')->fetchColumn());
+        $this->assertSame(['status' => 'moi', 'admin_note' => 'ghi chú cũ'], $this->row(1));
+        $this->assertSame(1, (int) $this->pdo->query("SELECT COUNT(*) FROM support_tickets WHERE status = 'moi'")->fetchColumn());
+    }
+
     public function testAGetNeverUpdates(): void
     {
         $this->page()->handle(

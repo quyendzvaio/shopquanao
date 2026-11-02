@@ -22,8 +22,9 @@ final class ProfilePageTest extends TestCase
             order_id INTEGER NULL, type TEXT NOT NULL, summary TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'moi',
             admin_note TEXT NULL, chat_session_id INTEGER NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)");
-        $pdo->exec("INSERT INTO support_tickets (id, user_id, order_id, type, summary, status, admin_note)
-            VALUES (1, 5, 1, 'doi_tra', '<script>x</script>', 'moi', '<script>x</script>'), (2, 6, 4, 'khac', 'của người khác', 'moi', NULL)");
+        $pdo->exec("INSERT INTO support_tickets (id, user_id, order_id, type, summary, status, admin_note, created_at)
+            VALUES (1, 5, 1, 'doi_tra', '<script>x</script>', 'moi', '<script>x</script>', '2026-01-05 09:30:00'),
+                   (2, 6, 4, 'khac', 'của người khác', 'moi', NULL, '2026-01-06 10:00:00')");
         return $pdo;
     }
 
@@ -75,5 +76,6 @@ final class ProfilePageTest extends TestCase
 
         $this->assertStringContainsString('&lt;script&gt;', $out);
         $this->assertStringNotContainsString('<script>x', $out);
+        $this->assertStringContainsString('05/01/2026 09:30', $out);
     }
 }
