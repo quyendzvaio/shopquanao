@@ -18,6 +18,7 @@ class ChatbotService
     public const TICKET_CREATED = 'Đã gửi yêu cầu #%d cho shop. Shop sẽ xử lý và cập nhật trạng thái; bạn có thể hỏi mình hoặc xem ở trang tài khoản.';
     public const TICKET_DECLINED = 'Mình đã huỷ yêu cầu, chưa gửi gì cho shop.';
     public const TICKET_REFUSED = 'Chưa gửi được yêu cầu: %s';
+    public const TICKET_FAILED = 'Chưa gửi được yêu cầu do lỗi hệ thống. Bạn nhắn lại yêu cầu để mình soạn lại nhé.';
     private const MAX_MESSAGE_CHARS = 2000;
 
     private ?ChatGraphClient $graph;
@@ -192,7 +193,10 @@ class ChatbotService
         if ($stored === null || $stored === '') {
             return null;
         }
-        $memory->forgetSlot(self::PENDING_TICKET_SLOT);
+        if (!$memory->forgetSlot(self::PENDING_TICKET_SLOT)) {
+            // The draft could not be taken out, so a second "đồng ý" could create it again: not a confirmation.
+            return null;
+        }
 
         $draft = is_string($stored) ? json_decode($stored, true) : null;
         $userId = $this->userId !== null && $this->userId > 0 ? $this->userId : null;
@@ -222,11 +226,13 @@ class ChatbotService
                 ], $this->sessionId);
             } catch (Throwable $e) {
                 error_log(json_encode(['operation' => 'support_ticket_create', 'success' => false, 'error' => $e::class], JSON_UNESCAPED_SLASHES));
-                $created = ['status' => 'error', 'message' => 'có lỗi hệ thống, bạn thử lại sau nhé.'];
+                $created = ['status' => 'error'];
             }
             if (($created['status'] ?? '') === 'created') {
                 $ticketId = (int) $created['ticket_id'];
                 $text = sprintf(self::TICKET_CREATED, $ticketId);
+            } elseif (($created['status'] ?? '') === 'error') {
+                $text = self::TICKET_FAILED;
             } else {
                 $text = sprintf(self::TICKET_REFUSED, (string) ($created['message'] ?? ''));
             }

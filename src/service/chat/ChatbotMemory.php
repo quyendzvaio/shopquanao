@@ -137,17 +137,24 @@ class ChatbotMemory {
         }
     }
 
-    /** Removes one key from the session slots (no-op when absent), leaving the others and the summary untouched. */
-    public function forgetSlot(string $key): void {
+    /**
+     * Removes one key from the session slots, leaving the others and the summary untouched.
+     *
+     * @return bool true only when the key is gone afterwards (already absent counts); false when it could not be removed
+     */
+    public function forgetSlot(string $key): bool {
         try {
             $json = $this->memory->slotsJson($this->sessionId);
-            if ($json === false) return;
-            $slots = $this->decodeJson($json, []);
-            if (!is_array($slots) || !array_key_exists($key, $slots)) return;
+            if ($json === false || $json === null || $json === '') return true;
+            $slots = $this->decodeJson($json, null);
+            if (!is_array($slots)) return false;
+            if (!array_key_exists($key, $slots)) return true;
             unset($slots[$key]);
             $this->memory->updateSlots($this->sessionId, json_encode($slots === [] ? new stdClass() : $slots, JSON_UNESCAPED_UNICODE));
+            return true;
         } catch (Throwable $e) {
             error_log("Memory slot forget error: " . $e->getMessage());
+            return false;
         }
     }
 

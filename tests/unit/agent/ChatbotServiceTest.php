@@ -297,6 +297,50 @@ final class ChatbotServiceTest extends TestCase
         $this->assertArrayNotHasKey('pending_ticket', $this->slots($pdo));
     }
 
+    public function testFailedSlotClearIsNotAConfirmation(): void
+    {
+        $pdo = $this->pdo();
+        $this->storePendingSlot($pdo);
+        // The slot can be read but not updated, so it cannot be taken out before create().
+        $pdo->exec("CREATE TRIGGER block_slot_update BEFORE UPDATE ON chat_session_memory BEGIN SELECT RAISE(ABORT, 'locked'); END");
+        $requests = [];
+
+        $result = $this->serviceAt($pdo, $this->replyingClient($requests), 1)->respond('đồng ý');
+
+        $this->assertSame(0, $this->ticketCount($pdo));
+        $this->assertCount(1, $requests);
+        $this->assertSame('Trả lời thường.', $result['message']);
+        $this->assertNull($result['ticket_id']);
+    }
+
+    public function testForgetSlotReportsWhetherTheSlotIsGone(): void
+    {
+        $pdo = $this->pdo();
+        $this->storePendingSlot($pdo);
+        $memory = new ChatbotMemory($pdo, 5, 1);
+
+        $this->assertTrue($memory->forgetSlot('pending_ticket'));
+        $this->assertTrue($memory->forgetSlot('pending_ticket'));
+        $this->storePendingSlot($pdo);
+        $pdo->exec("CREATE TRIGGER block_slot_update BEFORE UPDATE ON chat_session_memory BEGIN SELECT RAISE(ABORT, 'locked'); END");
+        $this->assertFalse($memory->forgetSlot('pending_ticket'));
+    }
+
+    public function testCreateThrowingAnswersTheSystemErrorCopyAndLeavesNoSlot(): void
+    {
+        $pdo = $this->pdo();
+        $this->storePendingSlot($pdo);
+        $pdo->exec('DROP TABLE support_tickets');
+        $requests = [];
+
+        $result = $this->serviceAt($pdo, $this->replyingClient($requests), 1)->respond('đồng ý');
+
+        $this->assertSame([], $requests);
+        $this->assertSame('Chưa gửi được yêu cầu do lỗi hệ thống. Bạn nhắn lại yêu cầu để mình soạn lại nhé.', $result['message']);
+        $this->assertNull($result['ticket_id']);
+        $this->assertArrayNotHasKey('pending_ticket', $this->slots($pdo));
+    }
+
     public function testRememberUserMessageKeepsTheUnknownPendingSlot(): void
     {
         $pdo = $this->pdo();
