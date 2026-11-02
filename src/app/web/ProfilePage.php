@@ -1,9 +1,9 @@
 <?php
 
-/** public/profile.php: the signed-in user's orders (filtered by ?status=) and their completed-order totals. */
+/** public/profile.php: the signed-in user's orders (filtered by ?status=), their completed-order totals and newest support tickets. */
 final class ProfilePage
 {
-    public function __construct(private OrderService $orders)
+    public function __construct(private OrderService $orders, private SupportTicketService $tickets)
     {
     }
 
@@ -24,11 +24,15 @@ final class ProfilePage
         // 4. Totals always cover every completed order
         $stat = $this->orders->completedStats($user_id);
 
+        // 5. The user's newest support tickets
+        $tickets = $this->tickets->listForUser((int) $user_id, [])['tickets'] ?? [];
+
         return PageResult::view([
             'username' => $session['username'],
             'status_filter' => $status_filter,
             'my_orders' => $my_orders,
             'stat' => $stat,
+            'tickets' => $tickets,
         ]);
     }
 }

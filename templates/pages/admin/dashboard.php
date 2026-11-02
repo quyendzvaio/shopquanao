@@ -13,6 +13,7 @@
                 <li style="margin-bottom:15px;"><a href="index.php" style="color:#fff; text-decoration:none;">Dashboard</a></li>
                 <li style="margin-bottom:15px;"><a href="manage_products.php" style="color:#fff; text-decoration:none;">Quản lý Sản phẩm</a></li>
                 <li style="margin-bottom:15px;"><a href="manage_orders.php" style="color:#fff; text-decoration:none;">Quản lý Đơn hàng</a></li>
+                <li style="margin-bottom:15px;"><a href="manage_tickets.php" style="color:#fff; text-decoration:none;">Yêu cầu hỗ trợ</a></li>
                 <li style="margin-bottom:15px;"><a href="manage_users.php" style="color:#fff; text-decoration:none;">Quản lý Người dùng</a></li>
                 <li style="margin-top:50px;"><a href="logout.php" style="color:#ff4757; text-decoration:none;">Đăng xuất</a></li>
             </ul>
@@ -34,6 +35,13 @@
                     <h4 style="margin:0; color:#666;">Thành viên</h4>
                     <p style="font-size:24px; font-weight:bold; margin:10px 0;"><?= $total_users ?></p>
                 </div>
+            </div>
+
+            <div style="margin-top:20px;">
+                <a href="manage_tickets.php" style="display:block; text-decoration:none; color:inherit; background:#fff; padding:20px; border-radius:8px; border-left:5px solid #9b59b6; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+                    <h4 style="margin:0; color:#666;">Yêu cầu hỗ trợ mới</h4>
+                    <p style="font-size:24px; font-weight:bold; margin:10px 0;"><?= (int) $new_tickets ?></p>
+                </a>
             </div>
 
             <div style="margin-top:20px;">
