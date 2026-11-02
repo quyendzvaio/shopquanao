@@ -7,7 +7,8 @@ import type { GraphConfig } from '../src/config.js';
 import type { TurnEvent } from '../src/contract.js';
 import { BUSY } from '../src/copy.js';
 import { runTurn } from '../src/turn.js';
-import { ScriptedChatModel } from './support/scriptedModel.js';
+import { fakeShopTools } from './support/fakeTools.js';
+import { ScriptedChatModel, type ScriptedStep } from './support/scriptedModel.js';
 import { ai, call, CONFIG, req, searchTurn, setup, TrackedModel } from './support/turnHarness.js';
 
 test('turnStreamsAfterGraphAndEndsWithComplete', async () => {
@@ -153,4 +154,29 @@ test('externalAbortAnswersBusyAndCancelsTheModelCall', async () => {
   assert.equal(result.response_type, 'busy');
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(model.settled, true);
+});
+
+test('theCompleteEventAndTheResultCarryPendingTicket', async () => {
+  const draft = { type: 'doi_tra', order_id: 12, summary: 'Nhận size M thay vì L' };
+  const run = async (steps: ScriptedStep[]) => {
+    const tools = fakeShopTools({ draft_support_ticket: () => ({ status: 'draft', draft }), get_support_tickets: () => ({ tickets: [] }) });
+    const events: TurnEvent[] = [];
+    const result = await runTurn(req({ user_id: 7 }), { config: CONFIG, model: new ScriptedChatModel(steps), openTools: async () => tools }, (e) => events.push(e));
+    return { result, complete: events[events.length - 1] as Extract<TurnEvent, { type: 'complete' }> };
+  };
+
+  const drafted = await run([ai('', [call('t1', 'draft_support_ticket', {})]), ai('Mình sẽ gửi yêu cầu đổi size.')]);
+  assert.deepEqual(drafted.result.pending_ticket, draft);
+  assert.deepEqual(drafted.complete.pending_ticket, draft);
+  assert.equal(drafted.result.response_type, 'clarification');
+  assert.equal(drafted.result.primary_intent, 'support_ticket');
+  assert.equal(drafted.result.freeship_nudge, false);
+
+  const plain = await run([ai('', [call('t1', 'get_support_tickets', {})]), ai('Bạn chưa có yêu cầu nào.')]);
+  assert.equal(plain.result.pending_ticket, null);
+  assert.equal(plain.complete.pending_ticket, null);
+  assert.equal(plain.result.primary_intent, 'support_ticket');
+
+  const busy = await runTurn(req(), { config: CONFIG, model: new ScriptedChatModel([new Error('boom')]), openTools: async () => fakeShopTools({}) }, () => {});
+  assert.equal(busy.pending_ticket, null);
 });

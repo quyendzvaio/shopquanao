@@ -1,4 +1,4 @@
-import type { Offered } from './contract.js';
+import type { Offered, PendingTicket } from './contract.js';
 
 export const BUSY = 'Hệ thống đang bận, bạn thử lại sau ít phút nhé.';
 
@@ -69,4 +69,23 @@ export const PRIMARY_INTENT: Record<string, string> = {
   suggest_size: 'size_advice',
   retrieve_knowledge: 'policy',
   get_order_status: 'order_status',
+  draft_support_ticket: 'support_ticket',
+  get_support_tickets: 'support_ticket',
 };
+
+export const TICKET_CONFIRM_QUESTION = 'Bạn xác nhận gửi yêu cầu này cho shop không?';
+
+const TICKET_TYPE_LABELS: Record<string, string> = {
+  doi_tra: 'Đổi size / đổi trả',
+  hang_loi: 'Hàng lỗi / giao sai',
+  huy_don: 'Huỷ đơn',
+  doi_dia_chi: 'Đổi địa chỉ giao',
+  khac: 'Khác',
+};
+
+/** The fixed description of a draft, used when the model's own answer is empty. */
+export function ticketDraftLine(d: PendingTicket): string {
+  const label = TICKET_TYPE_LABELS[d.type] ?? d.type;
+  const order = d.order_id !== null ? `, đơn #${d.order_id}` : '';
+  return `Mình sẽ gửi yêu cầu sau cho shop: ${label}${order}: ${d.summary.trim().replace(/[.\s]+$/u, '')}.`;
+}

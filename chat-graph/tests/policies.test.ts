@@ -227,3 +227,19 @@ test('budget reports the model and tool calls it has left', () => {
   b.takeToolCall();
   assert.equal(b.toolCallsLeft(), 0);
 });
+
+test('groundingKnowsTicketAndDraftOrderIds', () => {
+  const draftRecord: ToolRecord = {
+    name: 'draft_support_ticket', args: {}, result: { status: 'draft', draft: { type: 'doi_tra', order_id: 12, summary: 'Nhận size M' } },
+  };
+  assert.deepEqual(ungroundedClaims('đơn mã 12', [draftRecord]), []);
+  assert.deepEqual(ungroundedClaims('đơn mã 13', [draftRecord]), ['mã 13']);
+  const tickets: ToolRecord = {
+    name: 'get_support_tickets', args: {},
+    result: { tickets: [{ id: 5, order_id: 21, type: 'huy_don', summary: 'x', status: 'moi' }, { id: 6, order_id: null }] },
+  };
+  assert.deepEqual(ungroundedClaims('yêu cầu mã 5 cho đơn mã 21, mã 6', [tickets]), []);
+  assert.deepEqual(ungroundedClaims('mã 7', [tickets]), ['mã 7']);
+  const refused: ToolRecord = { name: 'draft_support_ticket', args: {}, result: { status: 'duplicate_open', message: 'm', ticket_id: 9 } };
+  assert.deepEqual(ungroundedClaims('yêu cầu mã 9', [refused]), []);
+});

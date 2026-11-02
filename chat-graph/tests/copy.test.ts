@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  BUSY, PRIMARY_INTENT, askAlternatives, checkoutRefusal, money, nudgeText, soldOutCorrection, soldOutNoAlternatives, soldOutNote,
+  BUSY, PRIMARY_INTENT, askAlternatives, checkoutRefusal, money, nudgeText, soldOutCorrection, soldOutNoAlternatives, soldOutNote, TICKET_CONFIRM_QUESTION, ticketDraftLine,
 } from '../src/copy.js';
 
 const TAIL = ', mình không thể tự thêm giỏ hàng hoặc thanh toán giúp bạn. Bạn vui lòng bấm vào thẻ sản phẩm hoặc vào trang chi tiết sản phẩm để tự thêm giỏ hàng và thanh toán.';
@@ -86,5 +86,17 @@ test('PRIMARY_INTENT map is pinned', () => {
     search_products: 'product_search', find_similar_in_stock: 'product_search', get_categories: 'product_search',
     get_product_detail: 'product_detail', build_outfit: 'build_outfit', suggest_freeship_items: 'freeship_gap',
     suggest_size: 'size_advice', retrieve_knowledge: 'policy', get_order_status: 'order_status',
+    draft_support_ticket: 'support_ticket', get_support_tickets: 'support_ticket',
   });
+});
+
+test('the ticket confirmation question and draft line', () => {
+  assert.equal(TICKET_CONFIRM_QUESTION, 'Bạn xác nhận gửi yêu cầu này cho shop không?');
+  const labels: Record<string, string> = {
+    doi_tra: 'Đổi size / đổi trả', hang_loi: 'Hàng lỗi / giao sai', huy_don: 'Huỷ đơn', doi_dia_chi: 'Đổi địa chỉ giao', khac: 'Khác',
+  };
+  for (const [type, label] of Object.entries(labels)) {
+    assert.equal(ticketDraftLine({ type, order_id: 3, summary: 'abc' }), `Mình sẽ gửi yêu cầu sau cho shop: ${label}, đơn #3: abc.`);
+  }
+  assert.equal(ticketDraftLine({ type: 'khac', order_id: null, summary: 'abc' }), 'Mình sẽ gửi yêu cầu sau cho shop: Khác: abc.');
 });

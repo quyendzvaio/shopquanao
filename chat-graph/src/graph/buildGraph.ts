@@ -4,8 +4,8 @@ import type { RunnableConfig } from '@langchain/core/runnables';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import { createAgent } from 'langchain';
 import type { GraphConfig } from '../config.js';
-import type { Card, Offered, ResponseType, ToolRecord, TurnRequest } from '../contract.js';
-import { BUSY, askAlternatives, checkoutRefusal, nudgeText, soldOutCorrection, soldOutNoAlternatives } from '../copy.js';
+import type { Card, Offered, PendingTicket, ResponseType, ToolRecord, TurnRequest } from '../contract.js';
+import { BUSY, TICKET_CONFIRM_QUESTION, askAlternatives, checkoutRefusal, nudgeText, soldOutCorrection, soldOutNoAlternatives, ticketDraftLine } from '../copy.js';
 import type { TurnBudget } from '../policies/budget.js';
 import { outfitsFrom, productToCard, selectCards } from '../policies/cards.js';
 import { matchesCheckout } from '../policies/checkout.js';
@@ -25,6 +25,7 @@ export type GraphOutcome = {
   tools_used: string[];
   freeship_nudge: boolean;
   freeship_fingerprint: string | null;
+  pending_ticket: PendingTicket | null;
 };
 
 export type GraphDeps = {
@@ -46,6 +47,22 @@ export type InvokeOptions = {
 const MAX_CARDS = 6;
 const SHOPPING_TOOLS = ['search_products', 'get_product_detail', 'build_outfit', 'find_similar_in_stock', 'get_order_status'];
 
+/** The last `draft_support_ticket` result of the turn that is a valid draft; refused drafts never count. */
+function lastValidDraft(records: ToolRecord[]): PendingTicket | null {
+  for (let i = records.length - 1; i >= 0; i--) {
+    const r = records[i];
+    if (!r || r.name !== 'draft_support_ticket' || r.result.status !== 'draft') continue;
+    const d = r.result.draft;
+    if (typeof d !== 'object' || d === null) continue;
+    const { type, order_id: orderId, summary } = d as Record<string, unknown>;
+    if (typeof type !== 'string' || typeof summary !== 'string' || summary.trim() === '') continue;
+    const order = orderId === null || orderId === undefined ? null : Number(orderId);
+    if (order !== null && !Number.isInteger(order)) continue;
+    return { type, order_id: order, summary };
+  }
+  return null;
+}
+
 const last = <T>(_: T, b: T): T => b;
 
 const State = Annotation.Root({
@@ -65,6 +82,7 @@ const State = Annotation.Root({
   toolsUsed: Annotation<string[]>({ reducer: last, default: () => [] }),
   nudged: Annotation<boolean>({ reducer: last, default: () => false }),
   fingerprint: Annotation<string | null>({ reducer: last, default: () => null }),
+  pendingTicket: Annotation<PendingTicket | null>({ reducer: last, default: () => null }),
 });
 
 type S = typeof State.State;
@@ -161,6 +179,14 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
     const toolsUsed = [...new Set(records.map((r) => r.name))];
     const soldOutAnswered = so !== null && !found.markup && found.claims.length === 0 && !found.soldOut;
 
+    // A valid draft always ends in the fixed confirmation question; PHP stores the draft and creates the ticket on "yes".
+    const pending = so === null ? lastValidDraft(records) : null;
+    if (pending !== null) {
+      if (text === '') text = `${ticketDraftLine(pending)} ${TICKET_CONFIRM_QUESTION}`;
+      else if (!text.includes(TICKET_CONFIRM_QUESTION)) text = `${text} ${TICKET_CONFIRM_QUESTION}`;
+      return { text, cards: [], outfits: outfitsFrom(records), toolsUsed, responseType: 'clarification', pendingTicket: pending };
+    }
+
     if (text === '' && !s.soldOut) {
       text = cards.length > 0 ? summaryFromCards(cards) : BUSY;
       if (cards.length === 0) {
@@ -247,6 +273,7 @@ export function buildTurnGraph(deps: GraphDeps): { invoke(req: TurnRequest, opti
         tools_used: s.toolsUsed,
         freeship_nudge: s.nudged,
         freeship_fingerprint: s.fingerprint ?? req.freeship_fingerprint,
+        pending_ticket: s.pendingTicket,
       };
     },
   };

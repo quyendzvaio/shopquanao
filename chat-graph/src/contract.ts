@@ -36,6 +36,9 @@ export type ResponseType = 'final_answer' | 'clarification' | 'refusal' | 'busy'
 
 export type Offered = { id: number; name: string };
 
+/** A support-ticket draft the customer still has to confirm; PHP stores it and creates the ticket on the next turn. */
+export type PendingTicket = { type: string; order_id: number | null; summary: string };
+
 export type TurnSummary = {
   response_type: ResponseType;
   primary_intent: string;
@@ -44,6 +47,7 @@ export type TurnSummary = {
   offered: Offered[];
   freeship_nudge: boolean;
   freeship_fingerprint: string | null;
+  pending_ticket: PendingTicket | null;
   trace_id: string;
   latency: Record<string, number | boolean>;
 };
