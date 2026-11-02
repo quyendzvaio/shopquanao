@@ -5,7 +5,7 @@ import { ALLOWED_TOOLS, isAllowedTool } from '../src/policies/allowList.js';
 import { TurnBudget } from '../src/policies/budget.js';
 import { outfitsFrom, productToCard, selectCards, verifyCard } from '../src/policies/cards.js';
 import { matchesCheckout } from '../src/policies/checkout.js';
-import { hasToolCallMarkup, summaryFromCards, ungroundedClaims } from '../src/policies/grounding.js';
+import { hasToolCallMarkup, plainText, summaryFromCards, ungroundedClaims } from '../src/policies/grounding.js';
 
 const product = (id: number, price = 100000, stock = 5, extra: Record<string, unknown> = {}) => ({
   id, name: `SP ${id}`, price, stock, image: `p${id}.jpg`, category_id: 1, ...extra,
@@ -125,6 +125,13 @@ test('a sold-out name match a search hid is grounded but never a card', () => {
   });
   assert.deepEqual(ungroundedClaims('Mũ Lưỡi Trai Thêu Logo (mã 91) giá 190.000đ đang hết hàng', [hidden]), []);
   assert.deepEqual(selectCards('mã 91 hết, còn mã 62', [hidden]).map((c) => c.id), [62]);
+});
+
+test('plainText drops markdown markers and keeps lines, dashes and prices', () => {
+  assert.equal(plainText('## Kết quả\n* **Quần Kaki** – __mã 73__\n+ `560.000đ`'), 'Kết quả\n- Quần Kaki – mã 73\n- 560.000đ');
+  assert.equal(plainText('Mẫu *Váy Xòe* rất *đẹp*, xem [chi tiết](/product.php?id=78) nhé'), 'Mẫu Váy Xòe rất đẹp, xem chi tiết nhé');
+  assert.equal(plainText('- Size S\n- giá < 300k, 2 * 3 = 6'), '- Size S\n- giá < 300k, 2 * 3 = 6');
+  assert.equal(plainText('Áo_thun snake_case giữ nguyên'), 'Áo_thun snake_case giữ nguyên');
 });
 
 test('groundingAcceptsPriceSpellings', () => {

@@ -1,11 +1,14 @@
-import { AIMessage, ToolMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
 import { createMiddleware } from 'langchain';
 import type { Offered, ToolRecord } from '../contract.js';
-import { soldOutNote, type AlternativeFact } from '../copy.js';
+import { soldOutCorrection, soldOutNote, type AlternativeFact } from '../copy.js';
 import { isAllowedTool } from '../policies/allowList.js';
 import type { TurnBudget } from '../policies/budget.js';
 import type { ShopTools } from '../shopTools.js';
-import { soldOutFrom, type SoldOutState } from './soldOut.js';
+import { answersSoldOut, soldOutFrom, type SoldOutState } from './soldOut.js';
+import { textOf } from './text.js';
+
+export const EMPTY_ANSWER_CORRECTION = 'Bạn chưa trả lời khách. Hãy trả lời đủ mọi ý trong câu của khách, gọi công cụ nếu cần.';
 
 export const TOOL_REFUSED = 'Công cụ không được phép hoặc đã hết lượt gọi.';
 
@@ -15,6 +18,8 @@ export class TurnRecorder {
   soldOut: SoldOutState | null = null;
   private soldOutClaimed = false;
   branchToolUsed = false;
+  /** The agent loop was sent back to the model once for an incomplete answer. */
+  continued = false;
 
   reserve(): number {
     this.slots.push(undefined);
@@ -88,15 +93,41 @@ export function policyMiddleware(deps: Deps) {
   return createMiddleware({
     name: 'ShopPolicy',
 
+    // A final answer (no tool calls) that is empty, or that misses the sold-out news on a sold-out turn, sends the
+    // loop back to the model once, with its tools, so a part of the question it skipped can still call a tool.
+    afterModel: {
+      canJumpTo: ['model'],
+      hook: (state) => {
+        const last = state.messages.at(-1);
+        if (!last || !AIMessage.isInstance(last) || (last.tool_calls?.length ?? 0) > 0) return undefined;
+        if (recorder.continued || budget.expired() || budget.modelCallsLeft() === 0) return undefined;
+        const text = textOf(last);
+        const so = recorder.soldOut;
+        let correction: string | null = null;
+        if (so && !answersSoldOut(text, so)) correction = `${soldOutCorrection(so.source.name, so.alternatives)} Gọi thêm công cụ nếu cần cho các ý khác.`;
+        else if (text === '') correction = EMPTY_ANSWER_CORRECTION;
+        if (correction === null) return undefined;
+        recorder.continued = true;
+        return { messages: [new HumanMessage(correction)], jumpTo: 'model' as const };
+      },
+    },
+
     // An AI message without tool calls ends the agent loop.
-    wrapModelCall: (request, handler) => {
+    wrapModelCall: async (request, handler) => {
       if (budget.expired() || !budget.takeModelCall()) return new AIMessage('');
       // The last allowed model call, or one made after the tool budget is spent, could only ask for a tool
       // that would be refused and end in an empty draft: take the tools away so it has to write the answer.
-      if (budget.modelCallsLeft() === 0 || budget.toolCallsLeft() === 0) {
-        return handler({ ...request, tools: [], toolChoice: undefined });
+      const call = budget.modelCallsLeft() === 0 || budget.toolCallsLeft() === 0
+        ? () => handler({ ...request, tools: [], toolChoice: undefined })
+        : () => handler(request);
+      if (!recorder.continued) return call();
+      // The continuation step is a second chance, not a requirement: if it fails, the answer so far goes to
+      // policy_out and its fallbacks instead of turning the whole turn busy.
+      try {
+        return await call();
+      } catch {
+        return new AIMessage('');
       }
-      return handler(request);
     },
 
     wrapToolCall: async (request) => {

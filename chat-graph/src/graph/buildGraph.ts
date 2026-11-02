@@ -9,11 +9,12 @@ import { BUSY, askAlternatives, checkoutRefusal, nudgeText, soldOutCorrection, s
 import type { TurnBudget } from '../policies/budget.js';
 import { outfitsFrom, productToCard, selectCards } from '../policies/cards.js';
 import { matchesCheckout } from '../policies/checkout.js';
-import { hasToolCallMarkup, summaryFromCards, ungroundedClaims } from '../policies/grounding.js';
+import { hasToolCallMarkup, plainText, summaryFromCards, ungroundedClaims } from '../policies/grounding.js';
 import type { ShopTools } from '../shopTools.js';
 import { policyMiddleware, TurnRecorder } from './middleware.js';
 import { systemPrompt } from './prompt.js';
 import { answersSoldOut, type SoldOutState } from './soldOut.js';
+import { textOf } from './text.js';
 
 export type GraphOutcome = {
   message: string;
@@ -68,15 +69,20 @@ const State = Annotation.Root({
 
 type S = typeof State.State;
 
-function textOf(message: BaseMessage | undefined): string {
-  if (!message) return '';
-  const content = message.content;
-  if (typeof content === 'string') return content.trim();
-  return content
-    .map((part) => (typeof part === 'object' && part !== null && 'text' in part && typeof part.text === 'string' ? part.text : ''))
-    .join('')
-    .trim();
+/**
+ * The model's answer: the latest non-empty AI message without tool calls. An empty continuation step (or a
+ * budget stop) after an answer keeps that answer instead of erasing it.
+ */
+function finalAnswer(messages: BaseMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (!m || !AIMessage.isInstance(m) || (m.tool_calls?.length ?? 0) > 0) continue;
+    const text = textOf(m);
+    if (text !== '') return text;
+  }
+  return '';
 }
+
 
 function num(v: unknown): number {
   return typeof v === 'number' ? v : Number(v);
@@ -104,9 +110,8 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
     ];
     const result = await agent.invoke({ messages: input }, runConfig);
     const messages = result.messages as BaseMessage[];
-    const finalMessage = messages[messages.length - 1];
     return {
-      draft: finalMessage && AIMessage.isInstance(finalMessage) ? textOf(finalMessage) : '',
+      draft: finalAnswer(messages),
       messages,
       records: recorder.records,
       soldOut: recorder.soldOut,
@@ -150,6 +155,8 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
       const safe = selectCards('', records).filter((c) => !soldIds.has(c.id));
       text = safe.length === 0 ? '' : summaryFromCards(safe); // '' -> busy below (or the ask alone on a sold-out turn)
     }
+    // The widget shows text as typed (textContent): markdown markers would reach the customer verbatim.
+    text = plainText(text);
     const cards = selectCards(text, records).filter((c) => !soldIds.has(c.id));
     const toolsUsed = [...new Set(records.map((r) => r.name))];
     const soldOutAnswered = so !== null && !found.markup && found.claims.length === 0 && !found.soldOut;

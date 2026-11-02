@@ -8,6 +8,7 @@ import { TurnBudget } from '../src/policies/budget.js';
 import { summaryFromCards } from '../src/policies/grounding.js';
 import { productToCard } from '../src/policies/cards.js';
 import { buildTurnGraph } from '../src/graph/buildGraph.js';
+import { EMPTY_ANSWER_CORRECTION } from '../src/graph/middleware.js';
 import { answersSoldOut, soldOutFrom } from '../src/graph/soldOut.js';
 import { ScriptedChatModel, type ScriptedStep } from './support/scriptedModel.js';
 import { fakeShopTools } from './support/fakeTools.js';
@@ -156,6 +157,63 @@ test('soldOutRetryErrorFallsBackToTheFixedQuestionNotBusy', async () => {
   const out = await outcome;
   assert.equal(out.message, askAlternatives(baggy.name, [kaki, bo], false));
   assert.equal(out.response_type, 'clarification');
+});
+
+test('a sold-out answer that skipped another part goes back to the model with its tools', async () => {
+  const answer = 'Với 160cm, 50kg bạn mặc size S. Còn Quần Baggy Vải Tuyết Mưa đang hết hàng, bạn xem Quần Kaki Ống Rộng nhé?';
+  const { model, outcome } = run(
+    [searchCall, ai(''), ai('', [call('c2', 'suggest_size', { height: 160, weight: 50 })]), ai(answer)],
+    { search_products: () => soldOutSearch, find_similar_in_stock: () => similar, suggest_size: () => ({ size: 'S' }) },
+    req({ message: 'quần baggy còn hàng không, mình cao 160 nặng 50 mặc size gì' }),
+  );
+  const out = await outcome;
+  assert.equal(out.message, answer);
+  assert.equal(out.response_type, 'clarification');
+  assert.ok(out.tools_used.includes('suggest_size'));
+  assert.equal(model.toolCounts[2], 3, 'the continuation step still has every tool (the 3 fakes)');
+  assert.ok(String(model.calls[2]?.at(-1)?.content).includes('Gọi thêm công cụ'));
+  assert.equal(model.calls.length, 4);
+});
+
+test('an empty answer goes back to the model once, then the normal fallback applies', async () => {
+  const shirt = { id: 66, name: 'Áo Thun', price: 150000, stock: 3 };
+  const first = run(
+    [ai('', [call('c1', 'search_products', { search: 'áo thun' })]), ai(''), ai('Có Áo Thun (mã 66) giá 150.000đ.')],
+    { search_products: () => ({ products: [shirt] }) },
+  );
+  const answered = await first.outcome;
+  assert.equal(answered.message, 'Có Áo Thun (mã 66) giá 150.000đ.');
+  assert.equal(String(first.model.calls[2]?.at(-1)?.content), EMPTY_ANSWER_CORRECTION);
+
+  const twice = run(
+    [ai('', [call('c1', 'search_products', { search: 'áo thun' })]), ai(''), ai('')],
+    { search_products: () => ({ products: [shirt] }) },
+  );
+  const out = await twice.outcome;
+  assert.equal(twice.model.calls.length, 3, 'only one continuation per turn');
+  assert.equal(out.message, summaryFromCards([productToCard(shirt)]));
+});
+
+test('a failed continuation step keeps the answer already written', async () => {
+  const { outcome } = run(
+    [ai('', [call('c1', 'search_products', { search: 'quần baggy', in_stock: true }), call('c2', 'suggest_size', { height: 160, weight: 50 })]),
+      ai('Với 160cm, 50kg bạn mặc size S.'), new Error('429'), new Error('429')],
+    { search_products: () => soldOutSearch, find_similar_in_stock: () => similar, suggest_size: () => ({ size: 'S' }) },
+  );
+  const out = await outcome;
+  assert.equal(out.message, 'Với 160cm, 50kg bạn mặc size S. ' + askAlternatives(baggy.name, [kaki, bo], true));
+  assert.equal(out.response_type, 'clarification');
+});
+
+test('answers reach the customer without markdown markers', async () => {
+  const shirt = { id: 66, name: 'Áo Thun', price: 150000, stock: 3 };
+  const { outcome } = run(
+    [ai('', [call('c1', 'search_products', { search: 'áo thun' })]), ai('### Gợi ý\n* **Áo Thun** (mã **66**) – `150.000đ`')],
+    { search_products: () => ({ products: [shirt] }) },
+  );
+  const out = await outcome;
+  assert.equal(out.message, 'Gợi ý\n- Áo Thun (mã 66) – 150.000đ');
+  assert.deepEqual(out.cards.map((c) => c.id), [66]);
 });
 
 test('soldOutFiresWithoutInStockArg', async () => {
@@ -343,7 +401,7 @@ test('askAlternatives copy is what the graph appends', () => {
 
 test('secondInvokeOnSameGraphStartsFresh', async () => {
   const model = new ScriptedChatModel([
-    searchCall, ai(''), ai(''), // the empty sold-out draft gets its one retry, then the fixed question
+    searchCall, ai(''), ai(''), ai(''), // empty sold-out draft: one continuation step, one policy_out retry, then the fixed question
     ai('', [call('c2', 'search_products', { search: 'áo' })]), ai('Có mã 66.'),
   ]);
   let sold = true;

@@ -71,6 +71,20 @@ export function hasToolCallMarkup(text: string): boolean {
   return TOOL_CALL_MARKUP.test(text);
 }
 
+/**
+ * The answer as plain text: the chat widget renders `textContent`, so markdown markers would show verbatim.
+ * Drops heading marks, emphasis (`**`, `__`, `*x*`), inline code backticks and link syntax; `*`/`+` bullets become `-`.
+ * Line breaks and `-` bullets stay.
+ */
+export function plainText(text: string): string {
+  return text
+    .replace(/^[ \t]*#{1,6}[ \t]+/gmu, '')
+    .replace(/^([ \t]*)[*+][ \t]+/gmu, '$1- ')
+    .replace(/\[([^\]\n]+)\]\([^)\s]+\)/gu, '$1')
+    .replace(/\*\*|__|`/gu, '')
+    .replace(/(^|[^\p{L}\p{N}*])\*(?=\S)([^*\n]+?)\*(?![\p{L}\p{N}])/gu, '$1$2');
+}
+
 export function summaryFromCards(cards: Card[]): string {
   if (cards.length === 0) return BUSY;
   const items = cards.map((c) => `${c.name} (mã ${c.id}) giá ${money(c.price)}`).join('; ');
