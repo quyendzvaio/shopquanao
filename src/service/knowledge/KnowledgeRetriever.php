@@ -59,6 +59,7 @@ class KnowledgeRetriever {
             'original_query' => mb_strtolower($query),
             'category' => (string)$category,
             'limit' => $limit,
+            'candidates' => $this->hybridCandidates,
             'collection' => $this->collection,
             'embedding_model' => $this->embeddingModel,
             'knowledge_version' => $this->config->knowledgeVersion,
