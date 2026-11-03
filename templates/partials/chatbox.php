@@ -339,6 +339,8 @@ async function loadChatHistory() {
                     }
                 }
             });
+            // A draft is still waiting for the customer's answer: bring the buttons back.
+            if (data.ticket_pending === true) addTicketQuickReplies();
             setTimeout(() => { const msgs = document.getElementById('chat-messages'); msgs.scrollTop = msgs.scrollHeight; }, 100);
         } catch (e) {
             // Silent fail

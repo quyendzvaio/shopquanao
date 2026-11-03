@@ -7,7 +7,7 @@ use PHPUnit\Framework\TestCase;
 /** GET /api/chatbot/history returns private conversations: only the bearer user's own latest active session. */
 final class ChatHistoryServiceTest extends TestCase
 {
-    private const EMPTY_BODY = ['messages' => [], 'session_token' => null];
+    private const EMPTY_BODY = ['messages' => [], 'session_token' => null, 'ticket_pending' => false];
 
     private function pdo(): PDO
     {
@@ -113,5 +113,51 @@ final class ChatHistoryServiceTest extends TestCase
 
         $this->assertSame($mine, $body['session_id']);
         $this->assertSame([], $body['messages']);
+    }
+
+    private function draft(PDO $pdo, int $sessionId, int $userId, int $expiresAt): void
+    {
+        $memory = new ChatbotMemory($pdo, $sessionId, $userId);
+        $memory->ensureSchema();
+        $memory->rememberSlot(PendingTicketSlot::KEY, json_encode([
+            'type' => 'khac', 'order_id' => null, 'summary' => 'x', 'user_id' => $userId, 'expires_at' => $expiresAt,
+        ]));
+    }
+
+    public function testTicketPendingIsTrueOnlyForALiveDraftOfTheBearerUser(): void
+    {
+        $pdo = $this->pdo();
+        $session = $this->session($pdo, 1, 'a-sess', '2026-01-01 10:00:00');
+        $this->draft($pdo, $session, 1, 1000 + PendingTicketSlot::TTL);
+        $service = new ChatHistoryService($pdo, static fn (): int => 1000);
+
+        $this->assertTrue($service->forRequest(null, 'token-a')['ticket_pending']);
+    }
+
+    public function testExpiredDraftIsNotPending(): void
+    {
+        $pdo = $this->pdo();
+        $session = $this->session($pdo, 1, 'a-sess', '2026-01-01 10:00:00');
+        $this->draft($pdo, $session, 1, 1000);
+
+        $this->assertFalse((new ChatHistoryService($pdo, static fn (): int => 1000))->forRequest(null, 'token-a')['ticket_pending']);
+        $this->assertFalse((new ChatHistoryService($pdo, static fn (): int => 5000))->forRequest(null, 'token-a')['ticket_pending']);
+    }
+
+    public function testNoDraftOrAnotherUsersDraftIsNotPending(): void
+    {
+        $pdo = $this->pdo();
+        $session = $this->session($pdo, 1, 'a-sess', '2026-01-01 10:00:00');
+        $service = new ChatHistoryService($pdo, static fn (): int => 1000);
+
+        $this->assertFalse($service->forRequest(null, 'token-a')['ticket_pending'], 'no memory row');
+
+        $this->draft($pdo, $session, 2, 5000);
+        $this->assertFalse($service->forRequest(null, 'token-a')['ticket_pending'], 'draft stored for another user');
+    }
+
+    public function testNoSessionBodyHasTicketPendingFalse(): void
+    {
+        $this->assertFalse((new ChatHistoryService($this->pdo()))->forRequest(null, 'token-a')['ticket_pending']);
     }
 }
