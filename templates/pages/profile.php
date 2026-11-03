@@ -128,6 +128,18 @@
             </tbody>
         </table>
     </div>
+    <?php
+    $ticketLink = static function (int $n) use ($status_filter): string {
+        $query = (is_string($status_filter) && $status_filter !== 'all') ? ['status=' . urlencode($status_filter)] : [];
+        $query[] = 'ticket_page=' . $n;
+        return 'profile.php?' . htmlspecialchars(implode('&', $query), ENT_QUOTES, 'UTF-8');
+    };
+    ?>
+    <p style="margin-top: 15px; display: flex; gap: 15px; align-items: center; font-size: 14px;">
+        <?php if ($ticket_page > 1): ?><a href="<?= $ticketLink($ticket_page - 1) ?>" style="color: #000;">Trước</a><?php endif; ?>
+        <span>Trang <?= (int) $ticket_page ?>/<?= (int) $ticket_pages ?></span>
+        <?php if ($ticket_page < $ticket_pages): ?><a href="<?= $ticketLink($ticket_page + 1) ?>" style="color: #000;">Sau</a><?php endif; ?>
+    </p>
 
     <div style="margin-top: 30px; text-align: center;">
         <a href="index.php" style="color: #666; text-decoration: none; font-size: 14px;">← Tiếp tục mua sắm</a>

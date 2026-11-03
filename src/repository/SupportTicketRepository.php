@@ -61,9 +61,9 @@ final class SupportTicketRepository
 
     /**
      * @param list<string> $statuses
-     * @return list<array<string,mixed>> tickets of these statuses with the customer's username, newest first
+     * @return list<array<string,mixed>> one page of tickets of these statuses with the customer's username, newest first
      */
-    public function listForAdmin(array $statuses): array
+    public function listForAdmin(array $statuses, int $limit, int $offset): array
     {
         if ($statuses === []) {
             return [];
@@ -72,9 +72,38 @@ final class SupportTicketRepository
         $stmt = $this->pdo->prepare('SELECT t.id, t.user_id, t.order_id, t.type, t.summary, t.status, t.admin_note,
                 t.chat_session_id, t.created_at, t.updated_at, u.username
             FROM support_tickets t LEFT JOIN users u ON u.id = t.user_id
-            WHERE t.status IN (' . $marks . ') ORDER BY t.created_at DESC, t.id DESC');
+            WHERE t.status IN (' . $marks . ') ORDER BY t.created_at DESC, t.id DESC
+            LIMIT ' . max(1, $limit) . ' OFFSET ' . max(0, $offset));
         $stmt->execute($statuses);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /** @param list<string> $statuses */
+    public function countForAdmin(array $statuses): int
+    {
+        if ($statuses === []) {
+            return 0;
+        }
+        $marks = implode(',', array_fill(0, count($statuses), '?'));
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM support_tickets WHERE status IN ($marks)");
+        $stmt->execute($statuses);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /** @return list<array<string,mixed>> one page of the user's tickets, newest first */
+    public function listForUserPage(int $userId, int $limit, int $offset): array
+    {
+        $stmt = $this->pdo->prepare('SELECT ' . self::COLUMNS . ' FROM support_tickets
+            WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ' . max(1, $limit) . ' OFFSET ' . max(0, $offset));
+        $stmt->execute([$userId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function countForUser(int $userId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM support_tickets WHERE user_id = ?');
+        $stmt->execute([$userId]);
+        return (int) $stmt->fetchColumn();
     }
 
     /** @return array<string,mixed>|null */

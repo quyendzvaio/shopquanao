@@ -104,9 +104,6 @@ services:
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
       LANGFUSE_TRACE_CONTENT: ${LANGFUSE_TRACE_CONTENT:-false}
-      LANGFUSE_PUBLISH_TIMEOUT_MS: ${LANGFUSE_PUBLISH_TIMEOUT_MS:-1500}
-      LANGFUSE_PUBLISH_CONNECT_TIMEOUT_MS: ${LANGFUSE_PUBLISH_CONNECT_TIMEOUT_MS:-500}
-      LANGFUSE_PUBLISH_MAX_ATTEMPTS: ${LANGFUSE_PUBLISH_MAX_ATTEMPTS:-8}
     depends_on:
       db:
         condition: service_healthy
@@ -145,6 +142,7 @@ services:
       CHAT_GRAPH_MAX_MODEL_CALLS: ${CHAT_GRAPH_MAX_MODEL_CALLS:-5}
       CHAT_GRAPH_TURN_TIMEOUT_MS: ${CHAT_GRAPH_TURN_TIMEOUT_MS:-45000}
       # Langfuse stays opt-in (observability profile); the URL is only used when enabled.
+      APP_ENV: ${APP_ENV:-development}
       LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
       LANGFUSE_INGESTION_URL: ${LANGFUSE_INGESTION_URL:-http://langfuse-web:3000}
       LANGFUSE_BASE_URL: ${LANGFUSE_INGESTION_URL:-http://langfuse-web:3000}
@@ -422,37 +420,6 @@ services:
       langfuse-minio: { condition: service_healthy }
       langfuse-redis: { condition: service_healthy }
       langfuse-clickhouse: { condition: service_healthy }
-    healthcheck:
-      test: ["CMD-SHELL", "kill -0 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-
-  # This publisher has no dependency on langfuse-web/worker. It queues and
-  # retries local OTLP exports when Langfuse is unavailable, never holding a
-  # chatbot PHP worker or SSE response open.
-  langfuse-trace-publisher:
-    image: ${APP_IMAGE:-shop_quan_ao-app:latest}
-    container_name: shop_quan_ao_langfuse_trace_publisher
-    profiles: [observability]
-    restart: unless-stopped
-    command: ["php", "/var/www/html/scripts/publish_langfuse_trace_outbox.php"]
-    environment:
-      DB_HOST: db
-      DB_NAME: ${DB_NAME:-shop_db}
-      DB_USER: ${DB_USER:-shop_user}
-      DB_PASS: ${DB_PASS:-shop_pass}
-      LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
-      LANGFUSE_INGESTION_URL: ${LANGFUSE_INGESTION_URL:-http://langfuse-web:3000}
-      LANGFUSE_PROJECT: ${LANGFUSE_PROJECT:-fashion-shop-chatbot-eval}
-      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
-      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
-      LANGFUSE_PUBLISH_TIMEOUT_MS: ${LANGFUSE_PUBLISH_TIMEOUT_MS:-1500}
-      LANGFUSE_PUBLISH_CONNECT_TIMEOUT_MS: ${LANGFUSE_PUBLISH_CONNECT_TIMEOUT_MS:-500}
-      LANGFUSE_PUBLISH_MAX_ATTEMPTS: ${LANGFUSE_PUBLISH_MAX_ATTEMPTS:-8}
-    depends_on:
-      db:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "kill -0 1"]
       interval: 15s

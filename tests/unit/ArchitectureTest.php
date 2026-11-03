@@ -47,8 +47,6 @@ final class ArchitectureTest extends TestCase
     /** Permanent: infrastructure that owns its tables' SQL outside src/repository (spec §3.1). */
     private const SQL_EXCEPTIONS = [
         'src/core/database/MigrationRunner.php',
-        'src/core/observability/LangfuseOtlpTracePublisher.php',
-        'src/core/observability/LangfuseTraceOutbox.php',
     ];
 
     /** @var array<string,string>|null class => component */

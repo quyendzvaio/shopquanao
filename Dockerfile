@@ -31,7 +31,7 @@ COPY --chown=www-data:www-data config/ config/
 COPY --chown=www-data:www-data database/ database/
 COPY --chown=www-data:www-data knowledge/ knowledge/
 COPY --chown=www-data:www-data scripts/run_database_migrations.php scripts/ingest_knowledge.php \
-     scripts/publish_langfuse_trace_outbox.php scripts/ensure_admin_user.php scripts/
+     scripts/ensure_admin_user.php scripts/
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl --silent --show-error --fail http://127.0.0.1:8080/api/products?limit=1 >/dev/null || exit 1

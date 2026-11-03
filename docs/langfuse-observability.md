@@ -147,6 +147,7 @@ Open `http://localhost:3000` and create an organization/project. Put only the
 project keys in the ignored `.env`:
 
 ```text
+APP_ENV=production
 LANGFUSE_ENABLED=true
 LANGFUSE_BASE_URL=http://localhost:3000
 LANGFUSE_PUBLIC_URL=http://localhost:3000
@@ -183,8 +184,8 @@ The CI chatbot eval (the `chat-graph` node test suite, scripted LLM) does not ne
 
 ## Production agent tracing: fail-open by design
 
-When `LANGFUSE_ENABLED=true` and valid project keys are configured, the
-`chat-graph` service sends its own traces to Langfuse (`chat-graph/src/tracing.ts`:
+When `APP_ENV=production`, `LANGFUSE_ENABLED=true` and valid project keys are
+configured, the `chat-graph` service sends its own traces to Langfuse (`chat-graph/src/tracing.ts`:
 the Langfuse LangChain callback handler plus an OTel span processor that exports
 through the Langfuse client, which batches and sends in the background). A turn
 never waits on Langfuse: if Langfuse is stopped, unhealthy, misconfigured or
@@ -205,22 +206,21 @@ privacy policy if sanitized user/assistant text is required for debugging.
 
 `LANGFUSE_BASE_URL`/`LANGFUSE_PUBLIC_URL` is the browser-facing URL used by the
 Langfuse UI and host-side evaluation scripts. `LANGFUSE_INGESTION_URL` is the
-Docker-internal URL used by `chat-graph` (as its `LANGFUSE_BASE_URL`) and by
-`langfuse-trace-publisher`; its normal Compose value is `http://langfuse-web:3000`.
+Docker-internal URL used by `chat-graph` (as its `LANGFUSE_BASE_URL`); its normal Compose value is `http://langfuse-web:3000`.
 This separation prevents a container resolving `localhost:3000` to itself instead
 of the Langfuse service.
 
-### Legacy trace outbox (pending removal decision)
+### Tracing gate and the removed trace outbox
 
-Before the move to `chat-graph`, the PHP chat pipeline wrote completed requests
-to the local `langfuse_trace_outbox` table (its `TraceOutbox` middleware), and the
-`langfuse-trace-publisher` container exported them over OTLP/HTTP with bounded
-retry. That middleware is gone, so **nothing writes to the outbox any more**. The
-table (migration `2026_09_01_langfuse_trace_outbox.sql`), `LangfuseTraceOutbox`,
-`LangfuseOtlpTracePublisher`, `scripts/publish_langfuse_trace_outbox.php` and the
-`langfuse-trace-publisher` service are still in the repository and the publisher
-still runs under the `observability` profile, but it has no rows to export.
-Whether to remove them is a pending decision; do not rely on them for new traces.
+`chat-graph` traces only when `APP_ENV=production`, `LANGFUSE_ENABLED=true` and
+both Langfuse keys are set. `APP_ENV` defaults to `development`; the deploy job
+writes `APP_ENV=production` into the server `.env`. With `LANGFUSE_ENABLED=true`
+in any other environment, `chat-graph` logs
+`[chat-graph] Langfuse tracing off: APP_ENV is not production` once at startup.
+
+The old PHP trace outbox (its table, the PHP classes, the publisher script and the
+publisher Compose service) was removed because nothing had written to it since the
+PHP chat pipeline went away. A drop migration (2026-11-03) removes the table.
 
 For CI/CD, set these repository environment secrets before setting
 `LANGFUSE_ENABLED=true`: `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`,

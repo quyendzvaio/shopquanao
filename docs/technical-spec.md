@@ -72,7 +72,7 @@ Policy queries được route tới `retrieve_knowledge`. Retriever ưu tiên Qd
 - PHPUnit Unit và Integration suites.
 - Agent eval deterministic 40 case (`scripts/run_agent_eval.php`) sau integration test.
 - Secret scan và Trivy filesystem/image scan.
-- Langfuse trace được publish qua outbox, không chặn production request.
+- Langfuse trace do `chat-graph` tự gửi (chỉ khi `APP_ENV=production` và `LANGFUSE_ENABLED=true`), lỗi tracing không chặn production request.
 
 Secrets chỉ được truyền qua environment và không được commit. Production path không dùng LLM-generated SQL.
 

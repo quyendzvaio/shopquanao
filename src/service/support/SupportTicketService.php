@@ -24,6 +24,9 @@ final class SupportTicketService
     private const MAX_OPEN = 5;
     private const SUMMARY_MAX = 500;
     private const NOTE_MAX = 2000;
+    public const ADMIN_PAGE_SIZE = 20;
+    public const PROFILE_PAGE_SIZE = 10;
+
     private const LIST_LIMIT = 5;
 
     private SupportTicketRepository $tickets;
@@ -114,19 +117,39 @@ final class SupportTicketService
     }
 
     /**
-     * @param string|null $status null = the open ones (moi, dang_xu_ly); an unknown status lists nothing
-     * @return list<array<string,mixed>> with the customer's username
+     * One page of the admin list, newest first, across the chosen statuses in a single query.
+     *
+     * @param string|null $status null = the open ones (moi, dang_xu_ly); `all` = every status; an unknown status lists nothing
+     * @return array{tickets:list<array<string,mixed>>,page:int,pages:int,total:int} tickets carry the customer's username
      */
-    public function adminList(?string $status): array
+    public function adminList(?string $status, int $page): array
     {
         if ($status === null) {
             $statuses = self::OPEN_STATUSES;
+        } elseif ($status === 'all') {
+            $statuses = array_keys(self::STATUSES);
         } elseif (isset(self::STATUSES[$status])) {
             $statuses = [$status];
         } else {
-            return [];
+            return $this->emptyPage();
         }
-        return array_map([$this, 'present'], $this->tickets->listForAdmin($statuses));
+        $total = $this->tickets->countForAdmin($statuses);
+        [$page, $pages] = $this->clampPage($page, $total, self::ADMIN_PAGE_SIZE);
+        $rows = $total === 0 ? [] : $this->tickets->listForAdmin($statuses, self::ADMIN_PAGE_SIZE, ($page - 1) * self::ADMIN_PAGE_SIZE);
+        return ['tickets' => array_map([$this, 'present'], $rows), 'page' => $page, 'pages' => $pages, 'total' => $total];
+    }
+
+    /**
+     * One page of the customer's own tickets for the profile, newest first.
+     *
+     * @return array{tickets:list<array<string,mixed>>,page:int,pages:int,total:int}
+     */
+    public function profileList(int $userId, int $page): array
+    {
+        $total = $this->tickets->countForUser($userId);
+        [$page, $pages] = $this->clampPage($page, $total, self::PROFILE_PAGE_SIZE);
+        $rows = $total === 0 ? [] : $this->tickets->listForUserPage($userId, self::PROFILE_PAGE_SIZE, ($page - 1) * self::PROFILE_PAGE_SIZE);
+        return ['tickets' => array_map([$this, 'present'], $rows), 'page' => $page, 'pages' => $pages, 'total' => $total];
     }
 
     /** @return array<string,mixed>|null */
@@ -149,6 +172,19 @@ final class SupportTicketService
     public function countNew(): int
     {
         return $this->tickets->countByStatus('moi');
+    }
+
+    /** @return array{tickets:list<array<string,mixed>>,page:int,pages:int,total:int} */
+    private function emptyPage(): array
+    {
+        return ['tickets' => [], 'page' => 1, 'pages' => 1, 'total' => 0];
+    }
+
+    /** @return array{0:int,1:int} the page clamped into 1..pages, and the page count (at least 1) */
+    private function clampPage(int $page, int $total, int $size): array
+    {
+        $pages = max(1, intdiv($total + $size - 1, $size));
+        return [min(max(1, $page), $pages), $pages];
     }
 
     /** @return array{status:string,message:string} */

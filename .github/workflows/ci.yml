@@ -400,6 +400,7 @@ jobs:
             echo "REDIS_TIMEOUT=0.15" >> .env
             echo "CLIENT_CACHE_TTL=60" >> .env
             echo "CLIENT_CACHE_STALE_TTL=30" >> .env
+            echo "APP_ENV=production" >> .env
             # Observability is opt-in and independent of the agent path. The
             # profile starts only when deployment secrets explicitly enable it.
             echo "LANGFUSE_ENABLED=${{ secrets.LANGFUSE_ENABLED || 'false' }}" >> .env
@@ -410,9 +411,6 @@ jobs:
             echo "LANGFUSE_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }}" >> .env
             echo "LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}" >> .env
             echo "LANGFUSE_TRACE_CONTENT=${{ secrets.LANGFUSE_TRACE_CONTENT || 'false' }}" >> .env
-            echo "LANGFUSE_PUBLISH_TIMEOUT_MS=${{ secrets.LANGFUSE_PUBLISH_TIMEOUT_MS || '1500' }}" >> .env
-            echo "LANGFUSE_PUBLISH_CONNECT_TIMEOUT_MS=${{ secrets.LANGFUSE_PUBLISH_CONNECT_TIMEOUT_MS || '500' }}" >> .env
-            echo "LANGFUSE_PUBLISH_MAX_ATTEMPTS=${{ secrets.LANGFUSE_PUBLISH_MAX_ATTEMPTS || '8' }}" >> .env
             echo "LANGFUSE_VERSION=${{ secrets.LANGFUSE_VERSION || '3.114.0' }}" >> .env
             echo "LANGFUSE_PORT=${{ secrets.LANGFUSE_PORT || '3000' }}" >> .env
             echo "LANGFUSE_POSTGRES_PASSWORD=${{ secrets.LANGFUSE_POSTGRES_PASSWORD }}" >> .env

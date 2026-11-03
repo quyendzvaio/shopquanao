@@ -46,3 +46,31 @@ test('langfuseMask: redacts when the content flag is off, absent when on', () =>
   assert.ok(!out.includes('Lan') && !out.includes('áo thun'));
   assert.equal(langfuseMask(true), undefined);
 });
+
+const gateEnv = { CHAT_GRAPH_TOKEN: 'tok', LANGFUSE_ENABLED: 'true', LANGFUSE_PUBLIC_KEY: 'pk', LANGFUSE_SECRET_KEY: 'sk' };
+
+test('APP_ENV gate: tracing is on only for production with LANGFUSE_ENABLED=true', () => {
+  const silent = (): void => {};
+  const unset = loadConfig(gateEnv, silent);
+  assert.equal(unset.appEnv, 'development');
+  assert.equal(unset.langfuse.enabled, false);
+  assert.equal(loadConfig({ ...gateEnv, APP_ENV: '' }, silent).langfuse.enabled, false);
+  assert.equal(loadConfig({ ...gateEnv, APP_ENV: 'development' }, silent).langfuse.enabled, false);
+  assert.equal(loadConfig({ ...gateEnv, APP_ENV: 'staging' }, silent).langfuse.enabled, false);
+  const prod = loadConfig({ ...gateEnv, APP_ENV: 'production' }, silent);
+  assert.equal(prod.appEnv, 'production');
+  assert.equal(prod.langfuse.enabled, true);
+  assert.equal(loadConfig({ ...gateEnv, APP_ENV: 'production', LANGFUSE_ENABLED: 'false' }, silent).langfuse.enabled, false);
+});
+
+test('APP_ENV gate: logs once at startup when tracing is requested outside production', () => {
+  const line = '[chat-graph] Langfuse tracing off: APP_ENV is not production';
+  const lines: string[] = [];
+  const log = (m: string): void => void lines.push(m);
+  loadConfig(gateEnv, log);
+  assert.deepEqual(lines, [line]);
+  loadConfig({ ...gateEnv, APP_ENV: 'production' }, log);
+  loadConfig({ ...gateEnv, LANGFUSE_ENABLED: 'false' }, log);
+  loadConfig({ CHAT_GRAPH_TOKEN: 'tok' }, log);
+  assert.deepEqual(lines, [line], 'no line in production, with tracing off, or with no Langfuse env');
+});

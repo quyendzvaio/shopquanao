@@ -8,7 +8,7 @@ import type { GraphConfig } from './config.js';
 // packages are held at 0.223.0, the newest line that still works with api 1.9.x and clears the
 // OTel advisories. Revisit when @langfuse/otel peers move to the api 1.10 line.
 
-// Content gate: like the PHP outbox, prompts, history, customer messages, tool args/results and
+// Content gate: prompts, history, customer messages, tool args/results and
 // answers stay out of Langfuse unless LANGFUSE_TRACE_CONTENT=true. Only the size is exported.
 
 const REDACTED = '[redacted]';
