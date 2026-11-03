@@ -109,14 +109,15 @@ final class ProfilePageTest extends TestCase
         $out = $this->renderProfile(['status' => 'Đã hoàn thành', 'ticket_page' => '2']);
 
         $this->assertStringContainsString('Trang 2/3', $out);
-        $this->assertStringContainsString('profile.php?status=%C4%90%C3%A3+ho%C3%A0n+th%C3%A0nh&amp;ticket_page=1', $out);
-        $this->assertStringContainsString('profile.php?status=%C4%90%C3%A3+ho%C3%A0n+th%C3%A0nh&amp;ticket_page=3', $out);
+        $this->assertStringContainsString('profile.php?status=%C4%90%C3%A3+ho%C3%A0n+th%C3%A0nh&amp;ticket_page=1#tickets', $out);
+        $this->assertStringContainsString('profile.php?status=%C4%90%C3%A3+ho%C3%A0n+th%C3%A0nh&amp;ticket_page=3#tickets', $out);
         $this->assertStringContainsString('Trước', $out);
         $this->assertStringContainsString('Sau', $out);
 
         $plain = $this->renderProfile([]);
         $this->assertStringContainsString('Trang 1/3', $plain);
-        $this->assertStringContainsString('profile.php?ticket_page=2', $plain);
+        $this->assertStringContainsString('profile.php?ticket_page=2#tickets', $plain);
+        $this->assertStringContainsString('<h2 id="tickets"', $plain);
     }
 
     public function testTicketFieldsAreEscaped(): void
