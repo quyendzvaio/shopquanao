@@ -119,8 +119,12 @@ class ChatbotMemory {
         return $memory;
     }
 
-    /** Upserts one key into the session slots, leaving the others (and the summary) untouched. */
-    public function rememberSlot(string $key, string $value): void {
+    /**
+     * Upserts one key into the session slots, leaving the others (and the summary) untouched.
+     *
+     * @return bool true when the slot was written; false (after logging) when it could not be
+     */
+    public function rememberSlot(string $key, string $value): bool {
         try {
             $json = $this->memory->slotsJson($this->sessionId);
             $slots = $this->decodeJson($json === false ? null : $json, []);
@@ -132,8 +136,10 @@ class ChatbotMemory {
             } else {
                 $this->memory->updateSlots($this->sessionId, $encoded);
             }
+            return true;
         } catch (Throwable $e) {
             error_log("Memory slot save error: " . $e->getMessage());
+            return false;
         }
     }
 

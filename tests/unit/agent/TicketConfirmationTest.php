@@ -11,21 +11,21 @@ final class TicketConfirmationTest extends TestCase
     /** @return array<string,array{string}> */
     public static function yesPhrases(): array
     {
-        $phrases = ['đồng ý', 'Đồng ý!', 'xác nhận', 'ok', 'oke', 'có', 'ừ', 'ừm', 'đúng rồi', 'gửi đi', 'gửi', 'được', 'yes', '  OK ... ', 'đồng   ý~'];
+        $phrases = ['đồng ý', 'Đồng ý!', 'xác nhận', 'ok', 'oke', 'có', 'ừ', 'ừm', 'đúng rồi', 'gửi đi', 'gửi', 'được', 'yes', '  OK ... ', 'đồng   ý~', 'đồng ý ạ', 'ok nhé', 'Dạ đồng ý', 'vâng ạ', 'gửi đi bạn', 'vâng', 'dạ', 'dạ vâng', 'okay', 'đồng ý, ạ', 'Dạ, ok nha shop'];
         return array_combine($phrases, array_map(static fn (string $p): array => [$p], $phrases));
     }
 
     /** @return array<string,array{string}> */
     public static function noPhrases(): array
     {
-        $phrases = ['thôi', 'không', 'khỏi', 'huỷ', 'hủy', 'thôi khỏi', 'không gửi', 'không cần', 'Thôi.'];
+        $phrases = ['thôi', 'không', 'khỏi', 'huỷ', 'hủy', 'thôi khỏi', 'không gửi', 'không cần', 'Thôi.', 'không ạ', 'thôi nhé', 'thôi đi', 'dạ không em'];
         return array_combine($phrases, array_map(static fn (string $p): array => [$p], $phrases));
     }
 
     /** @return array<string,array{string}> */
     public static function otherPhrases(): array
     {
-        $phrases = ['đồng ý, mà đổi sang size XL luôn', 'có áo khác không', 'ok vậy còn đơn 13', '', '   ', '!!!'];
+        $phrases = ['đồng ý, mà đổi sang size XL luôn', 'có áo khác không', 'ok vậy còn đơn 13', 'đồng ý, mà đổi sang size XL', 'ạ', 'nhé', 'dạ ạ', 'đi bạn', 'dạ gửi cho đơn khác',  '', '   ', '!!!'];
         return array_combine($phrases, array_map(static fn (string $p): array => [$p], $phrases));
     }
 

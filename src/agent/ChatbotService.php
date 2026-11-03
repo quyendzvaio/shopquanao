@@ -18,6 +18,7 @@ class ChatbotService
     public const TICKET_CREATED = 'Đã gửi yêu cầu #%d cho shop. Shop sẽ xử lý và cập nhật trạng thái; bạn có thể hỏi mình hoặc xem ở trang tài khoản.';
     public const TICKET_DECLINED = 'Mình đã huỷ yêu cầu, chưa gửi gì cho shop.';
     public const TICKET_REFUSED = 'Chưa gửi được yêu cầu: %s';
+    public const TICKET_EXPIRED = 'Yêu cầu soạn trước đó đã hết hạn nên mình chưa gửi gì cho shop. Bạn nhắn lại yêu cầu để mình soạn lại nhé.';
     public const TICKET_FAILED = 'Chưa gửi được yêu cầu do lỗi hệ thống. Bạn nhắn lại yêu cầu để mình soạn lại nhé.';
     private const MAX_MESSAGE_CHARS = 2000;
 
@@ -138,6 +139,29 @@ class ChatbotService
             }
         }
 
+        // The draft is stored before the turn is saved: if it cannot be stored, "đồng ý" would find nothing, so the
+        // customer must not be asked to confirm it.
+        $ticketPending = false;
+        if ($result['pending_ticket'] !== null && $this->userId !== null && $this->userId > 0) {
+            $stored = $memory->rememberSlot(self::PENDING_TICKET_SLOT, json_encode($result['pending_ticket'] + [
+                'user_id' => $this->userId,
+                'expires_at' => ($this->now)() + self::PENDING_TICKET_TTL,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            if ($stored) {
+                $ticketPending = true;
+            } else {
+                $result['message'] = self::TICKET_FAILED;
+                $result['response_type'] = 'final_answer';
+                if ($forwarding) {
+                    try {
+                        // The draft question was already streamed; this line tells the customer it cannot be confirmed.
+                        $onDelta(' ' . self::TICKET_FAILED);
+                    } catch (Throwable) {
+                        // The browser went away; the corrected answer is still saved below.
+                    }
+                }
+            }
+        }
         $cards = $result['products'];
         (new PdoChatbotConversationStore($this->pdo, $this->sessionId))->saveMessages(
             $message,
@@ -150,14 +174,6 @@ class ChatbotService
         $memory->refreshSummary();
         if ($result['freeship_fingerprint'] !== null && $result['freeship_fingerprint'] !== $fingerprint) {
             $memory->rememberSlot(self::FINGERPRINT_SLOT, $result['freeship_fingerprint']);
-        }
-        $ticketPending = false;
-        if ($result['pending_ticket'] !== null && $this->userId !== null && $this->userId > 0) {
-            $memory->rememberSlot(self::PENDING_TICKET_SLOT, json_encode($result['pending_ticket'] + [
-                'user_id' => $this->userId,
-                'expires_at' => ($this->now)() + self::PENDING_TICKET_TTL,
-            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-            $ticketPending = true;
         }
 
         return [
@@ -180,9 +196,12 @@ class ChatbotService
 
     /**
      * The one write path of the chatbot. If the session holds a drafted ticket, it is taken out of the
-     * slots FIRST (so a second "đồng ý", even a concurrent one, finds nothing), then: still valid, this
-     * user's and answered with a fixed yes/no phrase -> created or dropped here, without chat-graph.
-     * Anything else (expired, other user, corrupt, other words) just drops the draft and the turn goes on.
+     * slots FIRST, so a later "đồng ý" finds nothing. Two truly concurrent requests can both read the slot
+     * before either clears it (accepted; the create re-check limits duplicates for tickets with an order).
+     * Then: still valid, this user's and answered with a fixed yes/no phrase -> created or dropped here,
+     * without chat-graph. This user's but expired: a yes gets the fixed "expired" reply, a no the decline
+     * reply, both without chat-graph. Anything else (other user, corrupt, other words) just drops the
+     * draft and the turn goes on.
      *
      * @param (callable(string):void)|null $onDelta
      * @return array<string,mixed>|null the finished turn, or null when chat-graph should answer
@@ -205,7 +224,6 @@ class ChatbotService
             || $userId === null
             || ($draft['user_id'] ?? null) !== $userId
             || !is_int($draft['expires_at'] ?? null)
-            || $draft['expires_at'] <= ($this->now)()
         ) {
             return null;
         }
@@ -213,10 +231,13 @@ class ChatbotService
         if ($answer === 'other') {
             return null;
         }
+        $expired = $draft['expires_at'] <= ($this->now)();
 
         $ticketId = null;
         if ($answer === 'no') {
             $text = self::TICKET_DECLINED;
+        } elseif ($expired) {
+            $text = self::TICKET_EXPIRED;
         } else {
             try {
                 $created = (new SupportTicketService($this->pdo))->create($userId, [

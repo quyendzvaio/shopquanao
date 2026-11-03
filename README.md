@@ -1,6 +1,6 @@
 # Fashion Shop — Chatbot LangGraph
 
-Ứng dụng bán quần áo chạy bằng PHP 8.2, MariaDB và Docker Compose. Chatbot là agent LangGraph (`chat-graph/`): LLM chọn trong 9 tool chỉ-đọc, RAG cho chính sách, tool gọi lại PHP qua MCP nội bộ. Hai use case chính: phối set theo tag phong cách (UC-A) và gợi ý đạt free ship (UC-C). Sản phẩm hiển thị luôn lấy từ private shop catalog.
+Ứng dụng bán quần áo chạy bằng PHP 8.2, MariaDB và Docker Compose. Chatbot là agent LangGraph (`chat-graph/`): LLM chọn trong 11 tool, không tool nào ghi, RAG cho chính sách, tool gọi lại PHP qua MCP nội bộ. Hai use case chính: phối set theo tag phong cách (UC-A) và gợi ý đạt free ship (UC-C). Sản phẩm hiển thị luôn lấy từ private shop catalog.
 
 LLM không tự viết SQL; SQL chỉ nằm trong PHP (`src/repository/`). Policy middleware của `chat-graph` ép luật cứng (từ chối checkout, allow-list tool, ngân sách lượt gọi, card và giá phải khớp kết quả tool).
 

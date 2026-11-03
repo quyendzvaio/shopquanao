@@ -47,4 +47,5 @@ test('support requests go through draft_support_ticket and never claim a cancel 
   assert.match(prompt, /`draft_support_ticket`[^\n]*không bao giờ/i);
   assert.match(prompt, /`get_order_status`[^\n]*`draft_support_ticket`/);
   assert.match(prompt, /`get_support_tickets`/);
+  assert.match(prompt, /Không bao giờ nói một yêu cầu hỗ trợ mới đã được gửi hay đã tạo[^\n]*sau khi khách xác nhận/);
 });

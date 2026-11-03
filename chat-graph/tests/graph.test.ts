@@ -652,7 +652,7 @@ test('aValidDraftSetsPendingTicketAndAsksToConfirm', async () => {
   assert.equal(out.response_type, 'clarification');
   assert.deepEqual(out.cards, []);
   assert.equal(countOf(out.message, TICKET_CONFIRM_QUESTION), 1);
-  assert.equal(out.message, ticketQuestionAnswer);
+  assert.equal(out.message, `Mình sẽ gửi yêu cầu đổi size cho đơn #12.\n${ticketDraftLine(ticketDraft)} ${TICKET_CONFIRM_QUESTION}`);
   assert.equal(out.freeship_nudge, false);
 });
 
@@ -663,8 +663,27 @@ test('theConfirmationQuestionIsAppendedWhenTheModelLeavesItOut', async () => {
     ticketReq(),
   );
   const out = await outcome;
-  assert.equal(out.message, `Mình sẽ gửi yêu cầu đổi size cho đơn #12. ${TICKET_CONFIRM_QUESTION}`);
+  assert.equal(out.message, `Mình sẽ gửi yêu cầu đổi size cho đơn #12.\n${ticketDraftLine(ticketDraft)} ${TICKET_CONFIRM_QUESTION}`);
   assert.deepEqual(out.pending_ticket, ticketDraft);
+});
+
+test('aShortModelAnswerOnADraftTurnStillShowsTheTypeOrderAndSummary', async () => {
+  const { outcome } = run([draftCall(), ai('Ok.')], { draft_support_ticket: () => draftResult }, ticketReq());
+  const out = await outcome;
+  assert.ok(out.message.includes('Đổi size / đổi trả'));
+  assert.ok(out.message.includes('đơn #12'));
+  assert.ok(out.message.includes('Nhận size M thay vì L'));
+  assert.ok(out.message.endsWith(TICKET_CONFIRM_QUESTION));
+  assert.equal(countOf(out.message, TICKET_CONFIRM_QUESTION), 1);
+  assert.deepEqual(out.pending_ticket, ticketDraft);
+});
+
+test('aModelThatAlreadyWroteTheQuestionDoesNotRepeatIt', async () => {
+  const { outcome } = run([draftCall(), ai(`Ok. ${TICKET_CONFIRM_QUESTION}`)], { draft_support_ticket: () => draftResult }, ticketReq());
+  const out = await outcome;
+  assert.equal(countOf(out.message, TICKET_CONFIRM_QUESTION), 1);
+  assert.ok(out.message.endsWith(TICKET_CONFIRM_QUESTION));
+  assert.ok(out.message.includes(ticketDraftLine(ticketDraft)));
 });
 
 test('anEmptyAnswerOnADraftTurnGetsTheDraftLineAndTheQuestion', async () => {

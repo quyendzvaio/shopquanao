@@ -182,10 +182,11 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
     const toolsUsed = [...new Set(records.map((r) => r.name))];
     const soldOutAnswered = so !== null && !found.markup && found.claims.length === 0 && !found.soldOut;
 
-    // A valid draft always ends in the fixed confirmation question; PHP stores the draft and creates the ticket on "yes".
+    // A valid draft always shows the fixed summary of what will be filed and ends in the fixed confirmation
+    // question (once); PHP stores the draft and creates the ticket on "yes". The model's prose is only a lead-in.
     if (pending !== null) {
-      if (text === '') text = `${ticketDraftLine(pending)} ${TICKET_CONFIRM_QUESTION}`;
-      else if (!text.includes(TICKET_CONFIRM_QUESTION)) text = `${text} ${TICKET_CONFIRM_QUESTION}`;
+      const prose = text.split(TICKET_CONFIRM_QUESTION).join('').trim();
+      text = `${prose === '' ? '' : `${prose}\n`}${ticketDraftLine(pending)} ${TICKET_CONFIRM_QUESTION}`;
       return { text, cards: [], outfits: outfitsFrom(records), toolsUsed, responseType: 'clarification', pendingTicket: pending };
     }
 

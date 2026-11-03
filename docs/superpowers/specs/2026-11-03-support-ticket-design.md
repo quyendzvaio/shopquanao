@@ -99,7 +99,8 @@ Chỉ mục `(user_id, status)` và `(status, created_at)`. SQL chỉ nằm tron
     - câu khách là xác nhận → `create`, trả lời cố định, xoá slot, không gọi chat-graph;
     - câu khách là từ chối → xoá slot, trả lời cố định;
     - còn lại → xoá slot rồi chạy lượt bình thường.
-  - `pending_ticket` hết hạn thì xoá.
+  - `pending_ticket` hết hạn thì xoá. Nếu nháp của chính khách này đã hết hạn mà câu khách là xác nhận, trả lời cố định "yêu cầu soạn trước đó đã hết hạn nên mình chưa gửi gì cho shop, bạn nhắn lại yêu cầu để mình soạn lại"; là từ chối thì trả lời huỷ cố định; còn lại chạy lượt bình thường. Cả hai lượt này không gọi chat-graph và không tạo ticket.
+  - Danh sách xác nhận/từ chối chấp nhận thêm "dạ " ở đầu và các từ lịch sự ở cuối (ạ, nhé, nha, đi, bạn, shop...) quanh một cụm cố định; câu có ý khác vẫn là "other".
   - Nhận ra xác nhận: câu khách sau khi bỏ dấu câu, đổi chữ thường và gộp khoảng trắng phải nằm trong một danh sách cố định ngắn, ví dụ "đồng ý", "xác nhận", "ok", "có", "gửi đi", "ừ", "đúng rồi". Câu dài hơn hoặc lẫn ý khác không tính là xác nhận **[Claude chọn]**. Danh sách từ chối cũng làm như vậy.
   - Kết quả lượt xác nhận được lưu vào lịch sử chat như mọi lượt khác, `response_type` là `final_answer`, `tools_used` là `[]`.
 - chat-graph đặt bản nháp lên outcome. PHP lưu `pending_ticket` khi outcome của chat-graph có `pending_ticket` (trường mới, xem §5.3). PHP kiểm tra `user_id` của lượt khớp với lượt tạo nháp.
@@ -124,7 +125,7 @@ Chỉ mục `(user_id, status)` và `(status, created_at)`. SQL chỉ nằm tron
 - **Cạnh xác nhận (code, không phải LLM)**, tương tự cạnh hết hàng: khi lượt có một kết quả `draft_support_ticket` với `status: "draft"` (lấy kết quả cuối nếu model gọi nhiều lần), `policy_out` sẽ:
   - đặt `pending_ticket` trên outcome;
   - đặt `response_type = "clarification"`;
-  - bảo đảm câu trả lời có tóm tắt (loại, đơn, nội dung) và câu hỏi xác nhận cố định "Bạn xác nhận gửi yêu cầu này cho shop không?". Model viết thiếu thì code nối câu cố định vào.
+  - luôn nối tóm tắt cố định của bản nháp (loại, đơn, nội dung) và câu hỏi xác nhận cố định "Bạn xác nhận gửi yêu cầu này cho shop không?" (đúng một lần) sau lời dẫn của model; model viết thiếu hay trùng câu hỏi thì code vẫn cho cùng kết quả.
 
   Lượt có bản nháp không gắn thẻ sản phẩm.
 - Grounding: mã ticket ("yêu cầu #7") và mã đơn trong kết quả hai tool mới được coi là có thật, như mã đơn của `get_order_status`.

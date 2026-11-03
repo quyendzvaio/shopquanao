@@ -101,6 +101,7 @@ final class ChatbotServiceTest extends TestCase
     private const NOW = 1_800_000_000;
     private const CREATED = 'Đã gửi yêu cầu #%d cho shop. Shop sẽ xử lý và cập nhật trạng thái; bạn có thể hỏi mình hoặc xem ở trang tài khoản.';
     private const DECLINED = 'Mình đã huỷ yêu cầu, chưa gửi gì cho shop.';
+    private const EXPIRED = 'Yêu cầu soạn trước đó đã hết hạn nên mình chưa gửi gì cho shop. Bạn nhắn lại yêu cầu để mình soạn lại nhé.';
 
     /** A graph that must not be called, or records the request when it is. */
     private function replyingClient(array &$requests): ChatGraphClient
@@ -152,6 +153,26 @@ final class ChatbotServiceTest extends TestCase
         $slot = json_decode($this->slots($pdo)['pending_ticket'], true);
         $this->assertSame($draft + ['user_id' => 1, 'expires_at' => self::NOW + 900], $slot);
         $this->assertSame(0, $this->ticketCount($pdo));
+    }
+
+    public function testFailedDraftSlotWriteIsNotReportedAsPendingAndAnswersTheFailureCopy(): void
+    {
+        $pdo = $this->pdo();
+        $draft = ['type' => 'doi_tra', 'order_id' => 12, 'summary' => 'Đổi sang size L'];
+        $client = $this->client([['type' => 'delta', 'text' => 'Bạn xác nhận gửi yêu cầu này cho shop không?'], $this->completeEvent(['pending_ticket' => $draft, 'response_type' => 'clarification'])]);
+        // Only the write of the drafted ticket fails; the user message and summary writes before it succeed.
+        (new ChatbotMemory($pdo, 5, 1))->ensureSchema();
+        $pdo->exec("CREATE TRIGGER block_pending_write BEFORE UPDATE ON chat_session_memory WHEN NEW.slots LIKE '%pending_ticket%' BEGIN SELECT RAISE(ABORT, 'locked'); END");
+        $deltas = [];
+
+        $result = $this->serviceAt($pdo, $client, 1)->respondStreaming('đổi size đơn 12', static function (string $d) use (&$deltas): void { $deltas[] = $d; });
+
+        $this->assertFalse($result['ticket_pending']);
+        $this->assertSame(ChatbotService::TICKET_FAILED, $result['message']);
+        $this->assertSame('final_answer', $result['response_type']);
+        $this->assertArrayNotHasKey('pending_ticket', $this->slots($pdo));
+        $this->assertSame(' ' . ChatbotService::TICKET_FAILED, end($deltas));
+        $this->assertSame(['đổi size đơn 12', ChatbotService::TICKET_FAILED], array_column($this->messages($pdo), 'message'));
     }
 
     public function testGuestTurnNeverStoresPendingSlot(): void
@@ -234,18 +255,62 @@ final class ChatbotServiceTest extends TestCase
         $this->assertArrayNotHasKey('pending_ticket', $this->slots($pdo));
     }
 
-    public function testExpiredDraftIsDroppedAndTurnGoesToChatGraph(): void
+    public function testExpiredDraftWithOtherWordsIsDroppedAndTurnGoesToChatGraph(): void
     {
         $pdo = $this->pdo();
         $this->storePendingSlot($pdo, ['expires_at' => self::NOW - 1]);
         $requests = [];
 
-        $result = $this->serviceAt($pdo, $this->replyingClient($requests), 1)->respond('đồng ý');
+        $result = $this->serviceAt($pdo, $this->replyingClient($requests), 1)->respond('có áo khác không');
 
         $this->assertCount(1, $requests);
         $this->assertSame('Trả lời thường.', $result['message']);
         $this->assertSame(0, $this->ticketCount($pdo));
         $this->assertArrayNotHasKey('pending_ticket', $this->slots($pdo));
+    }
+
+    public function testYesOnAnExpiredDraftGetsTheFixedExpiredReplyWithoutChatGraph(): void
+    {
+        $pdo = $this->pdo();
+        $this->storePendingSlot($pdo, ['expires_at' => self::NOW - 1]);
+        $requests = [];
+
+        $result = $this->serviceAt($pdo, $this->replyingClient($requests), 1)->respond('đồng ý ạ');
+
+        $this->assertSame([], $requests);
+        $this->assertSame(self::EXPIRED, $result['message']);
+        $this->assertNull($result['ticket_id']);
+        $this->assertFalse($result['ticket_pending']);
+        $this->assertSame(0, $this->ticketCount($pdo));
+        $this->assertArrayNotHasKey('pending_ticket', $this->slots($pdo));
+        $this->assertSame(['đồng ý ạ', self::EXPIRED], array_column($this->messages($pdo), 'message'));
+    }
+
+    public function testNoOnAnExpiredDraftGetsTheDeclinedReplyWithoutChatGraph(): void
+    {
+        $pdo = $this->pdo();
+        $this->storePendingSlot($pdo, ['expires_at' => self::NOW - 1]);
+        $requests = [];
+
+        $result = $this->serviceAt($pdo, $this->replyingClient($requests), 1)->respond('thôi nhé');
+
+        $this->assertSame([], $requests);
+        $this->assertSame(self::DECLINED, $result['message']);
+        $this->assertNull($result['ticket_id']);
+        $this->assertFalse($result['ticket_pending']);
+        $this->assertArrayNotHasKey('pending_ticket', $this->slots($pdo));
+    }
+
+    public function testYesOnAnExpiredDraftOfAnotherUserStillGoesToChatGraph(): void
+    {
+        $pdo = $this->pdo();
+        $this->storePendingSlot($pdo, ['expires_at' => self::NOW - 1, 'user_id' => 1]);
+        $requests = [];
+
+        $result = $this->serviceAt($pdo, $this->replyingClient($requests), 2)->respond('đồng ý');
+
+        $this->assertCount(1, $requests);
+        $this->assertSame('Trả lời thường.', $result['message']);
     }
 
     public function testSecondYesCreatesNothing(): void
