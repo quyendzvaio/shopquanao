@@ -588,7 +588,7 @@ final class ProductService
 
     private function fetchJson(string $url): array {
         $ch = curl_init($url);
-        curl_setopt_array($ch, [
+        curl_setopt_array($ch, InternalHttp::CURL_OPTIONS + [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 10,
             CURLOPT_CONNECTTIMEOUT => 5,
