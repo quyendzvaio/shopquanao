@@ -81,6 +81,22 @@ test('leadInAfterBlankLinesIsNeverEmitted', async () => {
   assert.deepEqual(emitted, []);
 });
 
+test('whitespaceTokenAfterLeadInDoesNotReleaseIt', async () => {
+  const { s, emitted } = streamer();
+  await run(s, 'r1', ['Để mình xem nhé', '. ', '\n', { tool: true }], true);
+  assert.deepEqual(emitted, []);
+});
+
+test('tokensWithoutChunkKeepTheRunSilent', async () => {
+  // A provider that does not pass the chunk cannot show us a tool call coming: that run is not streamed.
+  const { s, emitted } = streamer();
+  await s.handleChatModelStart({} as never, [[]], 'r1');
+  for (const t of ['Một. ', 'Hai. ', 'Ba. ']) await s.handleLLMNewToken(t, { prompt: 0, completion: 0 }, 'r1');
+  await s.handleLLMEnd(end(), 'r1');
+  assert.deepEqual(emitted, []);
+  assert.equal(s.stopped, false);
+});
+
 test('runEndFlushesHeldAndTail', async () => {
   const { s, emitted } = streamer();
   await run(s, 'r1', ['Một. ', 'không ', 'chấm']);

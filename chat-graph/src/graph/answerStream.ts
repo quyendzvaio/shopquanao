@@ -70,8 +70,10 @@ export class AnswerStreamer extends BaseCallbackHandler {
   override handleLLMNewToken(token: string, _idx: unknown, runId: string, _parent?: string, _tags?: string[], fields?: { chunk?: unknown }): void {
     const run = this.runs.get(runId);
     if (!run || run.dead || this.stopped) return;
+    // Tool calls are recognized only from the chunk (ChatOpenAI passes it with every token). Without one we could not
+    // tell a lead-in from the answer, so the run stays silent and the turn sends its text at the end.
     const message = (fields?.chunk as { message?: unknown } | undefined)?.message;
-    if (AIMessageChunk.isInstance(message) && (message.tool_call_chunks?.length ?? 0) > 0) {
+    if (!AIMessageChunk.isInstance(message) || (message.tool_call_chunks?.length ?? 0) > 0) {
       this.kill(run);
       return;
     }
@@ -79,8 +81,9 @@ export class AnswerStreamer extends BaseCallbackHandler {
     const { units, rest } = takeUnits(run.buffer);
     run.buffer = rest;
     for (const unit of units) {
-      // Blank lines before the first sentence do not count as it: the sentence after them is still held.
-      if (run.emitted === 0 && (run.held === null || run.held.trim() === '')) {
+      // Blank lines before the first sentence do not count as it, and a blank unit after it does not count as the
+      // second one: the first sentence stays held until real text follows.
+      if (run.emitted === 0 && (run.held === null || run.held.trim() === '' || unit.trim() === '')) {
         run.held = (run.held ?? '') + unit;
         continue;
       }
