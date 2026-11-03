@@ -128,6 +128,7 @@ Chỉ mục `(user_id, status)` và `(status, created_at)`. SQL chỉ nằm tron
   - luôn nối tóm tắt cố định của bản nháp (loại, đơn, nội dung) và câu hỏi xác nhận cố định "Bạn xác nhận gửi yêu cầu này cho shop không?" (đúng một lần) sau lời dẫn của model; model viết thiếu hay trùng câu hỏi thì code vẫn cho cùng kết quả.
 
   Lượt có bản nháp không gắn thẻ sản phẩm.
+- **Chốt chặn câu xác nhận tự viết (code)**: khi model viết câu hỏi xác nhận gửi của riêng nó (câu kết thúc bằng "?" chứa "xác nhận" hoặc "đồng ý" cùng "gửi" hoặc "tạo") mà lượt không có bản nháp hợp lệ (và không phải lượt hết hàng), `afterModel` cho model thêm đúng một bước có tool kèm ghi chú gọi `draft_support_ticket` (trong ngân sách như bước tiếp tục hiện có); nếu vẫn vậy, `policy_out` xoá các câu đó, hoặc trả câu cố định `TICKET_NEED_DETAILS` ("Bạn cho mình biết mã đơn và vấn đề cụ thể để mình soạn yêu cầu gửi shop nhé.") khi không còn gì có nghĩa; không đặt `pending_ticket`. Lý do: chỉ hệ thống mới được hỏi xác nhận, và chỉ sau khi có bản nháp thật để PHP giữ.
 - Grounding: mã ticket ("yêu cầu #7") và mã đơn trong kết quả hai tool mới được coi là có thật, như mã đơn của `get_order_status`.
 - Luật cứng hiện có giữ nguyên. Nếu câu trả lời tự nhận đã huỷ, đã đổi hay đã hoàn tiền thì thuộc chốt chặn đầu ra của PR khác; spec này không thêm luật từ khoá.
 

@@ -75,6 +75,9 @@ export const PRIMARY_INTENT: Record<string, string> = {
 
 export const TICKET_CONFIRM_QUESTION = 'Bạn xác nhận gửi yêu cầu này cho shop không?';
 
+/** Fixed answer when the model asked for a ticket confirmation without drafting one and did not fix it. */
+export const TICKET_NEED_DETAILS = 'Bạn cho mình biết mã đơn và vấn đề cụ thể để mình soạn yêu cầu gửi shop nhé.';
+
 const TICKET_TYPE_LABELS: Record<string, string> = {
   doi_tra: 'Đổi size / đổi trả',
   hang_loi: 'Hàng lỗi / giao sai',

@@ -5,10 +5,11 @@ import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import { createAgent } from 'langchain';
 import type { GraphConfig } from '../config.js';
 import type { Card, Offered, PendingTicket, ResponseType, ToolRecord, TurnRequest } from '../contract.js';
-import { BUSY, TICKET_CONFIRM_QUESTION, askAlternatives, checkoutRefusal, nudgeText, soldOutCorrection, soldOutNoAlternatives, ticketDraftLine } from '../copy.js';
+import { BUSY, TICKET_CONFIRM_QUESTION, TICKET_NEED_DETAILS, askAlternatives, checkoutRefusal, nudgeText, soldOutCorrection, soldOutNoAlternatives, ticketDraftLine } from '../copy.js';
 import type { TurnBudget } from '../policies/budget.js';
 import { outfitsFrom, productToCard, selectCards } from '../policies/cards.js';
 import { matchesCheckout } from '../policies/checkout.js';
+import { asksTicketConfirmation, dropTicketConfirmations, lastValidDraft } from '../policies/ticket.js';
 import { hasToolCallMarkup, plainText, summaryFromCards, ungroundedClaims } from '../policies/grounding.js';
 import type { ShopTools } from '../shopTools.js';
 import { policyMiddleware, TurnRecorder } from './middleware.js';
@@ -46,22 +47,6 @@ export type InvokeOptions = {
 
 const MAX_CARDS = 6;
 const SHOPPING_TOOLS = ['search_products', 'get_product_detail', 'build_outfit', 'find_similar_in_stock', 'get_order_status'];
-
-/** The last `draft_support_ticket` result of the turn that is a valid draft; refused drafts never count. */
-function lastValidDraft(records: ToolRecord[]): PendingTicket | null {
-  for (let i = records.length - 1; i >= 0; i--) {
-    const r = records[i];
-    if (!r || r.name !== 'draft_support_ticket' || r.result.status !== 'draft') continue;
-    const d = r.result.draft;
-    if (typeof d !== 'object' || d === null) continue;
-    const { type, order_id: orderId, summary } = d as Record<string, unknown>;
-    if (typeof type !== 'string' || typeof summary !== 'string' || summary.trim() === '') continue;
-    const order = orderId === null || orderId === undefined ? null : Number(orderId);
-    if (order !== null && !(Number.isInteger(order) && order > 0)) continue;
-    return { type, order_id: order, summary };
-  }
-  return null;
-}
 
 const last = <T>(_: T, b: T): T => b;
 
@@ -178,6 +163,12 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
     }
     // The widget shows text as typed (textContent): markdown markers would reach the customer verbatim.
     text = plainText(text);
+    // Only the shop system asks the customer to confirm sending, and only after a real draft: a model-written
+    // confirmation without one would leave "yes" with nothing to confirm, so it is dropped.
+    if (so === null && pending === null && asksTicketConfirmation(text)) {
+      text = dropTicketConfirmations(text);
+      if (!/[\p{L}\p{N}]/u.test(text)) text = TICKET_NEED_DETAILS;
+    }
     const cards = selectCards(text, records).filter((c) => !soldIds.has(c.id));
     const toolsUsed = [...new Set(records.map((r) => r.name))];
     const soldOutAnswered = so !== null && !found.markup && found.claims.length === 0 && !found.soldOut;

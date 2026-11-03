@@ -3,12 +3,12 @@ import test from 'node:test';
 import { AIMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import type { GraphConfig } from '../src/config.js';
 import type { TurnRequest } from '../src/contract.js';
-import { BUSY, TICKET_CONFIRM_QUESTION, askAlternatives, nudgeText, soldOutNote, soldOutNoAlternatives, checkoutRefusal, ticketDraftLine } from '../src/copy.js';
+import { BUSY, TICKET_CONFIRM_QUESTION, TICKET_NEED_DETAILS, askAlternatives, nudgeText, soldOutNote, soldOutNoAlternatives, checkoutRefusal, ticketDraftLine } from '../src/copy.js';
 import { TurnBudget } from '../src/policies/budget.js';
 import { summaryFromCards } from '../src/policies/grounding.js';
 import { productToCard } from '../src/policies/cards.js';
 import { buildTurnGraph } from '../src/graph/buildGraph.js';
-import { EMPTY_ANSWER_CORRECTION, NO_MORE_TOOLS, REPEATED_TOOL_CALL } from '../src/graph/middleware.js';
+import { EMPTY_ANSWER_CORRECTION, NO_MORE_TOOLS, REPEATED_TOOL_CALL, TICKET_NO_DRAFT_NOTE } from '../src/graph/middleware.js';
 import { answersSoldOut, soldOutFrom } from '../src/graph/soldOut.js';
 import { ScriptedChatModel, type ScriptedStep } from './support/scriptedModel.js';
 import { fakeShopTools } from './support/fakeTools.js';
@@ -775,4 +775,98 @@ test('aDraftWithoutAPositiveIntegerOrderIdIsNoDraft', async () => {
     assert.equal(out.pending_ticket, null, String(order_id));
     assert.equal(out.response_type, 'final_answer', String(order_id));
   }
+});
+
+// A model-written confirmation question without a draft: the shop system never saw a draft, so a "yes" would file nothing.
+const orderCall = () => ai('', [call('o1', 'get_order_status', { order_id: 12 })]);
+const orderResult = { orders: [{ id: 12, status: 'Đã giao' }] };
+const ownQuestion = 'Bạn có đồng ý để mình gửi yêu cầu đổi trả cho đơn #12 không?';
+
+test('aModelWrittenConfirmationWithoutADraftGetsOneContinuationThenTheRealDraft', async () => {
+  const { model, outcome } = run(
+    [orderCall(), ai(ownQuestion), draftCall(), ai('Mình đã soạn yêu cầu đổi size cho đơn #12.')],
+    { get_order_status: () => orderResult, draft_support_ticket: () => draftResult },
+    ticketReq(),
+  );
+  const out = await outcome;
+  assert.equal(model.calls.length, 4);
+  assert.equal(String(model.calls[2]?.at(-1)?.content), TICKET_NO_DRAFT_NOTE);
+  assert.ok((model.toolCounts[2] ?? 0) > 0, 'the continuation step still has its tools');
+  assert.deepEqual(out.pending_ticket, ticketDraft);
+  assert.equal(out.response_type, 'clarification');
+  assert.equal(out.message, `Mình đã soạn yêu cầu đổi size cho đơn #12.\n${ticketDraftLine(ticketDraft)} ${TICKET_CONFIRM_QUESTION}`);
+  assert.ok(!out.message.includes(ownQuestion));
+});
+
+test('aModelThatAsksItsOwnConfirmationAgainAfterTheContinuationIsDroppedToTheFixedCopy', async () => {
+  const { model, outcome } = run(
+    [orderCall(), ai(ownQuestion), ai(ownQuestion)],
+    { get_order_status: () => orderResult, draft_support_ticket: () => draftResult },
+    ticketReq(),
+  );
+  const out = await outcome;
+  assert.equal(model.calls.length, 3, 'one continuation only');
+  assert.equal(out.message, TICKET_NEED_DETAILS);
+  assert.equal(out.pending_ticket, null);
+  assert.equal(out.response_type, 'final_answer');
+  assert.deepEqual(out.cards, []);
+
+  const partial = run(
+    [orderCall(), ai('Đơn #12 đã giao. Bạn xác nhận gửi yêu cầu này cho shop không?'), ai('Đơn #12 đã giao. Bạn xác nhận gửi yêu cầu này cho shop không?')],
+    { get_order_status: () => orderResult },
+    ticketReq(),
+  );
+  const kept = await partial.outcome;
+  assert.equal(kept.message, 'Đơn #12 đã giao.');
+  assert.equal(kept.pending_ticket, null);
+});
+
+test('theOfferQuestionPassesUntouchedWithNoExtraModelCall', async () => {
+  const offer = 'Đơn #12 đã giao. Bạn có muốn mình tạo yêu cầu đổi trả không?';
+  const { model, outcome } = run([orderCall(), ai(offer)], { get_order_status: () => orderResult }, ticketReq());
+  const out = await outcome;
+  assert.equal(model.calls.length, 2);
+  assert.equal(out.message, offer);
+  assert.equal(out.pending_ticket, null);
+  assert.equal(out.response_type, 'final_answer');
+});
+
+test('aRealDraftTurnIsNotContinuedEvenWhenTheModelWritesTheConfirmationQuestion', async () => {
+  const { model, outcome } = run([draftCall(), ai(ticketQuestionAnswer)], { draft_support_ticket: () => draftResult }, ticketReq());
+  const out = await outcome;
+  assert.equal(model.calls.length, 2);
+  assert.deepEqual(out.pending_ticket, ticketDraft);
+  assert.equal(countOf(out.message, TICKET_CONFIRM_QUESTION), 1);
+});
+
+test('theConfirmationGuardLeavesASoldOutTurnAlone', async () => {
+  const answer = 'Quần Baggy Vải Tuyết Mưa đang hết hàng, bạn xem Quần Kaki Ống Rộng nhé? Bạn xác nhận gửi yêu cầu cho shop không?';
+  const { model, outcome } = run(
+    [searchCall, ai(answer)],
+    { search_products: () => soldOutSearch, find_similar_in_stock: () => similar },
+  );
+  const out = await outcome;
+  assert.equal(model.calls.length, 2, 'no continuation on a sold-out turn that already names the news');
+  assert.equal(out.message, answer);
+});
+
+test('aRefusedDraftDoesNotCountAsADraftForTheGuard', async () => {
+  const { model, outcome } = run(
+    [draftCall(), ai(ownQuestion), ai(ownQuestion)],
+    { draft_support_ticket: () => ({ status: 'duplicate_open', message: 'Đã có yêu cầu.', ticket_id: 9 }) },
+    ticketReq(),
+  );
+  const out = await outcome;
+  assert.equal(model.calls.length, 3);
+  assert.equal(out.message, TICKET_NEED_DETAILS);
+  assert.equal(out.pending_ticket, null);
+});
+
+test('theContinuationRespectsTheModelBudget', async () => {
+  const tight = { maxToolCalls: 4, maxModelCalls: 2, turnTimeoutMs: 45000 };
+  const model = new ScriptedChatModel([orderCall(), ai(ownQuestion)]);
+  const graph = buildTurnGraph({ model, tools: fakeShopTools({ get_order_status: () => orderResult }), budget: new TurnBudget(tight), config: CONFIG });
+  const out = await graph.invoke(ticketReq());
+  assert.equal(model.calls.length, 2, 'no model call is left for a continuation');
+  assert.equal(out.message, TICKET_NEED_DETAILS);
 });
