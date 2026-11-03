@@ -30,7 +30,7 @@ Local bring-up: `cp .env.example .env`, fill `LLM_*` + `MCP_SERVICE_TOKEN` (and 
 
 - `public/` is the only web root: storefront pages, `admin/`, `assets/`, and the REST front controller `public/api/index.php`.
 - `src/` holds all PHP code (Composer **classmap**, no namespaces), by responsibility: `app/api/` (routes table `routes.php`, controllers in `controllers/`, `support/ChatStreamProtocol`), `app/web/` (one handler per storefront page, `admin/` for admin pages; `public/*.php` entry files only call them), `agent/` (`HarnessConfig` = the only reader of chatbot env/config; `ChatbotService` = facade, `ChatGraphClient`; `AgentFactory::executeTool` = the MCP bridge entry), `harness/` (what is left of the old pipeline: `tools/` and `memory/`, see `src/harness/README.md`), `service/` (business logic: catalog, cart, order, size, outfit, freeship, knowledge, support, user, review, admin), `repository/` (the only home of SQL), `model/`, `core/` (bootstrap, `config/` = `ServiceConfig`/`AppConfig`, cache, `database/MigrationRunner`, observability). New REST endpoints are registered in `src/app/api/routes.php`.
-- Layer rule: `app -> agent/service/model/core`, `agent -> harness/service/repository/model/core`, `service -> repository/model/core`, `repository -> model/core`; SQL only in `repository/` (permanent exceptions: `MigrationRunner` and the two Langfuse outbox files), env reads only in `agent/` and `core/` (`core/config/` for app settings). `tests/unit/ArchitectureTest.php` enforces it with no legacy allowlist: fix the code, not the test. Per-layer how-tos: `src/app/README.md`, `src/service/README.md`, `src/repository/README.md`.
+- Layer rule: `app -> agent/service/model/core`, `agent -> harness/service/repository/model/core`, `service -> repository/model/core`, `repository -> model/core`; SQL only in `repository/` (the one permanent exception: `MigrationRunner`), env reads only in `agent/` and `core/` (`core/config/` for app settings). `tests/unit/ArchitectureTest.php` enforces it with no legacy allowlist: fix the code, not the test. Per-layer how-tos: `src/app/README.md`, `src/service/README.md`, `src/repository/README.md`.
 - `templates/partials/` page header/footer/chat widget, `templates/pages/` page views (`admin/` for admin); `database/schema.sql` + `database/migrations/*.sql` (dated, never edit applied ones).
 - Nginx edge-caches public catalog GETs for 60s (`docker/nginx/default.conf`); stale reads after DB edits are expected.
 
@@ -80,5 +80,5 @@ browser -> POST /api/chatbot/stream (SSE) -> nginx -> app (PHP): session, origin
 | `database.md` | Schema, migrations, `MigrationRunner` |
 | `testing.md` | Suites, fixtures, eval, CI gates |
 | `eval.md` | Two-layer chatbot eval (CI scripted LLM, manual real LLM) |
-| `observability.md` | Langfuse profile, trace outbox, secrets |
+| `observability.md` | Langfuse profile, tracing gate, secrets |
 | `deployment.md` | Compose, CI/CD deploy gate |

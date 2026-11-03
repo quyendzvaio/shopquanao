@@ -17,7 +17,7 @@ App uses `${APP_IMAGE:-shop_quan_ao-app:latest}`.
 
 ## Layers
 
-`app` (`src/app/api`, `src/app/web`) -> `agent` -> `harness` (`tools/`, `memory/` only) -> `service` -> `repository` -> `core`, with `model` below all of them. `app` uses `agent`/`service`/`model`/`core` (never `repository`); `service` uses `repository`/`model`/`core`; `repository` uses `model`/`core`. Web pages: `public/*.php` entry file -> `src/app/web/<Page>.php` handler -> `templates/pages/*.php` view. Env is read only in `src/agent/` and `src/core/` (app settings in `src/core/config/`: `ServiceConfig`, `AppConfig`). `tests/unit/ArchitectureTest.php` enforces all of it; the only allowlist is the permanent SQL exceptions (`MigrationRunner`, the Langfuse outbox files).
+`app` (`src/app/api`, `src/app/web`) -> `agent` -> `harness` (`tools/`, `memory/` only) -> `service` -> `repository` -> `core`, with `model` below all of them. `app` uses `agent`/`service`/`model`/`core` (never `repository`); `service` uses `repository`/`model`/`core`; `repository` uses `model`/`core`. Web pages: `public/*.php` entry file -> `src/app/web/<Page>.php` handler -> `templates/pages/*.php` view. Env is read only in `src/agent/` and `src/core/` (app settings in `src/core/config/`: `ServiceConfig`, `AppConfig`). `tests/unit/ArchitectureTest.php` enforces all of it; the only allowlist is the permanent SQL exception (`MigrationRunner`).
 
 - Add a page: handler in `src/app/web/` (admin: `src/app/web/admin/`) returning a `PageResult`, a view in `templates/pages/`, a thin entry file in `public/`.
 - Add an endpoint: route in `src/app/api/routes.php`, controller in `src/app/api/controllers/`, logic in a `src/service/` class.

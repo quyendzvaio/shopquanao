@@ -118,7 +118,7 @@ Response chỉ trả product cards của shop đã qua policy card/grounding c�
 | `src/agent/` | `ChatbotService` (facade), `ChatGraphClient`, `HarnessConfig` (nơi duy nhất đọc env chatbot), `AgentFactory::executeTool` (cầu MCP) |
 | `src/harness/` | Còn hai component: `tools/` (hợp đồng và thực thi tool) và `memory/` (lưu hội thoại); xem [`src/harness/README.md`](src/harness/README.md) |
 | `src/service/`, `src/model/`, `src/repository/` | Nghiệp vụ (catalog, cart, order, size, outfit, freeship, knowledge, user, review, admin), đối tượng dữ liệu, truy cập dữ liệu (nơi duy nhất có SQL); xem README trong từng thư mục |
-| `src/core/` | Bootstrap, `config/` (`ServiceConfig`, `AppConfig`), cache, `database/MigrationRunner`, observability (Langfuse outbox) |
+| `src/core/` | Bootstrap, `config/` (`ServiceConfig`, `AppConfig`), cache, `database/MigrationRunner` |
 | `config/` | `db.php` (kết nối DB) |
 | `tests/` | `unit/` (gồm `ArchitectureTest`), `integration/`, `support/` (fixture SQLite) |
 | `templates/` | `partials/` (header/footer/chat widget) và `pages/` (view từng trang) |
@@ -154,7 +154,7 @@ Langfuse is self-hosted as an opt-in Docker Compose profile. Start it with:
 
 ```bash
 docker compose --profile observability up -d langfuse-postgres langfuse-clickhouse \
-  langfuse-minio langfuse-redis langfuse-web langfuse-worker langfuse-trace-publisher
+  langfuse-minio langfuse-redis langfuse-web langfuse-worker
 ```
 
 The profile is intentionally separate from `app`, `rag-ml` and `reranker`; the
@@ -172,7 +172,9 @@ backup/recovery, and the guarded reset command are documented in
 
 Open `http://localhost:3000`, create a project, then put only the generated
 public/secret project keys in the ignored `.env` as `LANGFUSE_PUBLIC_KEY` and
-`LANGFUSE_SECRET_KEY`. Set `LANGFUSE_ENABLED=true`,
+`LANGFUSE_SECRET_KEY`. Set `APP_ENV=production` and `LANGFUSE_ENABLED=true`
+(`chat-graph` traces only when both hold; in any other environment it logs
+`Langfuse tracing off: APP_ENV is not production` once at startup),
 `LANGFUSE_BASE_URL=http://localhost:3000` and
 `LANGFUSE_INGESTION_URL=http://langfuse-web:3000`,
 `LANGFUSE_PROJECT=fashion-shop-chatbot-eval`. Never commit these values or bake

@@ -1,4 +1,5 @@
 export type GraphConfig = {
+  appEnv: 'production' | 'development';
   port: number;
   token: string;
   llm: { baseUrl: string; apiKey: string; model: string; timeoutMs: number };
@@ -22,13 +23,23 @@ function str(env: Env, key: string, fallback = ''): string {
   return raw === undefined || raw === '' ? fallback : raw;
 }
 
-/** The only place in chat-graph that reads process.env. */
-export function loadConfig(env: Env = process.env): GraphConfig {
+const TRACING_OFF_LINE = '[chat-graph] Langfuse tracing off: APP_ENV is not production';
+
+/**
+ * The only place in chat-graph that reads process.env.
+ * Langfuse tracing is on only when APP_ENV=production AND LANGFUSE_ENABLED=true; with the flag on in any
+ * other environment `log` gets one explanatory line (loadConfig runs once, at startup).
+ */
+export function loadConfig(env: Env = process.env, log: (message: string) => void = console.error): GraphConfig {
   const token = str(env, 'CHAT_GRAPH_TOKEN');
   if (token === '' || token === 'change-me') {
     throw new Error('CHAT_GRAPH_TOKEN must be configured with a non-default value');
   }
+  const appEnv = str(env, 'APP_ENV').toLowerCase() === 'production' ? 'production' : 'development';
+  const langfuseRequested = str(env, 'LANGFUSE_ENABLED').toLowerCase() === 'true';
+  if (langfuseRequested && appEnv !== 'production') log(TRACING_OFF_LINE);
   return {
+    appEnv,
     port: num(env, 'CHAT_GRAPH_PORT', 8090),
     token,
     llm: {
@@ -47,7 +58,7 @@ export function loadConfig(env: Env = process.env): GraphConfig {
       maxGap: num(env, 'FREESHIP_NUDGE_MAX_GAP', 200000),
     },
     langfuse: {
-      enabled: str(env, 'LANGFUSE_ENABLED').toLowerCase() === 'true',
+      enabled: langfuseRequested && appEnv === 'production',
       baseUrl: str(env, 'LANGFUSE_INGESTION_URL', str(env, 'LANGFUSE_BASE_URL')),
       publicKey: str(env, 'LANGFUSE_PUBLIC_KEY'),
       secretKey: str(env, 'LANGFUSE_SECRET_KEY'),
