@@ -53,7 +53,8 @@ final class ChatHistoryService
             'session_token' => $sessionToken,
             'session_id' => $sessionId,
             'ticket_pending' => PendingTicketSlot::isLive(
-                (new ChatbotMemory($this->pdo, $sessionId, $userId))->load()['slots'][PendingTicketSlot::KEY] ?? null,
+                // Session slots only: no user id, so the long-term memory is not loaded.
+                (new ChatbotMemory($this->pdo, $sessionId))->load()['slots'][PendingTicketSlot::KEY] ?? null,
                 $userId,
                 ($this->now)()
             ),

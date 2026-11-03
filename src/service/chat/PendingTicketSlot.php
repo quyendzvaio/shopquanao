@@ -3,7 +3,7 @@
 /**
  * The chat-session memory slot that holds a drafted, not yet confirmed support
  * ticket. ChatbotService writes and consumes it; ChatHistoryService only asks
- * whether a draft is still waiting. Never sent to chat-graph.
+ * whether a draft is still waiting. Never sent to chat-graph (not in ChatMemoryContext::ALLOWED_SLOTS).
  */
 final class PendingTicketSlot
 {
