@@ -1,3 +1,5 @@
 # service/support
 
 `SupportTicketService` holds the rules for order-support tickets filed through the chatbot: the 5 types and 4 statuses, the order must belong to the customer (not needed for `khac`), no second open ticket of the same type on the same order, at most 5 open tickets per user, summary 1-500 characters. `draft` only validates; `create` re-checks and writes, so a ticket exists only after the customer confirmed. It also serves the chatbot's short list (`listForUser`, the 5 newest), the profile page (`profileList`, 10 per page) and the admin queue (`adminList` 20 per page, `adminDetail`, `adminUpdate`, `countNew`). SQL lives in `SupportTicketRepository`.
+
+The 5-open cap applies only when a customer files a new request through the chatbot (`create`). An admin may reopen a closed ticket with `adminUpdate` without the cap: that is deliberate.

@@ -12,9 +12,6 @@ class ChatbotService
 {
     public const BUSY_MESSAGE = 'Hệ thống đang bận, bạn thử lại sau ít phút nhé.';
     private const FINGERPRINT_SLOT = 'freeship_nudged_fingerprint';
-    /** Never in ChatMemoryContext::ALLOWED_SLOTS: a drafted ticket stays in PHP and is never sent to chat-graph. */
-    private const PENDING_TICKET_SLOT = 'pending_ticket';
-    private const PENDING_TICKET_TTL = 900;
     public const TICKET_CREATED = 'Đã gửi yêu cầu #%d cho shop. Shop sẽ xử lý và cập nhật trạng thái; bạn có thể hỏi mình hoặc xem ở trang tài khoản.';
     public const TICKET_DECLINED = 'Mình đã huỷ yêu cầu, chưa gửi gì cho shop.';
     public const TICKET_REFUSED = 'Chưa gửi được yêu cầu: %s';
@@ -143,9 +140,9 @@ class ChatbotService
         // customer must not be asked to confirm it.
         $ticketPending = false;
         if ($result['pending_ticket'] !== null && $this->userId !== null && $this->userId > 0) {
-            $stored = $memory->rememberSlot(self::PENDING_TICKET_SLOT, json_encode($result['pending_ticket'] + [
+            $stored = $memory->rememberSlot(PendingTicketSlot::KEY, json_encode($result['pending_ticket'] + [
                 'user_id' => $this->userId,
-                'expires_at' => ($this->now)() + self::PENDING_TICKET_TTL,
+                'expires_at' => ($this->now)() + PendingTicketSlot::TTL,
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
             if ($stored) {
                 $ticketPending = true;
@@ -208,11 +205,11 @@ class ChatbotService
      */
     private function answerTicketConfirmation(ChatbotMemory $memory, string $message, ?callable $onDelta): ?array
     {
-        $stored = $memory->load()['slots'][self::PENDING_TICKET_SLOT] ?? null;
+        $stored = $memory->load()['slots'][PendingTicketSlot::KEY] ?? null;
         if ($stored === null || $stored === '') {
             return null;
         }
-        if (!$memory->forgetSlot(self::PENDING_TICKET_SLOT)) {
+        if (!$memory->forgetSlot(PendingTicketSlot::KEY)) {
             // The draft could not be taken out, so a second "đồng ý" could create it again: not a confirmation.
             return null;
         }
