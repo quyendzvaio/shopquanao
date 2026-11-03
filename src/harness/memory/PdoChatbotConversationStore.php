@@ -58,6 +58,12 @@ class PdoChatbotConversationStore implements ChatbotConversationStore
             if ($evaluationMetadata !== []) {
                 $metadata['evaluation'] = $evaluationMetadata;
             }
+            // Alternatives offered by a sold-out answer: a separate key, so history never renders them as shown cards.
+            $offered = $responseMetadata['offered'] ?? [];
+            unset($responseMetadata['offered']);
+            if (is_array($offered) && $offered !== []) {
+                $metadata['offered'] = $offered;
+            }
             if ($responseMetadata !== []) {
                 $metadata['pipeline'] = $responseMetadata;
             }

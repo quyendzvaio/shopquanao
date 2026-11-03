@@ -23,6 +23,7 @@ final class ToolApplicationService
         return match ($tool) {
             'search_products' => $this->products->search($arguments),
             'get_product_detail' => $this->products->detail($arguments),
+            'find_similar_in_stock' => $this->products->similar($arguments),
             'build_outfit' => (new OutfitService($this->pdo))->build($arguments),
             'suggest_freeship_items' => (new FreeShippingService($this->pdo, $this->freeShipping))->suggest($this->userId, $arguments),
             'get_categories' => $this->products->categories(),

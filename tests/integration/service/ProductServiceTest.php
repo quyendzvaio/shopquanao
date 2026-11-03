@@ -91,18 +91,91 @@ final class ProductServiceTest extends TestCase
         $result = $this->products->search(['search' => 'quần baggy', 'in_stock' => true]);
 
         $this->assertSame([], $result['products']);
+        $this->assertSame([69], $result['out_of_stock_ids']);
         $this->assertSame(1, $result['out_of_stock_matches']);
     }
 
-    public function testSearchWithoutStockFilterOrWithResultsHasNoSoldOutCount(): void
+    public function testUnfilteredSearchWithOnlySoldOutReportsIds(): void
     {
         $all = $this->products->search(['search' => 'quần baggy']);
         $this->assertSame([69], array_column($all['products'], 'id'));
-        $this->assertArrayNotHasKey('out_of_stock_matches', $all);
+        $this->assertSame([69], $all['out_of_stock_ids']);
+        $this->assertSame(1, $all['out_of_stock_matches']);
+    }
 
+    public function testSearchWithInStockResultsHasEmptySoldOutIds(): void
+    {
         $inStock = $this->products->search(['search' => 'áo thun', 'in_stock' => true]);
         $this->assertNotSame([], $inStock['products']);
+        $this->assertSame([], $inStock['out_of_stock_ids']);
         $this->assertArrayNotHasKey('out_of_stock_matches', $inStock);
+    }
+
+    public function testInStockSearchListsSoldOutNameMatchesItHid(): void
+    {
+        // "mũ": 62 "Áo Khoác Nỉ Có Mũ" is in stock, 91 "Mũ Lưỡi Trai Thêu Logo" is sold out.
+        $result = $this->products->search(['search' => 'mũ', 'in_stock' => true]);
+
+        $this->assertSame([62], array_column($result['products'], 'id'));
+        $this->assertSame([], $result['out_of_stock_ids'], 'the sold-out edge must not fire while products remain');
+        $this->assertSame([91], array_column($result['out_of_stock_products'], 'id'));
+        $this->assertSame('Mũ Lưỡi Trai Thêu Logo', $result['out_of_stock_products'][0]['name']);
+
+        $cached = $this->products->search(['search' => 'mũ', 'in_stock' => true]);
+        $this->assertTrue($cached['cache']['product_cache_hit'] ?? false);
+        $this->assertSame([91], array_column($cached['out_of_stock_products'], 'id'));
+    }
+
+    public function testSearchWithoutInStockHasNoHiddenSoldOutList(): void
+    {
+        $this->assertArrayNotHasKey('out_of_stock_products', $this->products->search(['search' => 'mũ']));
+        $this->assertArrayNotHasKey('out_of_stock_products', $this->products->search(['search' => 'quần baggy', 'in_stock' => true]));
+    }
+
+    public function testCachedSearchAlsoReportsSoldOutIds(): void
+    {
+        $this->products->search(['search' => 'quần baggy']);
+        $cached = $this->products->search(['search' => 'quần baggy']);
+
+        $this->assertTrue($cached['cache']['product_cache_hit'] ?? false, 'second call must hit the id cache');
+        $this->assertSame([69], $cached['out_of_stock_ids']);
+        $this->assertSame(1, $cached['out_of_stock_matches']);
+    }
+
+    public function testSimilarInStockForSoldOutBaggy(): void
+    {
+        $r = $this->products->similar(['product_id' => 69]);
+        $this->assertSame(69, $r['source']['id']);
+        $this->assertSame('Quần Baggy Vải Tuyết Mưa', $r['source']['name']);
+        $this->assertSame(2, $r['source']['category_id']);
+        $this->assertSame(['streetstyle', 'dichoi'], $r['source']['style_tags']);
+        $this->assertSame([73, 71], array_column($r['products'], 'id')); // 2 shared tags; |560k-490k| < |720k-490k|
+        foreach ($r['products'] as $p) {
+            $this->assertGreaterThan(0, $p['stock']);
+            $this->assertArrayHasKey('variants', $p);
+            $this->assertArrayHasKey('available_sizes', $p);
+        }
+    }
+
+    public function testSimilarInStockLimitAndExclusions(): void
+    {
+        $ids = array_column($this->products->similar(['product_id' => 69, 'limit' => 5])['products'], 'id');
+        // 2 shared tags: 73, 71; 1 shared by |price diff|: 68, 72, 67 (70 is cut by the limit)
+        $this->assertSame([73, 71, 68, 72, 67], $ids);
+        $this->assertNotContains(69, $ids);
+        $this->assertNotContains(65, $ids); // shares a tag but is sold out
+        $this->assertNotContains(74, $ids); // shares none
+    }
+
+    public function testSimilarInStockClampsLimit(): void
+    {
+        $this->assertCount(1, $this->products->similar(['product_id' => 69, 'limit' => 0])['products']);
+        $this->assertCount(5, $this->products->similar(['product_id' => 69, 'limit' => 99])['products']);
+    }
+
+    public function testSimilarInStockUnknownProduct(): void
+    {
+        $this->assertSame('Product not found', $this->products->similar(['product_id' => 999999])['error']);
     }
 
     public function testSearchByProductReferenceRoutesToDetail(): void

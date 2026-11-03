@@ -21,4 +21,5 @@ Never commit Langfuse values or bake them into an image.
 
 ## Trace publishing
 
-- Chat pipeline enqueues sanitized traces via the `langfuse_trace_outbox` table (migration `2026_09_01_langfuse_trace_outbox.sql`); publisher: `scripts/publish_langfuse_trace_outbox.php` (service `langfuse-trace-publisher`).
+- `chat-graph` sends its own traces to Langfuse (`chat-graph/src/tracing.ts`: Langfuse LangChain callback handler + OTel span processor, enabled only with `LANGFUSE_ENABLED=true` and both keys; message/answer content stays out unless `LANGFUSE_TRACE_CONTENT=true`). Tracing failures never affect the answer.
+- Legacy outbox, kept for now: the `langfuse_trace_outbox` table (migration `2026_09_01_langfuse_trace_outbox.sql`), `scripts/publish_langfuse_trace_outbox.php` (service `langfuse-trace-publisher`), `LangfuseTraceOutbox` and `LangfuseOtlpTracePublisher`. Nothing writes to the outbox since the PHP chat pipeline was removed (its `TraceOutbox` middleware was the only producer), so the publisher has nothing to export. Whether to remove them is a pending decision.

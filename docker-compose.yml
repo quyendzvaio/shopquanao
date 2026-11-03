@@ -77,12 +77,6 @@ services:
       DB_CONNECT_RETRIES: 30
       FREE_SHIPPING_THRESHOLD: ${FREE_SHIPPING_THRESHOLD:-500000}
       FREESHIP_NUDGE_MAX_GAP: ${FREESHIP_NUDGE_MAX_GAP:-200000}
-      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
-      LLM_API_KEY: ${LLM_API_KEY}
-      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
-      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
-      LLM_STREAM_MODEL: ${LLM_STREAM_MODEL:-${LLM_MODEL:-deepseek-chat}}
-      LLM_TIMEOUT: ${LLM_TIMEOUT:-25}
       RERANKER_URL: http://reranker:8000
       RAG_ML_URL: http://rag-ml:8000
       QDRANT_URL: http://qdrant:6333
@@ -100,19 +94,10 @@ services:
       REDIS_PREFIX: "shop:"
       CLIENT_CACHE_TTL: ${CLIENT_CACHE_TTL:-60}
       CLIENT_CACHE_STALE_TTL: ${CLIENT_CACHE_STALE_TTL:-30}
-      CHATBOT_TOOL_TRANSPORT: ${CHATBOT_TOOL_TRANSPORT:-mcp}
-      # Template-only answers: grounded PHP draft is emitted as the reply
-      # instead of paying a native token-stream round trip (L0 fast path).
-      CHATBOT_TEMPLATE_RESPONSE: ${CHATBOT_TEMPLATE_RESPONSE:-1}
+      CHAT_GRAPH_URL: http://chat-graph:8090
+      CHAT_GRAPH_TOKEN: ${CHAT_GRAPH_TOKEN:-local-dev-chat-graph-secret-change-in-production}
+      CHAT_GRAPH_TIMEOUT: ${CHAT_GRAPH_TIMEOUT:-50}
       MCP_SERVICE_TOKEN: ${MCP_SERVICE_TOKEN:-local-dev-mcp-secret-change-in-production}
-      MCP_STDIO_NODE: /usr/bin/node
-      MCP_STDIO_SCRIPT: /opt/mcp-server/dist/stdio.js
-      # The Alpine PHP-FPM/Nginx runtime listens on 8080 inside the app container.
-      SHOP_INTERNAL_URL: http://127.0.0.1:8080/api/internal/mcp
-      # The internal call includes extraction (up to LLM_TIMEOUT) plus bounded
-      # Product Search. Keep the child deadline below the PHP MCP deadline.
-      MCP_REQUEST_TIMEOUT_MS: ${MCP_REQUEST_TIMEOUT_MS:-80000}
-      MCP_REQUEST_TIMEOUT: ${MCP_REQUEST_TIMEOUT:-85}
       LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
       LANGFUSE_INGESTION_URL: ${LANGFUSE_INGESTION_URL:-http://langfuse-web:3000}
       LANGFUSE_PROJECT: ${LANGFUSE_PROJECT:-fashion-shop-chatbot-eval}
@@ -133,6 +118,42 @@ services:
         condition: service_started
       qdrant:
         condition: service_started
+
+  chat-graph:
+    image: ${CHAT_GRAPH_IMAGE:-shop_quan_ao-chat-graph:latest}
+    build:
+      context: .
+      dockerfile: chat-graph/Dockerfile
+    container_name: shop_quan_ao_chat_graph
+    env_file: .env
+    restart: unless-stopped
+    expose:
+      - "8090"
+    environment:
+      CHAT_GRAPH_PORT: 8090
+      CHAT_GRAPH_TOKEN: ${CHAT_GRAPH_TOKEN:-local-dev-chat-graph-secret-change-in-production}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-25}
+      MCP_SERVICE_TOKEN: ${MCP_SERVICE_TOKEN:-local-dev-mcp-secret-change-in-production}
+      SHOP_INTERNAL_URL: http://app:8080/api/internal/mcp
+      MCP_REQUEST_TIMEOUT_MS: 30000
+      FREE_SHIPPING_THRESHOLD: ${FREE_SHIPPING_THRESHOLD:-500000}
+      FREESHIP_NUDGE_MAX_GAP: ${FREESHIP_NUDGE_MAX_GAP:-200000}
+      CHAT_GRAPH_MAX_TOOL_CALLS: ${CHAT_GRAPH_MAX_TOOL_CALLS:-4}
+      CHAT_GRAPH_MAX_MODEL_CALLS: ${CHAT_GRAPH_MAX_MODEL_CALLS:-5}
+      CHAT_GRAPH_TURN_TIMEOUT_MS: ${CHAT_GRAPH_TURN_TIMEOUT_MS:-45000}
+      # Langfuse stays opt-in (observability profile); the URL is only used when enabled.
+      LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
+      LANGFUSE_INGESTION_URL: ${LANGFUSE_INGESTION_URL:-http://langfuse-web:3000}
+      LANGFUSE_BASE_URL: ${LANGFUSE_INGESTION_URL:-http://langfuse-web:3000}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_TRACE_CONTENT: ${LANGFUSE_TRACE_CONTENT:-false}
+    depends_on:
+      app:
+        condition: service_healthy
 
   reranker:
     build:

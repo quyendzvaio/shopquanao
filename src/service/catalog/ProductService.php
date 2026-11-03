@@ -57,7 +57,7 @@ final class ProductService
             $freshProducts = $this->fetchFreshProductsByIds(array_map('intval', $cachedIds['product_ids']));
             $freshProducts = array_values(array_filter($freshProducts, fn($p) => ProductAttributeNormalizer::productMatchesConstraints($p, $args)));
             if (!empty($freshProducts)) {
-                return [
+                return $this->withSoldOut([
                     'products' => $freshProducts,
                     'pagination' => [
                         'page' => 1,
@@ -66,7 +66,7 @@ final class ProductService
                         'total_pages' => 1,
                     ],
                     'cache' => ['product_cache_hit' => true, 'cache_policy' => 'ids_only_fresh_price_stock'],
-                ];
+                ], $args);
             }
         }
 
@@ -74,9 +74,6 @@ final class ProductService
 
         if (!isset($result['error']) && !empty($result['products'])) {
             $result = (new ProductReranker($this->rerankerUrl))->apply($args['search'] ?? '', $result);
-        }
-        if (!isset($result['error']) && empty($result['products']) && ($args['in_stock'] ?? null) === true) {
-            $result['out_of_stock_matches'] = $this->soldOutMatchCount($args);
         }
 
         if (!isset($result['error'])) {
@@ -87,7 +84,7 @@ final class ProductService
             $result['cache'] = ['product_cache_hit' => false, 'cache_policy' => 'ids_only_fresh_price_stock'];
         }
 
-        return $result;
+        return $this->withSoldOut($result, $args);
     }
 
     public function detail(array $args): array {
@@ -117,6 +114,44 @@ final class ProductService
                 'product_detail_static_cache_hit' => true,
                 'cache_policy' => 'static_metadata_only_fresh_price_stock',
             ],
+        ];
+    }
+
+    /**
+     * find_similar_in_stock: in-stock products of the source's category sharing a style tag with it
+     * (most shared tags, then nearest price). limit is clamped to 1..5, default 2.
+     */
+    public function similar(array $args): array {
+        $id = (int)($args['product_id'] ?? 0);
+        $source = $id > 0 ? $this->productRows->findById($id) : null;
+        if ($source === null) return ['error' => 'Product not found'];
+
+        $tags = StyleTag::parseList((string)($source['style_tags'] ?? ''));
+        $categoryId = (int)($source['category_id'] ?? 0);
+        $limit = max(1, min(5, (int)($args['limit'] ?? 2)));
+        $products = [];
+        if ($tags !== [] && $categoryId > 0) {
+            $rows = $this->productRows->similarInStock($id, $categoryId, $tags, (float)$source['price'], $limit);
+            $this->attachProductSizes($rows);
+            $products = $this->catalogVariants->enrich($rows);
+            foreach ($products as &$p) {
+                $p['id'] = (int)$p['id'];
+                $p['category_id'] = $p['category_id'] !== null ? (int)$p['category_id'] : null;
+                $p['price'] = (float)$p['price'];
+                $p['stock'] = (int)($p['stock'] ?? 0);
+            }
+            unset($p);
+            $products = array_values(array_filter($products, fn($p) => $this->isInStock($p)));
+        }
+
+        return [
+            'source' => [
+                'id' => $id,
+                'name' => (string)$source['name'],
+                'category_id' => $categoryId > 0 ? $categoryId : null,
+                'style_tags' => $tags,
+            ],
+            'products' => $products,
         ];
     }
 
@@ -374,10 +409,74 @@ final class ProductService
         ];
     }
 
-    /** A "còn hàng" search found nothing: how many products match every other filter (so they are sold out). */
-    private function soldOutMatchCount(array $args): int {
+    /**
+     * Adds out_of_stock_ids (rank order) to a search result without an error, and out_of_stock_matches
+     * (their count) when there are any. Computed after the cache lookup, so the cached ids payload is unchanged.
+     */
+    private function withSoldOut(array $result, array $args): array {
+        if (isset($result['error'])) return $result;
+        $ids = $this->soldOutIds($args, $result);
+        $result['out_of_stock_ids'] = $ids;
+        if ($ids !== []) $result['out_of_stock_matches'] = count($ids);
+        $hidden = $this->hiddenSoldOutProducts($args, $result);
+        if ($hidden !== []) $result['out_of_stock_products'] = $hidden;
+        return $result;
+    }
+
+    /**
+     * A "còn hàng" search that still found products: the name matches it dropped for being sold out (max 3, as
+     * {id, name, price}), so the agent can tell a sold-out "Mũ Lưỡi Trai" apart from an in-stock "Áo Khoác Có Mũ".
+     * Never in `products`, so they never become cards, and never in out_of_stock_ids, so the sold-out edge is unchanged.
+     *
+     * @return list<array{id:int,name:string,price:float}>
+     */
+    private function hiddenSoldOutProducts(array $args, array $result): array {
+        $products = $result['products'] ?? [];
+        if (($args['in_stock'] ?? null) !== true || $products === []) return [];
+        $shown = array_map(fn($p) => (int)$p['id'], $products);
         unset($args['in_stock']);
-        return count($this->executeSearchProductsDirect($args)['products'] ?? []);
+        $matches = $this->executeSearchProductsDirect($args);
+        if (isset($matches['error'])) return [];
+        $hidden = [];
+        foreach ($matches['products'] ?? [] as $p) {
+            if (in_array((int)$p['id'], $shown, true) || $this->isInStock($p)) continue;
+            $hidden[] = ['id' => (int)$p['id'], 'name' => (string)($p['name'] ?? ''), 'price' => (float)$p['price']];
+            if (count($hidden) === 3) break;
+        }
+        return $hidden;
+    }
+
+    /**
+     * A "còn hàng" search that found nothing: the products matching every other filter, reranked like the main
+     * search. Without in_stock: the returned products when every one of them is sold out.
+     *
+     * @return list<int>
+     */
+    private function soldOutIds(array $args, array $result): array {
+        $products = $result['products'] ?? [];
+        if (($args['in_stock'] ?? null) === true) {
+            if ($products !== []) return [];
+            unset($args['in_stock']);
+            $matches = $this->executeSearchProductsDirect($args);
+            if (!isset($matches['error']) && !empty($matches['products'])) {
+                $matches = (new ProductReranker($this->rerankerUrl))->apply($args['search'] ?? '', $matches);
+            }
+            return array_values(array_map(fn($p) => (int)$p['id'], $matches['products'] ?? []));
+        }
+        if ($products === []) return [];
+        foreach ($products as $product) {
+            if ($this->isInStock($product)) return [];
+        }
+        return array_values(array_map(fn($p) => (int)$p['id'], $products));
+    }
+
+    /** Mirrors the in-stock clause of ProductRepository::search: row stock, or an active variant (hydrated stock is already COALESCEd). */
+    private function isInStock(array $product): bool {
+        if ((int)($product['stock'] ?? 0) > 0) return true;
+        foreach ($product['variants'] ?? [] as $variant) {
+            if (($variant['is_active'] ?? true) && (int)($variant['stock'] ?? 0) > 0) return true;
+        }
+        return false;
     }
 
     private function searchCriteria(array $args): ProductSearchCriteria {

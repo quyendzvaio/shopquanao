@@ -19,8 +19,8 @@ test('initialize and tools/list expose the complete contract', async (t) => {
   const response = await client.listTools();
   const names = response.tools.map(tool => tool.name).sort();
   assert.deepEqual(names, [
-    'build_outfit', 'get_categories', 'get_order_status', 'get_product_detail', 'retrieve_knowledge',
-    'search_products', 'suggest_freeship_items', 'suggest_size',
+    'build_outfit', 'find_similar_in_stock', 'get_categories', 'get_order_status', 'get_product_detail',
+    'retrieve_knowledge', 'search_products', 'suggest_freeship_items', 'suggest_size',
   ]);
   assert.ok(response.tools.every(tool => tool.annotations?.readOnlyHint === true));
   const searchSchema = response.tools.find(tool => tool.name === 'search_products')?.inputSchema as {
@@ -36,6 +36,14 @@ test('tools/call rejects invalid schemas before reaching the backend', async (t)
   const { client, server } = await connect(10);
   t.after(async () => { await client.close(); await server.close(); });
   const response = await client.callTool({ name: 'get_product_detail', arguments: { product_id: -1 } });
+  assert.equal(response.isError, true);
+  assert.match(JSON.stringify(response.content), /Input validation error/);
+});
+
+test('find_similar_in_stock rejects a non-positive product_id', async (t) => {
+  const { client, server } = await connect(10);
+  t.after(async () => { await client.close(); await server.close(); });
+  const response = await client.callTool({ name: 'find_similar_in_stock', arguments: { product_id: -1 } });
   assert.equal(response.isError, true);
   assert.match(JSON.stringify(response.content), /Input validation error/);
 });

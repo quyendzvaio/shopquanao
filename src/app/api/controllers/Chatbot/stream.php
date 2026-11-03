@@ -3,7 +3,7 @@
  * POST /api/chatbot/stream
  * Server-Sent Events consumed directly by the storefront widget (fetch +
  * ReadableStream; EventSource cannot POST). Text deltas are emitted only after
- * the PHP pipeline has validated the answer; cards and metadata follow as
+ * chat-graph has finished its graph and validated the answer; cards and metadata follow as
  * whole events.
  */
 
@@ -19,6 +19,9 @@ if ($message === '') errorResponse('Message is required', 400);
 $rejection = ChatStreamProtocol::rejectBrowserRequest($message, $_SERVER, AppConfig::fromEnvironment());
 if ($rejection !== null) errorResponse($rejection['message'], $rejection['status']);
 
+// A dropped browser must not kill PHP mid-turn: the turn is still saved (messages, summary, fingerprint).
+ignore_user_abort(true);
+
 header('Content-Type: text/event-stream; charset=utf-8');
 header('Cache-Control: no-store');
 header('X-Accel-Buffering: no');
@@ -30,7 +33,7 @@ $emit = static function (array $event): void {
 };
 
 try {
-    // open() resolves the session only; the harness is assembled on the first turn, after this progress event.
+    // open() resolves the session only; the chat-graph client is built on the first turn, after this progress event.
     $chatbot = ChatbotService::open($pdo, $sessionToken, getBearerToken());
     $emit(['type' => 'chat.progress', 'stage' => 'pipeline']);
     $result = $chatbot->respondStreaming($message, static function (string $delta) use ($emit): void {
@@ -48,7 +51,6 @@ try {
         'primary_intent' => $result['primary_intent'] ?? 'unknown',
         'trace_id' => $result['trace_id'] ?? null,
         'outfits' => $result['outfits'] ?? [],
-        'freeship_status' => $result['freeship_status'] ?? null,
         'freeship_nudge' => (bool)($result['freeship_nudge'] ?? false),
         'product_count' => count($cards),
         'latency' => array_filter(

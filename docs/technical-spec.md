@@ -1,5 +1,7 @@
 # Đặc Tả Kỹ Thuật Fashion Shop
 
+> **Lỗi thời một phần:** pipeline PHP deterministic mô tả trong tài liệu này (`TurnRunner`, `IntentResolver`, middleware, `llm_providers/`, `config/harness.php`) đã bị xóa khi chuyển sang `chat-graph` (LangGraph). Kiến trúc hiện hành: `docs/superpowers/specs/2026-11-01-langgraph-chat-agent-design.md` và `.claude/rules/architecture.md`.
+
 Phiên bản: 2.0
 Cập nhật: 2026-08-01
 

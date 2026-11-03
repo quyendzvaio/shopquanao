@@ -9,9 +9,8 @@ require_once __DIR__ . '/EnvSandbox.php';
 
 /**
  * AgentFactory::executeTool is what POST /api/internal/mcp calls. It must run only
- * the tools in ToolDefinitionCatalog (the same filter as ToolRegistry::execute), so
- * the cart and checkout operations that ToolApplicationService still implements are
- * unreachable from the chatbot over MCP. A refusal is an InvalidArgumentException,
+ * the tools in ToolDefinitionCatalog, so the cart and checkout operations that
+ * ToolApplicationService still implements are unreachable from the chatbot over MCP. A refusal is an InvalidArgumentException,
  * which Internal/mcp.php answers with 400, exactly like any unknown tool.
  */
 final class ExecuteToolBridgeTest extends TestCase
