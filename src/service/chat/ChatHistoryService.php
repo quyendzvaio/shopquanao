@@ -3,8 +3,12 @@
 /** GET /api/chatbot/history: the logged-in user's latest active chat session and its messages. */
 final class ChatHistoryService
 {
-    public function __construct(private PDO $pdo)
+    /** @var Closure():int unix seconds; injectable so draft expiry is testable */
+    private Closure $now;
+
+    public function __construct(private PDO $pdo, ?Closure $now = null)
     {
+        $this->now = $now ?? static fn (): int => time();
     }
 
     /**
@@ -13,7 +17,7 @@ final class ChatHistoryService
      * $sessionToken is accepted for symmetry with ChatbotService::open() and
      * not used. The caller has already authenticated the bearer token.
      *
-     * @return array<string,mixed> messages, session_token and (when a session exists) session_id
+     * @return array<string,mixed> messages, session_token, ticket_pending and (when a session exists) session_id
      */
     public function forRequest(?string $sessionToken, ?string $bearerToken): array
     {
@@ -22,7 +26,7 @@ final class ChatHistoryService
             : null;
         $session = $userId !== null ? (new ChatSessionRepository($this->pdo))->latestActiveForUser($userId) : null;
         if (!$session) {
-            return ['messages' => [], 'session_token' => null];
+            return ['messages' => [], 'session_token' => null, 'ticket_pending' => false];
         }
 
         $sessionId = (int)$session['id'];
@@ -48,6 +52,11 @@ final class ChatHistoryService
             'messages' => $messages,
             'session_token' => $sessionToken,
             'session_id' => $sessionId,
+            'ticket_pending' => PendingTicketSlot::isLive(
+                (new ChatbotMemory($this->pdo, $sessionId, $userId))->load()['slots'][PendingTicketSlot::KEY] ?? null,
+                $userId,
+                ($this->now)()
+            ),
         ];
     }
 }
