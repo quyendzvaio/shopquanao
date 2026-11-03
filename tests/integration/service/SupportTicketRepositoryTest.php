@@ -62,11 +62,18 @@ final class SupportTicketRepositoryTest extends TestCase
         $this->assertSame($id, (int) $this->repo->findForUser($this->userId, $id)['id']);
 
         $admin = array_values(array_filter(
-            $this->repo->listForAdmin(['moi']),
+            $this->repo->listForAdmin(['moi'], 200, 0),
             fn(array $r): bool => (int) $r['id'] === $id
         ));
         $this->assertCount(1, $admin);
         $this->assertNotEmpty($admin[0]['username']);
+
+        $this->assertGreaterThanOrEqual(1, $this->repo->countForAdmin(['moi']));
+        $this->assertSame(0, $this->repo->countForAdmin([]));
+        $this->assertCount(1, $this->repo->listForAdmin(['moi'], 1, 0));
+        $this->assertSame(2, $this->repo->countForUser($this->userId));
+        $this->assertCount(1, $this->repo->listForUserPage($this->userId, 1, 1));
+        $this->assertCount(2, $this->repo->listForUserPage($this->userId, 10, 0));
 
         $this->repo->updateStatusAndNote($id, 'da_xong', 'đã gửi áo');
         $row = $this->repo->findForAdmin($id);

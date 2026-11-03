@@ -4,6 +4,11 @@ $filters = ['open' => 'Đang mở', 'all' => 'Tất cả'];
 foreach (SupportTicketService::STATUSES as $key => $label) {
     $filters[$key] = $label;
 }
+$pageLink = static function (int $n) use ($filter, $e): string {
+    $query = ($filter === 'open' ? [] : ['status=' . $filter]);
+    $query[] = 'page=' . $n;
+    return 'manage_tickets.php?' . $e(implode('&', $query));
+};
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -24,6 +29,8 @@ th { background: #000; color: white; }
 .status-da_xong { background: #55efc4; color: #00b894; }
 .filters a { display: inline-block; padding: 6px 12px; margin-right: 6px; border-radius: 20px; background: #fff; color: #2d3436; text-decoration: none; font-size: 13px; }
 .filters a.active { background: #2d3436; color: #fff; }
+.pager { margin-top: 15px; display: flex; gap: 15px; align-items: center; font-size: 14px; }
+.pager a { color: #2d3436; }
 .btn-update { background: #2d3436; color: white; border: none; padding: 8px 14px; cursor: pointer; border-radius: 4px; }
 .panel { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
 .notice { background: #d4edda; color: #155724; padding: 10px 15px; border-radius: 4px; margin-bottom: 15px; }
@@ -119,6 +126,12 @@ th { background: #000; color: white; }
             <?php endif; ?>
         </tbody>
     </table>
+
+    <p class="pager">
+        <?php if ($page > 1): ?><a href="<?= $pageLink($page - 1) ?>">Trước</a><?php endif; ?>
+        <span>Trang <?= (int) $page ?>/<?= (int) $pages ?></span>
+        <?php if ($page < $pages): ?><a href="<?= $pageLink($page + 1) ?>">Sau</a><?php endif; ?>
+    </p>
 </div>
 
 </body>

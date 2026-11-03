@@ -128,7 +128,49 @@ final class AdminTicketsPageTest extends TestCase
     {
         $this->assertSame([3], array_column($this->get(['status' => 'da_xong'])->data()['tickets'], 'id'));
         $this->assertCount(4, $this->get(['status' => 'all'])->data()['tickets']);
+        $this->assertSame(1, $this->get(['status' => 'all'])->data()['pages']);
         $this->assertSame([2, 1], array_column($this->get(['status' => 'bogus'])->data()['tickets'], 'id'));
+    }
+
+    private function manyTickets(int $count): void
+    {
+        for ($i = 10; $i < 10 + $count; $i++) {
+            $this->ticket($i, 'da_xong');
+        }
+    }
+
+    public function testPagerShowsPageXofYAndKeepsTheStatus(): void
+    {
+        $this->manyTickets(41); // 45 in all
+        $out = $this->render($this->get(['status' => 'all', 'page' => '2'])->data());
+
+        $this->assertStringContainsString('Trang 2/3', $out);
+        $this->assertStringContainsString('href="manage_tickets.php?status=all&amp;page=1"', $out);
+        $this->assertStringContainsString('href="manage_tickets.php?status=all&amp;page=3"', $out);
+        $this->assertStringContainsString('Trước', $out);
+        $this->assertStringContainsString('Sau', $out);
+
+        $first = $this->render($this->get(['status' => 'da_xong'])->data());
+        $this->assertStringContainsString('Trang 1/3', $first);
+        $this->assertStringNotContainsString('Trước', $first);
+        $this->assertStringContainsString('href="manage_tickets.php?status=da_xong&amp;page=2"', $first);
+
+        $last = $this->render($this->get(['status' => 'da_xong', 'page' => '99'])->data());
+        $this->assertStringContainsString('Trang 3/3', $last);
+        $this->assertStringNotContainsString('Sau<', $last);
+
+        $open = $this->render($this->get([])->data());
+        $this->assertStringContainsString('Trang 1/1', $open);
+    }
+
+    public function testBadPageParamsBecomePageOne(): void
+    {
+        $this->manyTickets(41);
+        foreach (['0', '-3', 'abc', ['x'], '', '2abc'] as $bad) {
+            $this->assertSame(1, $this->get(['status' => 'all', 'page' => $bad])->data()['page']);
+        }
+        $this->assertCount(20, $this->get(['status' => 'all'])->data()['tickets']);
+        $this->assertCount(5, $this->get(['status' => 'all', 'page' => '3'])->data()['tickets']);
     }
 
     public function testDetailIncludesTheOrderId(): void

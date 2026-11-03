@@ -2,7 +2,7 @@
 
 /**
  * public/admin/manage_tickets.php: the support-ticket list (?status= one of the 4 statuses or `all`, default the open
- * ones), one ticket's detail (?id=) and the status/note update (POST with a CSRF token). A bad token or an unknown
+ * ones), paged 20 at a time with ?page=, one ticket's detail (?id=) and the status/note update (POST with a CSRF token). A bad token or an unknown
  * status redirects without a write.
  */
 final class AdminTicketsPage
@@ -42,7 +42,7 @@ final class AdminTicketsPage
         if (!is_string($filter) || ($filter !== 'all' && !isset(SupportTicketService::STATUSES[$filter]))) {
             $filter = null;
         }
-        $list = $filter === 'all' ? $this->allTickets() : $this->tickets->adminList($filter);
+        $list = $this->tickets->adminList($filter, self::pageParam($request->query['page'] ?? null));
 
         $ticket = null;
         $id = (int) ($request->query['id'] ?? 0);
@@ -51,22 +51,19 @@ final class AdminTicketsPage
         }
 
         return PageResult::view([
-            'tickets' => $list,
+            'tickets' => $list['tickets'],
+            'page' => $list['page'],
+            'pages' => $list['pages'],
+            'total' => $list['total'],
             'ticket' => $ticket,
             'filter' => $filter ?? 'open',
             'msg' => $request->query['msg'] ?? null,
         ]);
     }
 
-    /** @return list<array<string,mixed>> every status, newest first */
-    private function allTickets(): array
+    /** A page number from the query: digits only, anything else is page 1 (the service clamps the upper end). */
+    private static function pageParam(mixed $value): int
     {
-        $all = [];
-        foreach (array_keys(SupportTicketService::STATUSES) as $status) {
-            $all = array_merge($all, $this->tickets->adminList($status));
-        }
-        usort($all, static fn(array $a, array $b): int => [$b['created_at'], $b['id']] <=> [$a['created_at'], $a['id']]);
-
-        return $all;
+        return is_string($value) && ctype_digit($value) ? max(1, (int) $value) : 1;
     }
 }
