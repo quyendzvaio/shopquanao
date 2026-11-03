@@ -87,7 +87,7 @@
         </table>
     </div>
 
-    <h2 style="margin: 40px 0 15px; font-size: 18px;">Yêu cầu hỗ trợ</h2>
+    <h2 id="tickets" style="margin: 40px 0 15px; font-size: 18px;">Yêu cầu hỗ trợ</h2>
     <div style="background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 5px 20px rgba(0,0,0,0.05);">
         <table style="width: 100%; border-collapse: collapse;">
             <thead>
@@ -132,7 +132,7 @@
     $ticketLink = static function (int $n) use ($status_filter): string {
         $query = (is_string($status_filter) && $status_filter !== 'all') ? ['status=' . urlencode($status_filter)] : [];
         $query[] = 'ticket_page=' . $n;
-        return 'profile.php?' . htmlspecialchars(implode('&', $query), ENT_QUOTES, 'UTF-8');
+        return 'profile.php?' . htmlspecialchars(implode('&', $query), ENT_QUOTES, 'UTF-8') . '#tickets';
     };
     ?>
     <p style="margin-top: 15px; display: flex; gap: 15px; align-items: center; font-size: 14px;">

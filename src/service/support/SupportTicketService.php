@@ -159,7 +159,11 @@ final class SupportTicketService
         return $row === null ? null : $this->present($row);
     }
 
-    /** @return bool false for an unknown status or ticket id */
+    /**
+     * The open-ticket cap applies only when a customer files a request; an admin reopening a closed ticket is deliberate and is not capped.
+     *
+     * @return bool false for an unknown status or ticket id
+     */
     public function adminUpdate(int $id, string $status, string $note): bool
     {
         if (!isset(self::STATUSES[$status]) || $this->tickets->findForAdmin($id) === null) {
