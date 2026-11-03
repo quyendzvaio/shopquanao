@@ -110,6 +110,23 @@ $username  = $_SESSION['username'] ?? '';
     max-width: 95%;
 }
 
+.chat-quick-replies {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-self: flex-start;
+}
+.chat-quick-replies button {
+    font-size: 13px;
+    padding: 6px 16px;
+    border-radius: 16px;
+    border: 1px solid #000;
+    background: #fff;
+    color: #000;
+    cursor: pointer;
+}
+.chat-quick-replies button:hover { background: #000; color: #fff; }
+
 .chat-input-area {
     padding: 12px 16px;
     border-top: 1px solid #eee;
@@ -332,19 +349,44 @@ async function loadChatHistory() {
     }
 }
 
-async function sendMessage() {
+/** Drops every quick-reply row; called by any send, so old buttons never stay clickable. */
+function clearQuickReplies() {
+    document.querySelectorAll('.chat-quick-replies').forEach(row => row.remove());
+}
+
+/** Under a pending ticket draft: two buttons that send the fixed phrases PHP reads as yes / no. */
+function addTicketQuickReplies() {
+    clearQuickReplies();
+    const container = document.getElementById('chat-messages');
+    const row = document.createElement('div');
+    row.className = 'chat-quick-replies';
+    [['Đồng ý', 'đồng ý'], ['Huỷ', 'thôi']].forEach(([label, phrase]) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = label;
+        // Rows go first, so a second click on the same button finds nothing to click.
+        btn.onclick = () => { clearQuickReplies(); sendMessage(phrase); };
+        row.appendChild(btn);
+    });
+    container.appendChild(row);
+    container.scrollTop = container.scrollHeight;
+}
+
+async function sendMessage(overrideText) {
     const input = document.getElementById('chat-input');
-    const text = input.value.trim();
+    const fromButton = typeof overrideText === 'string';
+    const text = fromButton ? overrideText : input.value.trim();
     if (!text || isLoading) return;
 
-    input.value = '';
+    clearQuickReplies();
+    if (!fromButton) input.value = '';
     addMessage('user', text);
     isLoading = true;
     document.getElementById('chat-send-btn').disabled = true;
     showTyping();
     document.getElementById('chat-suggestions').style.display = 'none';
 
-    const active = { text: '', element: null, cardsRendered: false, sawDelta: false };
+    const active = { text: '', element: null, cardsRendered: false, sawDelta: false, ticketPending: false };
     activeChatStream = active;
     let outcome;
     try {
@@ -357,7 +399,7 @@ async function sendMessage() {
     // HTTP without duplicating visible text.
     if (outcome.status === 'broken' && !active.sawDelta) {
         try {
-            await sendViaHttp(text);
+            active.ticketPending = (await sendViaHttp(text)) === true;
             outcome = { status: 'complete' };
         } catch (e) {
             outcome = { status: 'error', message: 'Không thể kết nối tới trợ lý. Vui lòng thử lại sau.' };
@@ -369,6 +411,8 @@ async function sendMessage() {
     }
     finishStreamingRequest();
     if (outcome.status === 'error') addMessage('system', outcome.message);
+    // After finishStreamingRequest, so a click is never swallowed by the isLoading guard.
+    if (outcome.status === 'complete' && active.ticketPending) addTicketQuickReplies();
 }
 
 function chatRequestHeaders() {
@@ -446,6 +490,7 @@ async function sendViaHttp(text) {
     addMessage('bot', String(data.message || ''));
     if (Array.isArray(data.products) && data.products.length > 0) renderProductCards(data.products);
     setChatConnectionStatus('🟢 Trực tuyến');
+    return data.ticket_pending === true;
 }
 
 function setChatConnectionStatus(text) {
@@ -488,6 +533,7 @@ function handleChatStreamEvent(data, active) {
     if (data.type === 'chat.complete') {
         rememberChatSession(data.session_token);
         setChatConnectionStatus('🟢 Trực tuyến');
+        active.ticketPending = data.ticket_pending === true;
         return { status: 'complete' };
     }
     if (data.type === 'chat.error') {
