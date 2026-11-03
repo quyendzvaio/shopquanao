@@ -1,5 +1,6 @@
 import math
 import os
+import threading
 import time
 from functools import lru_cache
 from typing import Any
@@ -19,10 +20,14 @@ DEVICE = os.getenv("RAG_ML_DEVICE", "cpu")
 MAX_TEXTS = int(os.getenv("RAG_ML_MAX_TEXTS", "64"))
 MAX_RERANK_TEXTS = int(os.getenv("RAG_ML_MAX_RERANK_TEXTS", "32"))
 WARMUP_ON_START = os.getenv("RAG_ML_WARMUP_ON_START", "true").lower() in {"1", "true", "yes", "on"}
+# A tiny embed + rerank every N seconds keeps both models' weights resident: on a host under memory pressure an idle
+# model is swapped out and the next real request paid ~8 s to page it back in. 0 disables.
+KEEPWARM_SECONDS = int(os.getenv("RAG_ML_KEEPWARM_SECONDS", "60"))
 
 app = FastAPI(title="Knowledge RAG ML Service", version="1.0.0")
 _start_time = time.time()
 _warmup_elapsed_ms: int | None = None
+_keepwarm_last_ms: int | None = None
 
 
 class EmbedRequest(BaseModel):
@@ -68,6 +73,21 @@ def warmup_models() -> None:
     embedding_model()
     reranker_model()
     _warmup_elapsed_ms = int((time.perf_counter() - started) * 1000)
+    if KEEPWARM_SECONDS > 0:
+        threading.Thread(target=_keep_warm_loop, name="keep-warm", daemon=True).start()
+
+
+def _keep_warm_loop() -> None:
+    global _keepwarm_last_ms
+    while True:
+        time.sleep(KEEPWARM_SECONDS)
+        try:
+            started = time.perf_counter()
+            embedding_model().encode(["giữ model sẵn sàng"], show_progress_bar=False)
+            reranker_model().predict([["giữ model", "sẵn sàng"]], show_progress_bar=False)
+            _keepwarm_last_ms = int((time.perf_counter() - started) * 1000)
+        except Exception:  # never let the keep-warm loop take the service down
+            _keepwarm_last_ms = -1
 
 
 def _clean_texts(texts: list[str], limit: int) -> list[str]:
@@ -98,6 +118,8 @@ def health() -> dict[str, Any]:
         "device": DEVICE,
         "warmup_on_start": WARMUP_ON_START,
         "warmup_elapsed_ms": _warmup_elapsed_ms,
+        "keepwarm_seconds": KEEPWARM_SECONDS,
+        "keepwarm_last_ms": _keepwarm_last_ms,
         "embedding_model_loaded": embedding_model.cache_info().currsize > 0,
         "reranker_model_loaded": reranker_model.cache_info().currsize > 0,
         "elapsed_s": round(time.time() - _start_time, 1),

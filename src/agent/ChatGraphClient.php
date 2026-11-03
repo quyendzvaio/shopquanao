@@ -229,7 +229,7 @@ class ChatGraphClient
             throw new ChatGraphUnavailable('transport', 'curl_init failed');
         }
         $failure = null;
-        curl_setopt_array($ch, [
+        curl_setopt_array($ch, InternalHttp::CURL_OPTIONS + [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $body,
             CURLOPT_HTTPHEADER => $headers,

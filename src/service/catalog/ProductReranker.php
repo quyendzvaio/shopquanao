@@ -80,7 +80,7 @@ final class ProductReranker
         ], JSON_UNESCAPED_UNICODE);
 
         $ch = curl_init($url);
-        curl_setopt_array($ch, [
+        curl_setopt_array($ch, InternalHttp::CURL_OPTIONS + [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $payload,
             CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
