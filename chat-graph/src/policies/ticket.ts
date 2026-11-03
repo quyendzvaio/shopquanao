@@ -16,12 +16,18 @@ export function lastValidDraft(records: ToolRecord[]): PendingTicket | null {
   return null;
 }
 
-/** A sentence that ends in "?": the text after the previous `.`, `!`, `?` or line break, up to the question mark. */
-const QUESTION = /[^.!?\n]*\?+/gu;
+/**
+ * A sentence that ends in "?": the text after the previous `.`, `!`, `?` or line break, up to the question mark.
+ * A dot between digits ("85.000đ") is a thousands separator, not a sentence end.
+ */
+const QUESTION = /(?:[^.!?\n]|(?<=\d)\.(?=\d))*\?+/gu;
 
+/** Confirm/agree + send/create + a ticket object: "đồng ý tạo outfit" or "xác nhận gửi hàng về..." is not a ticket. */
 function isTicketConfirmation(sentence: string): boolean {
   const s = sentence.normalize('NFC').toLowerCase();
-  return (s.includes('xác nhận') || s.includes('đồng ý')) && (s.includes('gửi') || s.includes('tạo'));
+  return (s.includes('xác nhận') || s.includes('đồng ý'))
+    && (s.includes('gửi') || s.includes('tạo'))
+    && /yêu cầu|ticket|phiếu|cho shop/u.test(s);
 }
 
 /**

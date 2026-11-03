@@ -252,6 +252,7 @@ test('asksTicketConfirmation: a question that asks the customer to confirm or ag
     TICKET_CONFIRM_QUESTION,
     'Đơn #12 đã giao. BẠN XÁC NHẬN TẠO yêu cầu này nhé?',
     'Mình soạn xong rồi.\nBạn đồng ý gửi cho shop chứ?',
+    'Bạn có xác nhận gửi yêu cầu đổi trả đơn 85.000đ không?',
   ]) assert.equal(asksTicketConfirmation(t), true, t);
 });
 
@@ -263,6 +264,9 @@ test('asksTicketConfirmation: offers, statements and unrelated questions pass', 
     'Bạn xác nhận gửi yêu cầu này cho shop',
     'Bạn đồng ý với phí ship 30.000đ không?',
     'Bạn xác nhận size M không?',
+    'Bạn đồng ý tạo outfit này không?',
+    'Bạn xác nhận để mình tạo outfit dưới 500.000đ nhé?',
+    'Bạn có đồng ý nhận hàng gửi về quận khác không?',
     '',
   ]) assert.equal(asksTicketConfirmation(t), false, t);
 });
@@ -275,6 +279,11 @@ test('dropTicketConfirmations removes only the matching question sentences', () 
   assert.equal(dropTicketConfirmations(`Ok.\n${TICKET_CONFIRM_QUESTION}`), 'Ok.');
   assert.equal(dropTicketConfirmations(TICKET_CONFIRM_QUESTION), '');
   assert.equal(dropTicketConfirmations('Không có câu hỏi nào.'), 'Không có câu hỏi nào.');
+  // A price's thousands dot is not a sentence end: the whole question goes, the price sentence stays intact.
+  assert.equal(
+    dropTicketConfirmations('Đơn #12 giá 120.000đ. Bạn có đồng ý để mình gửi yêu cầu 85.000đ không? Cảm ơn bạn.'),
+    'Đơn #12 giá 120.000đ. Cảm ơn bạn.',
+  );
 });
 
 test('lastValidDraft ignores refused and malformed drafts and returns the latest valid one', () => {
