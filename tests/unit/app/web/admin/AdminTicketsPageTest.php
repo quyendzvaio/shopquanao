@@ -87,6 +87,68 @@ final class AdminTicketsPageTest extends TestCase
         $this->assertSame(['status' => 'dang_xu_ly', 'admin_note' => 'đã gọi khách'], $this->row(1));
     }
 
+    public function testValidPostKeepsTheListStatusAndPage(): void
+    {
+        $result = $this->post(['list_status' => 'da_xong', 'list_page' => '2']);
+
+        $this->assertSame('manage_tickets.php?id=1&status=da_xong&page=2&msg=updated', $result->payload());
+        $this->assertSame('dang_xu_ly', $this->row(1)['status']);
+    }
+
+    public function testInvalidListStateInThePostIsDropped(): void
+    {
+        foreach ([['list_status' => 'open'], ['list_status' => 'bogus&x=1'], ['list_status' => ['all']], ['list_status' => '']] as $bad) {
+            $this->assertSame('manage_tickets.php?id=1&msg=updated', $this->post($bad + ['list_page' => 'abc'])->payload());
+        }
+        foreach (['abc', '-2', '0', '1', '2abc', ''] as $badPage) {
+            $this->assertSame('manage_tickets.php?id=1&status=all&msg=updated', $this->post(['list_status' => 'all', 'list_page' => $badPage])->payload());
+        }
+        $this->assertSame('manage_tickets.php?id=1&status=all&msg=updated', $this->post(['list_status' => 'all', 'list_page' => ['2']])->payload());
+    }
+
+    public function testFailedPostRedirectsToTheListWithTheKeptState(): void
+    {
+        $badCsrf = $this->post(['list_status' => 'da_xong', 'list_page' => '2'], 'forged');
+        $this->assertSame('redirect', $badCsrf->kind());
+        $this->assertSame('manage_tickets.php?status=da_xong&page=2', $badCsrf->payload());
+
+        $badStatus = $this->post(['status' => 'bogus', 'list_status' => 'all', 'list_page' => '3']);
+        $this->assertSame('manage_tickets.php?status=all&page=3', $badStatus->payload());
+
+        $unknownId = $this->post(['ticket_id' => '999', 'list_status' => 'moi']);
+        $this->assertSame('manage_tickets.php?status=moi', $unknownId->payload());
+
+        $this->assertSame(['status' => 'moi', 'admin_note' => 'ghi chú cũ'], $this->row(1));
+    }
+
+    public function testViewDataExposesTheListStateForTheTemplate(): void
+    {
+        $this->manyTickets(41);
+
+        $this->assertSame([], $this->get([])->data()['list_query']);
+        $this->assertSame(['status' => 'all'], $this->get(['status' => 'all'])->data()['list_query']);
+        $this->assertSame(['status' => 'da_xong', 'page' => 2], $this->get(['status' => 'da_xong', 'page' => '2', 'id' => '3'])->data()['list_query']);
+        $this->assertSame(['status' => 'all', 'page' => 3], $this->get(['status' => 'all', 'page' => '99'])->data()['list_query'], 'a page past the end is clamped');
+        $this->assertSame([], $this->get(['status' => 'bogus', 'page' => 'x'])->data()['list_query']);
+    }
+
+    public function testDetailBackLinkProcessLinksAndFormKeepTheListState(): void
+    {
+        $this->manyTickets(41);
+        $out = $this->render($this->get(['status' => 'da_xong', 'page' => '2', 'id' => '3'])->data());
+
+        $this->assertStringContainsString('<a href="manage_tickets.php?status=da_xong&amp;page=2">&larr;', $out);
+        $this->assertMatchesRegularExpression('/href="manage_tickets\.php\?id=\d+&amp;status=da_xong&amp;page=2">Xử lý</', $out);
+        $this->assertStringContainsString('name="list_status" value="da_xong"', $out);
+        $this->assertStringContainsString('name="list_page" value="2"', $out);
+
+        $plain = $this->render($this->get(['id' => '1'])->data());
+        $this->assertStringContainsString('<a href="manage_tickets.php">&larr;', $plain);
+        $this->assertStringContainsString('href="manage_tickets.php?id=2">Xử lý<', $plain);
+        $this->assertStringNotContainsString('list_status', $plain);
+        $this->assertStringNotContainsString('list_page', $plain);
+    }
+
     public function testUnknownStatusWritesNothing(): void
     {
         $result = $this->post(['status' => 'bogus']);

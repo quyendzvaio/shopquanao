@@ -4,6 +4,9 @@ $filters = ['open' => 'Đang mở', 'all' => 'Tất cả'];
 foreach (SupportTicketService::STATUSES as $key => $label) {
     $filters[$key] = $label;
 }
+// Links back to the list or into a ticket keep the filter and page the admin came from.
+$listUrl = static fn (array $extra = []): string => 'manage_tickets.php'
+    . ($extra + $list_query === [] ? '' : '?' . $e(http_build_query($extra + $list_query)));
 $pageLink = static function (int $n) use ($filter, $e): string {
     $query = ($filter === 'open' ? [] : ['status=' . $filter]);
     $query[] = 'page=' . $n;
@@ -75,6 +78,8 @@ th { background: #000; color: white; }
         <form method="POST" action="manage_tickets.php">
             <?php include __DIR__ . '/../../partials/csrf_field.php'; ?>
             <input type="hidden" name="ticket_id" value="<?= (int) $ticket['id'] ?>">
+            <?php if (isset($list_query['status'])): ?><input type="hidden" name="list_status" value="<?= $e($list_query['status']) ?>"><?php endif; ?>
+            <?php if (isset($list_query['page'])): ?><input type="hidden" name="list_page" value="<?= (int) $list_query['page'] ?>"><?php endif; ?>
             <p>
                 <select name="status" style="padding: 5px; border-radius: 4px;">
                     <?php foreach (SupportTicketService::STATUSES as $key => $label): ?>
@@ -85,7 +90,7 @@ th { background: #000; color: white; }
             <p><textarea name="admin_note" rows="4" maxlength="2000" style="width:100%; padding:8px; box-sizing:border-box;" placeholder="Ghi chú cho khách"><?= $e($ticket['admin_note'] ?? '') ?></textarea></p>
             <button type="submit" name="update_ticket" value="1" class="btn-update">Lưu</button>
         </form>
-        <p><a href="manage_tickets.php">&larr; Về danh sách</a></p>
+        <p><a href="<?= $listUrl() ?>">&larr; Về danh sách</a></p>
     </div>
     <?php endif; ?>
 
@@ -118,7 +123,7 @@ th { background: #000; color: white; }
                 <td><?= $e($t['summary']) ?></td>
                 <td><?= $e(date('d/m/Y H:i', strtotime((string) $t['created_at']))) ?></td>
                 <td><span class="status-badge status-<?= $e($t['status']) ?>"><?= $e($t['status_label']) ?></span></td>
-                <td><a href="manage_tickets.php?id=<?= (int) $t['id'] ?>">Xử lý</a></td>
+                <td><a href="<?= $listUrl(['id' => (int) $t['id']]) ?>">Xử lý</a></td>
             </tr>
             <?php endforeach; ?>
             <?php if ($tickets === []): ?>
