@@ -533,6 +533,23 @@ jobs:
               sleep 2
             done
 
+            # Knowledge index: without the Qdrant collection, knowledge search silently falls back to lexical
+            # (no semantic search, no rerank). Upserts are idempotent (stable point ids). rag-ml may still be
+            # warming up, so retry; the site keeps serving either way, but a failed index fails the deploy.
+            echo "Indexing knowledge into Qdrant..."
+            for i in $(seq 1 10); do
+              if docker compose exec -T app php scripts/ingest_knowledge.php > /tmp/ingest_knowledge.json 2>&1; then
+                echo " ✅ $(grep -o '"count": [0-9]*' /tmp/ingest_knowledge.json) documents indexed"
+                break
+              fi
+              if [ "$i" -eq 10 ]; then
+                echo "❌ Knowledge indexing failed: the chatbot falls back to lexical search"
+                cat /tmp/ingest_knowledge.json 2>/dev/null || true
+                exit 1
+              fi
+              sleep 15
+            done
+
             # LLM-free route check: the checkout guardrail refuses before any model call.
             echo "Checking chatbot route (checkout refusal, no LLM)..."
             for i in $(seq 1 15); do
