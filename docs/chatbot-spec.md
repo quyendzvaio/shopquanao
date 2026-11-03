@@ -35,7 +35,7 @@ Browser fetch POST /api/chatbot/stream (Server-Sent Events)
             (AnswerTemplateFallback, required: mọi lỗi LLM -> phát grounded draft,
              latency.streaming = template_fallback)
          -> respond() (không stream) và CHATBOT_TEMPLATE_RESPONSE=1: dùng nguyên grounded draft
-      6. afterTurn: FreeShippingNudge (optional, UC-C) -> TraceOutbox (optional, Langfuse)
+      6. afterTurn: FreeShippingNudge (optional, UC-C)
       7. persist messages, routing metadata, tool executions; refreshSummary
   -> streamed answer + private grounded cards
   -> chat.delta / chat.cards / chat.complete events

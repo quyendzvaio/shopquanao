@@ -147,6 +147,7 @@ Open `http://localhost:3000` and create an organization/project. Put only the
 project keys in the ignored `.env`:
 
 ```text
+APP_ENV=production
 LANGFUSE_ENABLED=true
 LANGFUSE_BASE_URL=http://localhost:3000
 LANGFUSE_PUBLIC_URL=http://localhost:3000
@@ -183,8 +184,8 @@ The CI chatbot eval (the `chat-graph` node test suite, scripted LLM) does not ne
 
 ## Production agent tracing: fail-open by design
 
-When `LANGFUSE_ENABLED=true` and valid project keys are configured, the
-`chat-graph` service sends its own traces to Langfuse (`chat-graph/src/tracing.ts`:
+When `APP_ENV=production`, `LANGFUSE_ENABLED=true` and valid project keys are
+configured, the `chat-graph` service sends its own traces to Langfuse (`chat-graph/src/tracing.ts`:
 the Langfuse LangChain callback handler plus an OTel span processor that exports
 through the Langfuse client, which batches and sends in the background). A turn
 never waits on Langfuse: if Langfuse is stopped, unhealthy, misconfigured or
