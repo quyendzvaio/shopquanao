@@ -3,14 +3,14 @@
 /**
  * HTTP client for the internal chat-graph service (POST {url}/turn).
  *
- * stream=true reads NDJSON (progress/delta/cards/complete) and calls $onEvent
+ * stream=true reads NDJSON (progress/delta/replace/cards/complete) and calls $onEvent
  * for each event as it arrives; stream=false reads one JSON TurnResult. Both
  * return the same TurnResult array. Anything but a complete 200 answer is a
  * ChatGraphUnavailable, which ChatbotService turns into the busy answer.
  */
 class ChatGraphClient
 {
-    public const EVENT_TYPES = ['progress', 'delta', 'cards', 'complete'];
+    public const EVENT_TYPES = ['progress', 'delta', 'replace', 'cards', 'complete'];
 
     /** @var Closure(string,list<string>,string,int,callable):int */
     private Closure $transport;
@@ -88,6 +88,8 @@ class ChatGraphClient
                 }
                 if ($event['type'] === 'delta' && is_string($event['text'] ?? null)) {
                     $this->message .= $event['text'];
+                } elseif ($event['type'] === 'replace' && is_string($event['text'] ?? null)) {
+                    $this->message = $event['text'];
                 } elseif ($event['type'] === 'cards' && is_array($event['products'] ?? null)) {
                     $this->products = array_values(array_filter($event['products'], 'is_array'));
                 } elseif ($event['type'] === 'complete') {

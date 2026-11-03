@@ -6,7 +6,7 @@ import type { ShopTools } from '../src/shopTools.js';
 import type { GraphConfig } from '../src/config.js';
 import type { TurnEvent } from '../src/contract.js';
 import { BUSY } from '../src/copy.js';
-import { runTurn } from '../src/turn.js';
+import { closingTextEvents, runTurn } from '../src/turn.js';
 import { fakeShopTools } from './support/fakeTools.js';
 import { ScriptedChatModel, type ScriptedStep } from './support/scriptedModel.js';
 import { ai, call, CONFIG, req, searchTurn, setup, TrackedModel } from './support/turnHarness.js';
@@ -179,4 +179,121 @@ test('theCompleteEventAndTheResultCarryPendingTicket', async () => {
 
   const busy = await runTurn(req(), { config: CONFIG, model: new ScriptedChatModel([new Error('boom')]), openTools: async () => fakeShopTools({}) }, () => {});
   assert.equal(busy.pending_ticket, null);
+});
+
+// ---- Answer streaming (spec 2026-11-04) ----
+
+type TextEvent = Extract<TurnEvent, { type: 'delta' | 'replace' }>;
+const isText = (e: TurnEvent): e is TextEvent => e.type === 'delta' || e.type === 'replace';
+/** The text the customer sees: deltas append, a replace starts over. */
+const textSeen = (events: TurnEvent[]): string => events.filter(isText).reduce((t, e) => (e.type === 'delta' ? t + e.text : e.text), '');
+
+/** Runs a turn and notes, for each text event, whether a model call was still running when it was emitted. */
+async function streamed(steps: ScriptedStep[], handlers: Parameters<typeof fakeShopTools>[0], over: Parameters<typeof req>[0] = {}, config: GraphConfig = CONFIG) {
+  const model = new ScriptedChatModel(steps);
+  const tools = fakeShopTools(handlers);
+  const events: TurnEvent[] = [];
+  const during: boolean[] = [];
+  const result = await runTurn(req(over), { config, model, openTools: async () => tools }, (e) => {
+    events.push(e);
+    if (isText(e)) during.push(model.inFlight > 0);
+  });
+  return { result, events, during, texts: events.filter(isText) };
+}
+
+const shirtSearch = { search_products: () => ({ products: [{ id: 66, name: 'Áo Thun', price: 150000, stock: 3 }] }) };
+const searchCall = ai('', [call('c1', 'search_products', { search: 'áo thun' })]);
+
+test('answerDeltasArriveBeforeTheModelCallEnds', async () => {
+  const { result, events, during } = await streamed([searchCall, ai('Shop có Áo Thun mã 66 giá 150.000đ. Bạn xem nhé. Còn size M.')], shirtSearch);
+  assert.equal(during[0], true, 'the first delta left while the answer was being written');
+  assert.ok(!events.some((e) => e.type === 'replace'));
+  assert.equal(textSeen(events), result.message);
+});
+
+test('leadInThenToolCallStreamsOnlyTheAnswer', async () => {
+  const { result, events, texts } = await streamed([
+    ai('Để mình tìm nhé. ', [call('c1', 'search_products', { search: 'áo thun' })]),
+    ai('Shop có Áo Thun mã 66 giá 150.000đ. Bạn xem nhé.'),
+  ], shirtSearch);
+  assert.ok(!texts.some((e) => (e.type === 'delta' ? e.text : e.text).includes('Để mình tìm')));
+  assert.equal(textSeen(events), result.message);
+  assert.equal(result.message, 'Shop có Áo Thun mã 66 giá 150.000đ. Bạn xem nhé.');
+});
+
+test('ungroundedSentenceEndsWithReplace', async () => {
+  const { result, events, texts } = await streamed([
+    searchCall,
+    ai('Shop có Áo Thun. Giá chỉ 99.000đ. Mua ngay.'),
+    ai('Áo Thun mã 66 giá 150.000đ.'),
+  ], shirtSearch);
+  assert.equal(result.message, 'Áo Thun mã 66 giá 150.000đ.');
+  assert.ok(texts.some((e) => e.type === 'delta' && e.text === 'Shop có Áo Thun.'), 'the grounded first sentence was streamed');
+  assert.ok(!texts.some((e) => e.type === 'delta' && e.text.includes('99.000')), 'the ungrounded sentence never left');
+  assert.deepEqual(texts.at(-1), { type: 'replace', text: result.message });
+  assert.equal(textSeen(events), result.message);
+});
+
+test('soldOutTurnDoesNotStreamDuringTheGraph', async () => {
+  const baggy = { id: 69, name: 'Quần Baggy Vải Tuyết Mưa', price: 350000, stock: 0 };
+  const kaki = { id: 73, name: 'Quần Kaki Ống Rộng', price: 320000, stock: 5 };
+  const { result, events, during } = await streamed([
+    ai('', [call('c1', 'search_products', { search: 'quần baggy', in_stock: true })]),
+    ai('Mẫu Quần Baggy Vải Tuyết Mưa đang hết hàng. Bạn có muốn xem Quần Kaki Ống Rộng không? Mẫu này đẹp lắm.'),
+  ], {
+    search_products: () => ({ products: [], out_of_stock_ids: [69], out_of_stock_matches: 1 }),
+    find_similar_in_stock: () => ({ source: { id: 69, name: baggy.name }, products: [kaki] }),
+  }, { message: 'quần baggy còn hàng không' });
+  assert.equal(result.response_type, 'clarification');
+  assert.ok(during.length > 0);
+  assert.ok(during.every((d) => !d), 'every text event came after the graph');
+  assert.ok(!events.some((e) => e.type === 'replace'));
+  assert.equal(textSeen(events), result.message);
+});
+
+test('ticketDraftTurnDoesNotStream', async () => {
+  const draft = { type: 'doi_tra', order_id: 12, summary: 'Nhận size M thay vì L' };
+  const { result, events, during } = await streamed([
+    ai('', [call('t1', 'draft_support_ticket', {})]),
+    ai('Mình sẽ gửi yêu cầu đổi size. Bạn chờ chút nhé. Cảm ơn bạn.'),
+  ], { draft_support_ticket: () => ({ status: 'draft', draft }) }, { user_id: 7 });
+  assert.deepEqual(result.pending_ticket, draft);
+  assert.ok(during.every((d) => !d), 'every text event came after the graph');
+  assert.ok(!events.some((e) => e.type === 'replace'));
+  assert.equal(textSeen(events), result.message);
+});
+
+test('nudgeTextArrivesAsAClosingDelta', async () => {
+  const freeship = { status: 'gap', gap: 50000, threshold: 500000, cart_fingerprint: 'abc', products: [{ id: 90, name: 'Túi Xách Mini Thời Trang', price: 450000, stock: 4 }] };
+  const { result, events, during } = await streamed(
+    [searchCall, ai('Shop có Áo Thun mã 66 giá 150.000đ. Bạn xem nhé. Còn size M.')],
+    { ...shirtSearch, suggest_freeship_items: () => freeship },
+    { user_id: 5 },
+  );
+  assert.equal(result.freeship_nudge, true);
+  assert.equal(during[0], true);
+  assert.ok(!events.some((e) => e.type === 'replace'));
+  assert.equal(textSeen(events), result.message);
+});
+
+test('deadlineAfterStreamedTextReplacesWithBusy', async () => {
+  const config = { ...CONFIG, budget: { ...CONFIG.budget, turnTimeoutMs: 300 } } as GraphConfig;
+  const { result, events, texts } = await streamed([searchCall, { hangAfter: 'Shop có Áo Thun. Bạn xem nhé. ' }], shirtSearch, {}, config);
+  assert.equal(result.message, BUSY);
+  assert.ok(texts.some((e) => e.type === 'delta'), 'text was streamed before the stall');
+  assert.deepEqual(texts.at(-1), { type: 'replace', text: BUSY });
+  assert.equal(textSeen(events), BUSY);
+});
+
+test('nonStreamingTurnEmitsNoTextBeforeTheEnd', async () => {
+  const { result, events, during } = await streamed([searchCall, ai('Shop có Áo Thun mã 66 giá 150.000đ. Bạn xem nhé. Còn size M.')], shirtSearch, { stream: false });
+  assert.ok(during.every((d) => !d));
+  assert.equal(textSeen(events), result.message);
+});
+
+test('closingTextEventsCases', () => {
+  assert.deepEqual(closingTextEvents('', 'A. B.'), [{ type: 'delta', text: 'A. ' }, { type: 'delta', text: 'B.' }]);
+  assert.deepEqual(closingTextEvents('A.', 'A. B. nudge'), [{ type: 'delta', text: ' B. ' }, { type: 'delta', text: 'nudge' }]);
+  assert.deepEqual(closingTextEvents('A.', 'A.'), []);
+  assert.deepEqual(closingTextEvents('A.', 'X.'), [{ type: 'replace', text: 'X.' }]);
 });

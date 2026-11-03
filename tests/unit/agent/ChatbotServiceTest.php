@@ -604,19 +604,40 @@ final class ChatbotServiceTest extends TestCase
         $this->assertSame('busy', $result['response_type']);
     }
 
-    public function testBusyAfterPartialDeltasDoesNotRepeatTheBusyText(): void
+    public function testBusyAfterPartialDeltasArrivesAsOneReplace(): void
     {
         $pdo = $this->pdo();
+        // The stream ends without a complete event: the turn is busy after "Chào" was already on screen.
         $client = $this->client([['type' => 'delta', 'text' => 'Chào']]);
-        $deltas = [];
+        $calls = [];
 
-        $result = $this->service($pdo, $client)->respondStreaming('chào', static function (string $d) use (&$deltas): void {
-            $deltas[] = $d;
+        $result = $this->service($pdo, $client)->respondStreaming('chào', static function (string $text, string $kind = 'delta') use (&$calls): void {
+            $calls[] = [$text, $kind];
         });
 
-        $this->assertSame(['Chào'], $deltas);
+        $this->assertSame([['Chào', 'delta'], [self::BUSY, 'replace']], $calls);
         $this->assertSame('busy', $result['response_type']);
         $this->assertSame(self::BUSY, $result['message']);
+        $this->assertSame(['chào', self::BUSY], array_column($this->messages($pdo), 'message'));
+    }
+
+    public function testStreamingForwardsReplaceAndSavesTheFinalText(): void
+    {
+        $pdo = $this->pdo();
+        $client = $this->client([
+            ['type' => 'delta', 'text' => 'A. '],
+            ['type' => 'replace', 'text' => 'B.'],
+            $this->completeEvent(),
+        ]);
+        $calls = [];
+
+        $result = $this->service($pdo, $client)->respondStreaming('chào', static function (string $text, string $kind = 'delta') use (&$calls): void {
+            $calls[] = [$text, $kind];
+        });
+
+        $this->assertSame([['A. ', 'delta'], ['B.', 'replace']], $calls);
+        $this->assertSame('B.', $result['message']);
+        $this->assertSame(['chào', 'B.'], array_column($this->messages($pdo), 'message'));
     }
 
     public function testOfferedSavedOutsideProducts(): void

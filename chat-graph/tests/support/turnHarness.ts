@@ -42,12 +42,20 @@ export function setup(steps: ScriptedStep[], config: GraphConfig = CONFIG, model
 }
 
 
-/** ScriptedChatModel that records when a model call has settled (returned, thrown or aborted). */
+/** ScriptedChatModel that records when a model call has settled (returned, thrown or aborted), streamed or not. */
 export class TrackedModel extends ScriptedChatModel {
   settled = false;
   override async _generate(messages: BaseMessage[], options: this['ParsedCallOptions']): Promise<ChatResult> {
     try {
       return await super._generate(messages, options);
+    } finally {
+      this.settled = true;
+    }
+  }
+
+  override async *_streamResponseChunks(...args: Parameters<ScriptedChatModel['_streamResponseChunks']>): ReturnType<ScriptedChatModel['_streamResponseChunks']> {
+    try {
+      yield* super._streamResponseChunks(...args);
     } finally {
       this.settled = true;
     }

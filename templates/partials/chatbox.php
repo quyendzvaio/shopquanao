@@ -516,10 +516,11 @@ function handleChatStreamEvent(data, active) {
         setChatConnectionStatus('🟢 Đang trả lời');
         return null;
     }
-    if (data.type === 'chat.delta') {
+    if (data.type === 'chat.delta' || data.type === 'chat.replace') {
         const element = streamBotElement(active);
         active.sawDelta = true;
-        active.text += String(data.delta || '');
+        // chat.replace: the checked final answer differs from what was streamed, so it replaces the whole bubble.
+        active.text = data.type === 'chat.replace' ? String(data.text || '') : active.text + String(data.delta || '');
         element.textContent = sanitizeAssistantText(active.text) || active.text;
         const container = document.getElementById('chat-messages');
         container.scrollTop = container.scrollHeight;
