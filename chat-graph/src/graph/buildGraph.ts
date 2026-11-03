@@ -12,6 +12,7 @@ import { matchesCheckout } from '../policies/checkout.js';
 import { asksTicketConfirmation, dropTicketConfirmations, lastValidDraft } from '../policies/ticket.js';
 import { hasToolCallMarkup, plainText, summaryFromCards, ungroundedClaims } from '../policies/grounding.js';
 import type { ShopTools } from '../shopTools.js';
+import { AnswerStreamer } from './answerStream.js';
 import { policyMiddleware, TurnRecorder } from './middleware.js';
 import { systemPrompt } from './prompt.js';
 import { answersSoldOut, type SoldOutState } from './soldOut.js';
@@ -38,6 +39,8 @@ export type GraphDeps = {
   onProgress?: (stage: string) => void;
   /** Callback handlers (e.g. Langfuse) passed to every model and agent run of a turn. */
   callbacks?: unknown[];
+  /** Receives the agent's final answer sentence by sentence while it is written (each one already checked). */
+  onAnswerText?: (text: string) => void;
 };
 
 export type InvokeOptions = {
@@ -92,7 +95,7 @@ function num(v: unknown): number {
 }
 
 /** Builds the graph around one turn's budget and recorder; never reuse the result for a second turn. */
-function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRecorder) {
+function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRecorder, phase: { inAgent: boolean }) {
   const { model, tools, config, onProgress } = deps;
 
   const guard = (s: S): Partial<S> => {
@@ -111,7 +114,14 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
       ...s.req.history.map((m) => (m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content))),
       new HumanMessage(s.req.message),
     ];
-    const result = await agent.invoke({ messages: input }, runConfig);
+    // Only model runs inside the agent loop may stream; the policy_out retry below never does.
+    phase.inAgent = true;
+    let result;
+    try {
+      result = await agent.invoke({ messages: input }, runConfig);
+    } finally {
+      phase.inAgent = false;
+    }
     const messages = result.messages as BaseMessage[];
     return {
       draft: finalAnswer(messages),
@@ -254,9 +264,21 @@ export function buildTurnGraph(deps: GraphDeps): { invoke(req: TurnRequest, opti
   return {
     async invoke(req, options = {}) {
       const budget = typeof deps.budget === 'function' ? deps.budget() : deps.budget;
-      const s = await compileTurnGraph(deps, budget, new TurnRecorder()).invoke({ req }, {
+      const recorder = new TurnRecorder();
+      const phase = { inAgent: false };
+      const callbacks: unknown[] = [...(deps.callbacks ?? [])];
+      const onAnswerText = deps.onAnswerText;
+      if (onAnswerText) {
+        // A sold-out turn or a ticket-draft turn is rewritten by policy_out, so it is sent whole at the end.
+        callbacks.push(new AnswerStreamer({
+          emit: onAnswerText,
+          evidence: () => recorder.records,
+          allowed: () => phase.inAgent && recorder.soldOut === null && lastValidDraft(recorder.records) === null,
+        }));
+      }
+      const s = await compileTurnGraph(deps, budget, recorder, phase).invoke({ req }, {
         signal: options.signal,
-        ...(deps.callbacks && deps.callbacks.length > 0 ? { callbacks: deps.callbacks as RunnableConfig['callbacks'] } : {}),
+        ...(callbacks.length > 0 ? { callbacks: callbacks as RunnableConfig['callbacks'] } : {}),
       });
       return {
         message: s.text,

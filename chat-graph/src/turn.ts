@@ -26,6 +26,16 @@ export function sentenceChunks(text: string): string[] {
   return text.split(SENTENCE_END).filter((c) => c !== '');
 }
 
+/**
+ * The text events that end a turn, given what was already streamed: the rest of the final answer as deltas when the
+ * stream is its beginning, otherwise one replace with the whole final answer (spec 2026-11-04 §4.4).
+ */
+export function closingTextEvents(streamed: string, message: string): TurnEvent[] {
+  if (streamed === '') return sentenceChunks(message).map((text) => ({ type: 'delta', text }));
+  if (message.startsWith(streamed)) return sentenceChunks(message.slice(streamed.length)).map((text) => ({ type: 'delta', text }));
+  return [{ type: 'replace', text: message }];
+}
+
 /** Fire-and-forget: a slow or failing close() must never delay or break the reply. */
 function closeQuietly(tools: ShopTools): void {
   try {
@@ -57,7 +67,9 @@ function primaryIntent(outcome: GraphOutcome): string {
 
 /**
  * Runs one chat turn. Never throws: any error, model failure or deadline answers the busy result.
- * Progress events stream while tools run; the text and cards are emitted only after the graph returned.
+ * Progress events stream while tools run. On a streaming request the agent's answer streams sentence by sentence as
+ * it is written (each sentence already checked, AnswerStreamer); the rest of the text, or a replace, and the cards are
+ * emitted after the graph returned.
  */
 export async function runTurn(
   req: TurnRequest,
@@ -71,6 +83,8 @@ export async function runTurn(
   let timer: NodeJS.Timeout | undefined;
   let tools: ShopTools | null = null;
   let outcome: GraphOutcome;
+  // What the customer has already been sent of the answer while the graph ran.
+  let streamed = '';
 
   // The deadline covers opening the tools, the graph run and (by not awaiting it) closing them.
   const deadline = new Promise<never>((_, reject) => {
@@ -98,6 +112,13 @@ export async function runTurn(
       onProgress: (stage) => {
         if (!finished) emit({ type: 'progress', stage });
       },
+      ...(req.stream ? {
+        onAnswerText: (text: string) => {
+          if (finished) return;
+          streamed += text;
+          emit({ type: 'delta', text });
+        },
+      } : {}),
     });
     const run = graph.invoke(req, { signal: abort.signal });
     run.catch(() => {}); // A run abandoned at the deadline must not become an unhandled rejection.
@@ -126,7 +147,7 @@ export async function runTurn(
     latency: { total_ms: Date.now() - startedAt, tool_calls: counts.tool_calls, model_calls: counts.model_calls },
   };
 
-  for (const text of sentenceChunks(outcome.message)) emit({ type: 'delta', text });
+  for (const e of closingTextEvents(streamed, outcome.message)) emit(e);
   if (outcome.cards.length > 0) emit({ type: 'cards', products: outcome.cards });
   emit({ type: 'complete', ...summary });
 
