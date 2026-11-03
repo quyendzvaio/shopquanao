@@ -6,7 +6,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 set -a; . ./.env; set +a
-ROOT_PW="${MARIADB_ROOT_PASSWORD:-root_pass}"
 
 step() { printf '\n=== %s\n' "$1"; }
 
@@ -23,12 +22,11 @@ step "shop_test + integration tests"
 scripts/dev/test-db.sh
 scripts/dev/test-integration.sh
 
-step "agent eval (40 cases)"
-DEV_DOCKER_NETWORK=shop_quan_ao_default DB_HOST=db DB_NAME=shop_test DB_USER=root DB_PASS="$ROOT_PW" \
-  scripts/dev/php scripts/run_agent_eval.php
-
 step "mcp-server tests"
 npm --prefix mcp-server test
+
+step "chat-graph tests"
+npm --prefix chat-graph test
 
 if [ "${SKIP_SNAPSHOT:-0}" != "1" ]; then
   step "web snapshot diff against baseline"

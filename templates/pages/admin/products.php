@@ -28,6 +28,7 @@
     <a href="index.php">🏠 Tổng quan</a>
     <a href="manage_products.php" style="background:#2c3e50; color:white;">👕 Quản lý sản phẩm</a>
     <a href="manage_orders.php">📦 Quản lý đơn hàng</a>
+    <a href="manage_tickets.php">🎫 Yêu cầu hỗ trợ</a>
     <a href="manage_users.php">👥 Quản lý người dùng</a>
     <a href="../logout.php" style="color: #e74c3c; margin-top: 50px;">🔴 Đăng xuất</a>
 </div>

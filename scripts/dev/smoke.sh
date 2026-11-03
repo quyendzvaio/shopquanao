@@ -19,6 +19,8 @@ check 200 GET '/product.php?id=50'
 check 200 GET /login.php
 check 200 GET /register.php
 check 200 GET /admin/login.php
+# a guest is redirected to the admin login (the guard runs before any database access)
+check 302 GET /admin/manage_tickets.php
 check 200 GET /assets/css/style.css
 check 200 GET /assets/images/at_basic_01.jpg
 # image security.conf denies *.sql by extension (403); the file is not under the web root either

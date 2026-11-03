@@ -59,6 +59,15 @@ export function createMcpServer(principal: Principal): McpServer {
     }, outputSchema, annotations: readOnly,
   }, async (args) => result(await callTool('build_outfit', args, principal)));
 
+  server.registerTool('find_similar_in_stock', {
+    title: 'Find similar in-stock products',
+    description: 'Use this when a product the customer asked about is sold out, to find in-stock products of the same category and similar style.',
+    inputSchema: {
+      product_id: z.number().int().positive(),
+      limit: z.number().int().min(1).max(5).optional(),
+    }, outputSchema, annotations: readOnly,
+  }, async (args) => result(await callTool('find_similar_in_stock', args, principal)));
+
   server.registerTool('suggest_freeship_items', {
     title: 'Suggest items to reach free shipping',
     description: 'Use this when the user asks how much more to buy, or what to add, to get free shipping. Read-only: it never changes the cart. Guests receive the threshold and a login requirement.',
@@ -96,6 +105,22 @@ export function createMcpServer(principal: Principal): McpServer {
     description: 'Use this when an authenticated user asks for recent order status or provides a specific order ID.',
     inputSchema: { order_id: z.number().int().positive().optional() }, outputSchema, annotations: readOnly,
   }, async (args) => result(await callTool('get_order_status', args, principal)));
+
+  server.registerTool('draft_support_ticket', {
+    title: 'Draft a support ticket',
+    description: 'Soạn nháp yêu cầu hỗ trợ đơn hàng (đổi trả, hàng lỗi, huỷ đơn, đổi địa chỉ, khác) để hỏi khách xác nhận; không tạo yêu cầu.',
+    inputSchema: {
+      type: z.enum(['doi_tra', 'hang_loi', 'huy_don', 'doi_dia_chi', 'khac']),
+      order_id: z.number().int().positive().optional(),
+      summary: z.string().min(1).max(500),
+    }, outputSchema, annotations: readOnly,
+  }, async (args) => result(await callTool('draft_support_ticket', args, principal)));
+
+  server.registerTool('get_support_tickets', {
+    title: 'Get support tickets',
+    description: 'Xem các yêu cầu hỗ trợ khách đã gửi và trạng thái xử lý.',
+    inputSchema: { ticket_id: z.number().int().positive().optional() }, outputSchema, annotations: readOnly,
+  }, async (args) => result(await callTool('get_support_tickets', args, principal)));
 
   return server;
 }

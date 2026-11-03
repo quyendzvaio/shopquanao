@@ -147,6 +147,7 @@ Open `http://localhost:3000` and create an organization/project. Put only the
 project keys in the ignored `.env`:
 
 ```text
+APP_ENV=production
 LANGFUSE_ENABLED=true
 LANGFUSE_BASE_URL=http://localhost:3000
 LANGFUSE_PUBLIC_URL=http://localhost:3000
@@ -179,43 +180,47 @@ pip install -r eval/requirements-eval.txt
 
 Chat traces are sanitized: raw MCP responses, cookies and secret headers are never sent.
 
-The deterministic agent eval (`scripts/run_agent_eval.php`) does not need Langfuse.
+The CI chatbot eval (the `chat-graph` node test suite, scripted LLM) does not need Langfuse.
 
 ## Production agent tracing: fail-open by design
 
-When `LANGFUSE_ENABLED=true` and valid project keys are configured, completed
-chatbot requests are recorded to the local `langfuse_trace_outbox` table. The
-request and SSE streaming paths make **no Langfuse HTTP request**. A
-separate `langfuse-trace-publisher` container exports completed OTLP/HTTP spans
-to `LANGFUSE_INGESTION_URL/api/public/otel/v1/traces` with a 1.5-second default
-timeout and bounded retry/backoff.
+When `APP_ENV=production`, `LANGFUSE_ENABLED=true` and valid project keys are
+configured, the `chat-graph` service sends its own traces to Langfuse (`chat-graph/src/tracing.ts`:
+the Langfuse LangChain callback handler plus an OTel span processor that exports
+through the Langfuse client, which batches and sends in the background). A turn
+never waits on Langfuse: if Langfuse is stopped, unhealthy, misconfigured or
+times out, or if tracing setup fails (logged once), the agent keeps answering
+and streaming normally. A failed export is never returned to a shopper.
 
-Start the full observability profile, including the exporter, with:
+Start the observability profile with:
 
 ```bash
 docker compose --profile observability up -d
 ```
 
-The publisher deliberately has no Compose dependency on `langfuse-web` or
-`langfuse-worker`. If Langfuse is stopped, unhealthy, misconfigured, or times
-out, the publisher retains/retries its outbox row while the agent continues to
-answer and stream normally. A failed export is never returned to a shopper.
-
-Traces include the deterministic agent decision, selected tool names, loop
-count, stage latency, response type, and only private Product Search IDs. Raw
-MCP payloads and credentials are never exported. `LANGFUSE_TRACE_CONTENT`
-defaults to `false`; enable it only after approving the privacy policy if
-sanitized user/assistant text is required for debugging.
-
-The exporter uses the supported OTLP/HTTP endpoint and Basic project-key
-authentication, plus `x-langfuse-ingestion-version: 4` for real-time v4
-ingestion. The legacy trace ingestion APIs are not used.
+Traces include the graph steps, model and tool calls, selected tool names,
+latency and response type. Raw MCP payloads and credentials are never exported.
+`LANGFUSE_TRACE_CONTENT` defaults to `false`: message and answer text stay out of
+the exported spans (only sizes are exported); enable it only after approving the
+privacy policy if sanitized user/assistant text is required for debugging.
 
 `LANGFUSE_BASE_URL`/`LANGFUSE_PUBLIC_URL` is the browser-facing URL used by the
 Langfuse UI and host-side evaluation scripts. `LANGFUSE_INGESTION_URL` is the
-Docker-internal URL used only by `app` and `langfuse-trace-publisher`; its
-normal Compose value is `http://langfuse-web:3000`. This separation prevents a
-container resolving `localhost:3000` to itself instead of the Langfuse service.
+Docker-internal URL used by `chat-graph` (as its `LANGFUSE_BASE_URL`); its normal Compose value is `http://langfuse-web:3000`.
+This separation prevents a container resolving `localhost:3000` to itself instead
+of the Langfuse service.
+
+### Tracing gate and the removed trace outbox
+
+`chat-graph` traces only when `APP_ENV=production`, `LANGFUSE_ENABLED=true` and
+both Langfuse keys are set. `APP_ENV` defaults to `development`; the deploy job
+writes `APP_ENV=production` into the server `.env`. With `LANGFUSE_ENABLED=true`
+in any other environment, `chat-graph` logs
+`[chat-graph] Langfuse tracing off: APP_ENV is not production` once at startup.
+
+The old PHP trace outbox (its table, the PHP classes, the publisher script and the
+publisher Compose service) was removed because nothing had written to it since the
+PHP chat pipeline went away. A drop migration (2026-11-03) removes the table.
 
 For CI/CD, set these repository environment secrets before setting
 `LANGFUSE_ENABLED=true`: `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`,
@@ -223,4 +228,4 @@ For CI/CD, set these repository environment secrets before setting
 `LANGFUSE_CLICKHOUSE_PASSWORD`, `LANGFUSE_MINIO_SECRET_KEY`, `LANGFUSE_SALT`,
 `LANGFUSE_ENCRYPTION_KEY`, and `LANGFUSE_NEXTAUTH_SECRET`. The deployment job
 fails closed on missing observability secrets, while a running Langfuse outage
-continues to fail open for the agent via the outbox worker.
+continues to fail open for the agent (tracing never blocks an answer).

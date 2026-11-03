@@ -1,5 +1,7 @@
 # Software Requirements Specification - Fashion Shop Chatbot
 
+> **Lỗi thời một phần:** pipeline PHP deterministic mô tả trong tài liệu này (`TurnRunner`, `IntentResolver`, middleware, `llm_providers/`, `config/harness.php`) đã bị xóa khi chuyển sang `chat-graph` (LangGraph). Kiến trúc hiện hành: `docs/superpowers/specs/2026-11-01-langgraph-chat-agent-design.md` và `.claude/rules/architecture.md`.
+
 > Tài liệu lịch sử, mô tả kiến trúc trước 2026-10-15. Stylitics/FindMine, UC1/UC2 và event worker đã bị gỡ; chatbot hiện có UC-A `build_outfit` và UC-C `freeship_gap` (xem README.md và CLAUDE.md).
 
 Document ID: `SRS-CHATBOT-001`  

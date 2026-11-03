@@ -1,5 +1,7 @@
 # Đặc Tả Kỹ Thuật Chatbot
 
+> **Lỗi thời một phần:** pipeline PHP deterministic mô tả trong tài liệu này (`TurnRunner`, `IntentResolver`, middleware, `llm_providers/`, `config/harness.php`) đã bị xóa khi chuyển sang `chat-graph` (LangGraph). Kiến trúc hiện hành: `docs/superpowers/specs/2026-11-01-langgraph-chat-agent-design.md` và `.claude/rules/architecture.md`.
+
 Phiên bản: 3.2
 Cập nhật: 2026-10-21
 
@@ -33,7 +35,7 @@ Browser fetch POST /api/chatbot/stream (Server-Sent Events)
             (AnswerTemplateFallback, required: mọi lỗi LLM -> phát grounded draft,
              latency.streaming = template_fallback)
          -> respond() (không stream) và CHATBOT_TEMPLATE_RESPONSE=1: dùng nguyên grounded draft
-      6. afterTurn: FreeShippingNudge (optional, UC-C) -> TraceOutbox (optional, Langfuse)
+      6. afterTurn: FreeShippingNudge (optional, UC-C)
       7. persist messages, routing metadata, tool executions; refreshSummary
   -> streamed answer + private grounded cards
   -> chat.delta / chat.cards / chat.complete events
