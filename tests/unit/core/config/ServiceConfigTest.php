@@ -29,7 +29,7 @@ final class ServiceConfigTest extends TestCase
         $this->assertSame('shop_knowledge_v2', $config->knowledgeCollection);
         $this->assertSame('rag_ml', $config->embeddingProvider);
         $this->assertSame('bkai-foundation-models/vietnamese-bi-encoder', $config->embeddingModel);
-        $this->assertSame(12, $config->knowledgeHybridCandidates);
+        $this->assertSame(8, $config->knowledgeHybridCandidates);
         $this->assertSame('v1', $config->knowledgeVersion);
         $this->assertSame('itdainb/PhoRanker', $config->knowledgeRerankerModel);
         $this->assertSame(6, $config->ragRerankTimeout);
