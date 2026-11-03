@@ -2,8 +2,9 @@
 /**
  * POST /api/chatbot/stream
  * Server-Sent Events consumed directly by the storefront widget (fetch +
- * ReadableStream; EventSource cannot POST). Text deltas are emitted only after
- * chat-graph has finished its graph and validated the answer; cards and metadata follow as
+ * ReadableStream; EventSource cannot POST). chat-graph sends the agent's answer sentence by
+ * sentence while it is written, each sentence already checked (chat.delta), and chat.replace
+ * when the final checked answer differs from what was sent; cards and metadata follow as
  * whole events.
  */
 
@@ -36,8 +37,8 @@ try {
     // open() resolves the session only; the chat-graph client is built on the first turn, after this progress event.
     $chatbot = ChatbotService::open($pdo, $sessionToken, getBearerToken());
     $emit(['type' => 'chat.progress', 'stage' => 'pipeline']);
-    $result = $chatbot->respondStreaming($message, static function (string $delta) use ($emit): void {
-        $emit(['type' => 'chat.delta', 'delta' => $delta]);
+    $result = $chatbot->respondStreaming($message, static function (string $text, string $kind) use ($emit): void {
+        $emit($kind === 'replace' ? ['type' => 'chat.replace', 'text' => $text] : ['type' => 'chat.delta', 'delta' => $text]);
     });
 
     $cards = ChatStreamProtocol::cards(is_array($result['products'] ?? null) ? $result['products'] : []);

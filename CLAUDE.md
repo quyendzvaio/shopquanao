@@ -44,7 +44,7 @@ browser -> POST /api/chatbot/stream (SSE) -> nginx -> app (PHP): session, origin
       -> policy_out (CardPolicy, price/stock grounding; sold-out turn: the model's answer must name the sold-out item + an alternative, else the fixed question;
          valid draft_support_ticket result: pending_ticket + the fixed confirmation question) -> END
     tools = mcp-server createMcpServer in-process (InMemoryTransport) -> POST app:8080/api/internal/mcp -> ToolApplicationService
-  <- delta / cards / complete events; PHP re-filters cards with ChatStreamProtocol and persists the turn
+  <- delta / replace / cards / complete events; PHP re-filters cards with ChatStreamProtocol and persists the turn
 ```
 
 - `chat-graph` fails closed: LLM down, timeout or any graph error answers the fixed busy text (`response_type=busy`); there is no PHP fallback pipeline. It is private (compose `expose` only, nginx does not route it) and authed with `CHAT_GRAPH_TOKEN` (constant-time compare; refuses empty/`change-me`). `app` does not depend on it; it depends on `app` being healthy.
@@ -54,7 +54,7 @@ browser -> POST /api/chatbot/stream (SSE) -> nginx -> app (PHP): session, origin
 - **UC-C `suggest_freeship_items`** + proactive nudge: `FreeShippingGapAdvisor` picks in-stock items with the smallest overshoot of `FREE_SHIPPING_THRESHOLD`; the nudge's last cart fingerprint is stored in `chat_session_memory.slots`.
 - **Support ticket** (spec `docs/superpowers/specs/2026-11-03-support-ticket-design.md`): the LLM drafts with `draft_support_ticket` (writes nothing), `chat-graph` returns `pending_ticket`, PHP keeps it in the chat-session slots and creates the row in `support_tickets` only when the next message is a fixed yes phrase (no LLM turn; a no phrase drops it; the draft expires after 900 s, an expired yes/no gets a fixed reply). `get_support_tickets` reads the customer's tickets; admins handle them in the admin pages.
 - MCP is private: nginx 404s `/api/internal/mcp`; it is authed by `X-MCP-SERVICE-TOKEN` (`hash_equals`).
-- Browser chat = `POST /api/chatbot/stream` as Server-Sent Events read by the widget with fetch (no WebSocket, no stream service). `ChatStreamProtocol` owns the SSE framing, the card field allow-list, and the same-origin + max-length guard shared with `POST /api/chatbot`, which is the widget's fallback when the stream fails before any text.
+- Browser chat = `POST /api/chatbot/stream` as Server-Sent Events read by the widget with fetch (no WebSocket, no stream service). The agent's final answer streams sentence by sentence while the model writes it (`AnswerStreamer`, `chat-graph/src/graph/answerStream.ts`): each sentence passes the grounding, tool-markup and ticket-confirmation checks first, sold-out and ticket-draft turns are sent whole at the end, and a `replace` event swaps the text when `policy_out`'s final answer differs from what was streamed (spec `docs/superpowers/specs/2026-11-04-answer-streaming-design.md`). `ChatStreamProtocol` owns the SSE framing, the card field allow-list, and the same-origin + max-length guard shared with `POST /api/chatbot`, which is the widget's fallback when the stream fails before any text.
 
 ## Hard rules
 
