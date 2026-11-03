@@ -24,6 +24,8 @@ composer.phar
 # Node / MCP build output
 mcp-server/node_modules/
 mcp-server/dist/
+chat-graph/node_modules/
+chat-graph/dist/
 
 # Env
 .env

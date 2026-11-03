@@ -28,7 +28,6 @@ scripts/dev
 
 # ── Test and evaluation suites ─────────────────────────────
 tests/
-eval/
 
 # ── Reports — dev-only ────────────────────────────────────
 reports/
@@ -42,6 +41,11 @@ mcp-server/dist/
 mcp-server/tests/
 mcp-server/coverage/
 mcp-server/*.tsbuildinfo
+chat-graph/node_modules/
+chat-graph/dist/
+chat-graph/tests/
+chat-graph/eval/
+chat-graph/*.tsbuildinfo
 
 # ── PHP dev dependencies (the image installs its own vendor/ in the php-deps stage) ──
 vendor/

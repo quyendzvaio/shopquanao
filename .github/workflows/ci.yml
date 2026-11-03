@@ -41,7 +41,9 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: mcp-server/package-lock.json
+          cache-dependency-path: |
+            mcp-server/package-lock.json
+            chat-graph/package-lock.json
 
       - name: MCP contract tests and build
         working-directory: mcp-server
@@ -49,6 +51,14 @@ jobs:
           npm ci
           npm test
           npm run build
+
+      # The graph suite (scripted LLM, no network) is the CI eval for the chatbot.
+      # chat-graph compiles ../mcp-server/src, so mcp-server must be installed first.
+      - name: chat-graph tests and build
+        run: |
+          npm --prefix chat-graph ci
+          npm --prefix chat-graph test
+          npm --prefix chat-graph run build
 
       - name: PHP Lint
         run: |
@@ -152,22 +162,11 @@ jobs:
       - name: Run Integration Tests
         env:
           APP_ENV: test
-          CHATBOT_TOOL_TRANSPORT: internal
           DB_HOST: 127.0.0.1
           DB_NAME: shop_test
           DB_USER: root
           DB_PASS: root_pass
         run: vendor/bin/phpunit --testsuite=Integration --colors=always --display-warnings
-
-      - name: Agent eval (UC-A outfits, UC-C free shipping, guardrails)
-        env:
-          APP_ENV: test
-          CHATBOT_TOOL_TRANSPORT: internal
-          DB_HOST: 127.0.0.1
-          DB_NAME: shop_test
-          DB_USER: root
-          DB_PASS: root_pass
-        run: php scripts/run_agent_eval.php
 
   # ============================================================
   # Job 4: Security Scan
@@ -220,7 +219,7 @@ jobs:
             /src || echo "⚠️ Trivy scan done"
 
   # ============================================================
-  # Job 5: Docker Build (app + reranker + rag-ml)
+  # Job 5: Docker Build (app + reranker + chat-graph + rag-ml)
   # ============================================================
   docker:
     name: Docker Build
@@ -248,6 +247,11 @@ jobs:
           docker build -t shop-reranker:ci-${{ github.sha }} docker/reranker/
           docker tag shop-reranker:ci-${{ github.sha }} shop-reranker:ci-latest
 
+      - name: Build chat-graph image
+        run: |
+          docker build -f chat-graph/Dockerfile -t shop-chat-graph:ci-${{ github.sha }} .
+          docker tag shop-chat-graph:ci-${{ github.sha }} shop-chat-graph:ci-latest
+
       - name: Build rag-ml image
         run: |
           docker build -t shop-rag-ml:ci-${{ github.sha }} docker/rag-ml/
@@ -266,6 +270,13 @@ jobs:
             --severity HIGH,CRITICAL \
             --exit-code 0 \
             shop-reranker:ci-${{ github.sha }} || echo "⚠️ Trivy scan done"
+
+      - name: Scan chat-graph image
+        run: |
+          docker run --rm aquasecurity/trivy:latest image \
+            --severity HIGH,CRITICAL \
+            --exit-code 0 \
+            shop-chat-graph:ci-${{ github.sha }} || echo "⚠️ Trivy scan done"
 
       - name: Scan rag-ml image
         run: |
@@ -374,8 +385,7 @@ jobs:
             echo "✅ Repo: $(git rev-parse --short HEAD)"
 
             # Write .env
-            echo "LLM_PROVIDER=${{ secrets.LLM_PROVIDER || 'deepseek' }}" > .env
-            echo "LLM_API_KEY=${{ secrets.LLM_API_KEY }}" >> .env
+            echo "LLM_API_KEY=${{ secrets.LLM_API_KEY }}" > .env
             echo "LLM_BASE_URL=${{ secrets.LLM_BASE_URL || 'https://api.deepseek.com' }}" >> .env
             echo "LLM_MODEL=${{ secrets.LLM_MODEL || 'deepseek-chat' }}" >> .env
             echo "LLM_TIMEOUT=${{ secrets.LLM_TIMEOUT || '25' }}" >> .env
@@ -385,13 +395,12 @@ jobs:
             echo "PMA_PASSWORD=${{ secrets.PMA_PASSWORD || '' }}" >> .env
             echo "RERANKER_URL=http://reranker:8000" >> .env
             echo "RAG_ML_WARMUP_ON_START=${{ secrets.RAG_ML_WARMUP_ON_START || 'true' }}" >> .env
-            echo "CHATBOT_TOOL_TRANSPORT=mcp" >> .env
             echo "MCP_SERVICE_TOKEN=${{ secrets.MCP_SERVICE_TOKEN }}" >> .env
-            echo "MCP_REQUEST_TIMEOUT_MS=80000" >> .env
-            echo "MCP_REQUEST_TIMEOUT=85" >> .env
+            echo "CHAT_GRAPH_TOKEN=${{ secrets.CHAT_GRAPH_TOKEN }}" >> .env
             echo "REDIS_TIMEOUT=0.15" >> .env
             echo "CLIENT_CACHE_TTL=60" >> .env
             echo "CLIENT_CACHE_STALE_TTL=30" >> .env
+            echo "APP_ENV=production" >> .env
             # Observability is opt-in and independent of the agent path. The
             # profile starts only when deployment secrets explicitly enable it.
             echo "LANGFUSE_ENABLED=${{ secrets.LANGFUSE_ENABLED || 'false' }}" >> .env
@@ -402,9 +411,6 @@ jobs:
             echo "LANGFUSE_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }}" >> .env
             echo "LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}" >> .env
             echo "LANGFUSE_TRACE_CONTENT=${{ secrets.LANGFUSE_TRACE_CONTENT || 'false' }}" >> .env
-            echo "LANGFUSE_PUBLISH_TIMEOUT_MS=${{ secrets.LANGFUSE_PUBLISH_TIMEOUT_MS || '1500' }}" >> .env
-            echo "LANGFUSE_PUBLISH_CONNECT_TIMEOUT_MS=${{ secrets.LANGFUSE_PUBLISH_CONNECT_TIMEOUT_MS || '500' }}" >> .env
-            echo "LANGFUSE_PUBLISH_MAX_ATTEMPTS=${{ secrets.LANGFUSE_PUBLISH_MAX_ATTEMPTS || '8' }}" >> .env
             echo "LANGFUSE_VERSION=${{ secrets.LANGFUSE_VERSION || '3.114.0' }}" >> .env
             echo "LANGFUSE_PORT=${{ secrets.LANGFUSE_PORT || '3000' }}" >> .env
             echo "LANGFUSE_POSTGRES_PASSWORD=${{ secrets.LANGFUSE_POSTGRES_PASSWORD }}" >> .env
@@ -459,7 +465,7 @@ jobs:
             FREE_MB=$(df -Pm / | awk 'NR==2 {print $4}')
             if [ "${FREE_MB:-0}" -lt 6000 ]; then
               echo "❌ Not enough free disk after Docker cleanup: ${FREE_MB}MB."
-              echo "Need at least 6000MB for MariaDB/Nginx/Redis/Qdrant plus app/reranker/rag-ml image build."
+              echo "Need at least 6000MB for MariaDB/Nginx/Redis/Qdrant plus app/reranker/chat-graph/rag-ml image build."
               echo "Manual fix on server:"
               echo "  docker compose down --remove-orphans || true"
               echo "  docker system prune -af"
@@ -472,6 +478,7 @@ jobs:
             echo "Building images..."
             docker compose build reranker
             docker compose build rag-ml
+            docker compose build chat-graph
             docker compose build app
 
             echo "Pulling runtime base images..."
@@ -512,16 +519,32 @@ jobs:
             echo "Checking rag-ml..."
             docker compose exec -T rag-ml python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5).read()" && echo " ✅" || echo " ⚠️ rag-ml health check failed"
 
-            echo "Checking chatbot PHP pipeline route..."
+            echo "Checking chat-graph health..."
             for i in $(seq 1 15); do
-              body=$(curl -sf -m 60 -X POST http://localhost/api/chatbot -H 'content-type: application/json' --data '{"message":"áo polo màu đỏ"}' || true)
-              if echo "$body" | grep -q '"primary_intent":"product_search"' && echo "$body" | grep -q '"pipeline":"deterministic_hybrid_pipeline"'; then
+              if docker compose exec -T chat-graph wget -qO- http://127.0.0.1:8090/health 2>/dev/null | grep -q '"ok":true'; then
                 echo " ✅"
                 break
               fi
               if [ "$i" -eq 15 ]; then
-                echo "❌ chatbot PHP pipeline route check failed"
+                echo "❌ chat-graph health check failed"
+                docker compose logs chat-graph --tail=60 2>/dev/null || true
+                exit 1
+              fi
+              sleep 2
+            done
+
+            # LLM-free route check: the checkout guardrail refuses before any model call.
+            echo "Checking chatbot route (checkout refusal, no LLM)..."
+            for i in $(seq 1 15); do
+              body=$(curl -sf -m 60 -X POST http://localhost/api/chatbot -H 'content-type: application/json' --data '{"message":"thêm áo này vào giỏ"}' || true)
+              if echo "$body" | grep -q '"response_type":"refusal"'; then
+                echo " ✅"
+                break
+              fi
+              if [ "$i" -eq 15 ]; then
+                echo "❌ chatbot route check failed"
                 docker compose logs app --tail=60 2>/dev/null || true
+                docker compose logs chat-graph --tail=60 2>/dev/null || true
                 exit 1
               fi
               sleep 2
