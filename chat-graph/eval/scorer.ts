@@ -13,6 +13,9 @@ export type Expect = {
   message_mentions_price?: number;
   message_not_contains?: string[];
   nudge?: boolean;
+  ticket_pending?: boolean;
+  /** true: the turn created a ticket (`ticket_id` is not null); false: it did not. */
+  ticket_created?: boolean;
 };
 
 export type TurnObservation = {
@@ -23,6 +26,8 @@ export type TurnObservation = {
   tools: string[];
   offered_ids: number[];
   nudge: boolean;
+  ticket_pending: boolean;
+  ticket_id: number | null;
 };
 
 export type CaseSummary = { id: string; group: string; failures: string[] };
@@ -108,6 +113,12 @@ export function scoreTurn(expect: Expect, obs: TurnObservation): string[] {
   }
   if (expect.nudge !== undefined && obs.nudge !== expect.nudge) {
     failures.push(`nudge ${obs.nudge}, expected ${expect.nudge}`);
+  }
+  if (expect.ticket_pending !== undefined && obs.ticket_pending !== expect.ticket_pending) {
+    failures.push(`ticket_pending ${obs.ticket_pending}, expected ${expect.ticket_pending}`);
+  }
+  if (expect.ticket_created !== undefined && (obs.ticket_id !== null) !== expect.ticket_created) {
+    failures.push(`ticket_id ${obs.ticket_id ?? 'null'}, expected a ticket ${expect.ticket_created ? 'created' : 'not created'}`);
   }
   return failures;
 }

@@ -173,10 +173,37 @@ class ChatGraphClient
             'outfits' => is_array($result['outfits'] ?? null) ? array_values($result['outfits']) : [],
             'offered' => is_array($result['offered'] ?? null) ? array_values($result['offered']) : [],
             'freeship_nudge' => ($result['freeship_nudge'] ?? false) === true,
+            'pending_ticket' => self::pendingTicket($result['pending_ticket'] ?? null),
             'freeship_fingerprint' => is_string($result['freeship_fingerprint'] ?? null) ? $result['freeship_fingerprint'] : null,
             'trace_id' => is_string($result['trace_id'] ?? null) ? $result['trace_id'] : null,
             'latency' => is_array($result['latency'] ?? null) ? $result['latency'] : [],
         ];
+    }
+
+    /**
+     * A drafted support ticket is kept only in the shape SupportTicketService accepts: anything else is dropped.
+     *
+     * @return array{type:string,order_id:?int,summary:string}|null
+     */
+    private static function pendingTicket(mixed $pending): ?array
+    {
+        if (!is_array($pending)) {
+            return null;
+        }
+        $type = $pending['type'] ?? null;
+        $summary = $pending['summary'] ?? null;
+        $orderId = $pending['order_id'] ?? null;
+        if (!is_string($type) || !isset(SupportTicketService::TYPES[$type])) {
+            return null;
+        }
+        if (!is_string($summary) || trim($summary) === '') {
+            return null;
+        }
+        if ($orderId !== null && (!is_int($orderId) || $orderId <= 0)) {
+            return null;
+        }
+
+        return ['type' => $type, 'order_id' => $orderId, 'summary' => $summary];
     }
 
     /** JSON body; node's schema wants memory.slots and memory.profile as objects, so an empty PHP array must not become []. */

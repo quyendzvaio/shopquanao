@@ -45,6 +45,7 @@ function busyOutcome(): GraphOutcome {
     tools_used: [],
     freeship_nudge: false,
     freeship_fingerprint: null,
+    pending_ticket: null,
   };
 }
 
@@ -120,6 +121,7 @@ export async function runTurn(
     offered: outcome.offered,
     freeship_nudge: outcome.freeship_nudge,
     freeship_fingerprint: outcome.freeship_fingerprint,
+    pending_ticket: outcome.pending_ticket,
     trace_id: randomBytes(16).toString('hex'),
     latency: { total_ms: Date.now() - startedAt, tool_calls: counts.tool_calls, model_calls: counts.model_calls },
   };

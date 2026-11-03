@@ -119,8 +119,12 @@ class ChatbotMemory {
         return $memory;
     }
 
-    /** Upserts one key into the session slots, leaving the others (and the summary) untouched. */
-    public function rememberSlot(string $key, string $value): void {
+    /**
+     * Upserts one key into the session slots, leaving the others (and the summary) untouched.
+     *
+     * @return bool true when the slot was written; false (after logging) when it could not be
+     */
+    public function rememberSlot(string $key, string $value): bool {
         try {
             $json = $this->memory->slotsJson($this->sessionId);
             $slots = $this->decodeJson($json === false ? null : $json, []);
@@ -132,8 +136,31 @@ class ChatbotMemory {
             } else {
                 $this->memory->updateSlots($this->sessionId, $encoded);
             }
+            return true;
         } catch (Throwable $e) {
             error_log("Memory slot save error: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Removes one key from the session slots, leaving the others and the summary untouched.
+     *
+     * @return bool true only when the key is gone afterwards (already absent counts); false when it could not be removed
+     */
+    public function forgetSlot(string $key): bool {
+        try {
+            $json = $this->memory->slotsJson($this->sessionId);
+            if ($json === false || $json === null || $json === '') return true;
+            $slots = $this->decodeJson($json, null);
+            if (!is_array($slots)) return false;
+            if (!array_key_exists($key, $slots)) return true;
+            unset($slots[$key]);
+            $this->memory->updateSlots($this->sessionId, json_encode($slots === [] ? new stdClass() : $slots, JSON_UNESCAPED_UNICODE));
+            return true;
+        } catch (Throwable $e) {
+            error_log("Memory slot forget error: " . $e->getMessage());
+            return false;
         }
     }
 
@@ -335,8 +362,8 @@ class ChatbotMemory {
     private function generateSummary(string $oldSummary, array $slots): string {
         $slotBullets = [];
         foreach ($this->compactArray($slots) as $key => $value) {
-            // Internal bookkeeping (the free-shipping nudge fingerprint ledger), not a user fact.
-            if ($key === 'freeship_nudged_fingerprint') continue;
+            // Internal bookkeeping (the free-shipping nudge fingerprint ledger, a drafted support ticket), not a user fact.
+            if ($key === 'freeship_nudged_fingerprint' || $key === 'pending_ticket') continue;
             $slotBullets[$key] = "- $key: " . (is_array($value) ? json_encode($value, JSON_UNESCAPED_UNICODE) : $value);
         }
 

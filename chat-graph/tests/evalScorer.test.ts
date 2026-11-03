@@ -10,6 +10,8 @@ const base: TurnObservation = {
   tools: ['search_products', 'find_similar_in_stock'],
   offered_ids: [73],
   nudge: false,
+  ticket_pending: false,
+  ticket_id: null,
 };
 
 test('an empty expectation always passes', () => {
@@ -121,4 +123,18 @@ test('summarize of nothing is rate 0', () => {
 test('extractPrices reads thousands grouped by spaces', () => {
   assert.deepEqual(extractPrices('cần thêm 85 000 đ, ngưỡng 500\u00a0000\u00a0đ, tổng 1\u202f250\u202f000 ₫'), [85000, 500000, 1250000]);
   assert.deepEqual(extractPrices('85.000đ và 85,000 đ'), [85000, 85000]);
+});
+
+test('ticket_pending compares with the observed flag', () => {
+  assert.deepEqual(scoreTurn({ ticket_pending: false }, base), []);
+  assert.equal(scoreTurn({ ticket_pending: true }, base).length, 1);
+  assert.deepEqual(scoreTurn({ ticket_pending: true }, { ...base, ticket_pending: true }), []);
+  assert.equal(scoreTurn({ ticket_pending: false }, { ...base, ticket_pending: true }).length, 1);
+});
+
+test('ticket_created is true only with a ticket id', () => {
+  assert.equal(scoreTurn({ ticket_created: true }, base).length, 1);
+  assert.deepEqual(scoreTurn({ ticket_created: true }, { ...base, ticket_id: 7 }), []);
+  assert.deepEqual(scoreTurn({ ticket_created: false }, base), []);
+  assert.equal(scoreTurn({ ticket_created: false }, { ...base, ticket_id: 7 }).length, 1);
 });

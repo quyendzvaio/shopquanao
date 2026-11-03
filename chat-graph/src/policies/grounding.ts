@@ -44,6 +44,12 @@ function collectNumbers(value: unknown, into: Set<number>): void {
   else if (typeof value === 'object' && value !== null) for (const v of Object.values(value)) collectNumbers(v, into);
 }
 
+function addId(ids: Set<number>, value: unknown): void {
+  if (value === null || value === undefined || value === '') return;
+  const id = Number(value);
+  if (Number.isFinite(id)) ids.add(id);
+}
+
 function productIds(records: ToolRecord[]): Set<number> {
   const ids = new Set<number>();
   for (const record of records) {
@@ -65,6 +71,18 @@ function productIds(records: ToolRecord[]): Set<number> {
       for (const o of orders) {
         const id = typeof o === 'object' && o !== null ? Number((o as Record<string, unknown>).id) : NaN;
         if (Number.isFinite(id)) ids.add(id);
+      }
+    }
+    // A drafted ticket's order, a refused draft's existing ticket and the customer's tickets (id, order_id).
+    const draft = record.result.draft;
+    if (typeof draft === 'object' && draft !== null) addId(ids, (draft as Record<string, unknown>).order_id);
+    addId(ids, record.result.ticket_id);
+    const tickets = record.result.tickets;
+    if (Array.isArray(tickets)) {
+      for (const t of tickets) {
+        if (typeof t !== 'object' || t === null) continue;
+        addId(ids, (t as Record<string, unknown>).id);
+        addId(ids, (t as Record<string, unknown>).order_id);
       }
     }
     const source = record.result.source;

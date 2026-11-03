@@ -5,6 +5,8 @@ import { ALLOWED_TOOLS, isAllowedTool } from '../src/policies/allowList.js';
 import { TurnBudget } from '../src/policies/budget.js';
 import { outfitsFrom, productToCard, selectCards, verifyCard } from '../src/policies/cards.js';
 import { matchesCheckout } from '../src/policies/checkout.js';
+import { asksTicketConfirmation, dropTicketConfirmations, lastValidDraft } from '../src/policies/ticket.js';
+import { TICKET_CONFIRM_QUESTION } from '../src/copy.js';
 import { hasToolCallMarkup, plainText, summaryFromCards, ungroundedClaims } from '../src/policies/grounding.js';
 
 const product = (id: number, price = 100000, stock = 5, extra: Record<string, unknown> = {}) => ({
@@ -27,8 +29,11 @@ test('checkout trailing word boundary is Unicode aware', () => {
   assert.equal(matchesCheckout('thêm áo vào giỏ.'), true);
 });
 
-test('allowListHasNineReadOnlyTools', () => {
-  assert.equal(ALLOWED_TOOLS.length, 9);
+test('allowListHasElevenNonWritingTools', () => {
+  assert.equal(ALLOWED_TOOLS.length, 11);
+  assert.equal(isAllowedTool('draft_support_ticket'), true);
+  assert.equal(isAllowedTool('get_support_tickets'), true);
+  assert.equal(isAllowedTool('create_support_ticket'), false);
   assert.equal(isAllowedTool('add_to_cart'), false);
   assert.equal(isAllowedTool('search_products'), true);
 });
@@ -223,4 +228,68 @@ test('budget reports the model and tool calls it has left', () => {
   assert.equal(b.toolCallsLeft(), 0);
   b.takeToolCall();
   assert.equal(b.toolCallsLeft(), 0);
+});
+
+test('groundingKnowsTicketAndDraftOrderIds', () => {
+  const draftRecord: ToolRecord = {
+    name: 'draft_support_ticket', args: {}, result: { status: 'draft', draft: { type: 'doi_tra', order_id: 12, summary: 'Nhận size M' } },
+  };
+  assert.deepEqual(ungroundedClaims('đơn mã 12', [draftRecord]), []);
+  assert.deepEqual(ungroundedClaims('đơn mã 13', [draftRecord]), ['mã 13']);
+  const tickets: ToolRecord = {
+    name: 'get_support_tickets', args: {},
+    result: { tickets: [{ id: 5, order_id: 21, type: 'huy_don', summary: 'x', status: 'moi' }, { id: 6, order_id: null }] },
+  };
+  assert.deepEqual(ungroundedClaims('yêu cầu mã 5 cho đơn mã 21, mã 6', [tickets]), []);
+  assert.deepEqual(ungroundedClaims('mã 7', [tickets]), ['mã 7']);
+  const refused: ToolRecord = { name: 'draft_support_ticket', args: {}, result: { status: 'duplicate_open', message: 'm', ticket_id: 9 } };
+  assert.deepEqual(ungroundedClaims('yêu cầu mã 9', [refused]), []);
+});
+
+test('asksTicketConfirmation: a question that asks the customer to confirm or agree to sending or creating', () => {
+  for (const t of [
+    'Bạn có đồng ý để mình gửi yêu cầu đổi trả cho đơn #12 không?',
+    TICKET_CONFIRM_QUESTION,
+    'Đơn #12 đã giao. BẠN XÁC NHẬN TẠO yêu cầu này nhé?',
+    'Mình soạn xong rồi.\nBạn đồng ý gửi cho shop chứ?',
+    'Bạn có xác nhận gửi yêu cầu đổi trả đơn 85.000đ không?',
+  ]) assert.equal(asksTicketConfirmation(t), true, t);
+});
+
+test('asksTicketConfirmation: offers, statements and unrelated questions pass', () => {
+  for (const t of [
+    'Bạn có muốn mình tạo yêu cầu đổi trả không?',
+    'Có phải đơn #12 không?',
+    'Mình sẽ gửi yêu cầu đổi size cho đơn #12. Bạn đồng ý gửi cho shop.',
+    'Bạn xác nhận gửi yêu cầu này cho shop',
+    'Bạn đồng ý với phí ship 30.000đ không?',
+    'Bạn xác nhận size M không?',
+    'Bạn đồng ý tạo outfit này không?',
+    'Bạn xác nhận để mình tạo outfit dưới 500.000đ nhé?',
+    'Bạn có đồng ý nhận hàng gửi về quận khác không?',
+    '',
+  ]) assert.equal(asksTicketConfirmation(t), false, t);
+});
+
+test('dropTicketConfirmations removes only the matching question sentences', () => {
+  assert.equal(
+    dropTicketConfirmations('Đơn #12 đã giao. Bạn xác nhận gửi yêu cầu này cho shop không? Bạn muốn đổi size nào?'),
+    'Đơn #12 đã giao. Bạn muốn đổi size nào?',
+  );
+  assert.equal(dropTicketConfirmations(`Ok.\n${TICKET_CONFIRM_QUESTION}`), 'Ok.');
+  assert.equal(dropTicketConfirmations(TICKET_CONFIRM_QUESTION), '');
+  assert.equal(dropTicketConfirmations('Không có câu hỏi nào.'), 'Không có câu hỏi nào.');
+  // A price's thousands dot is not a sentence end: the whole question goes, the price sentence stays intact.
+  assert.equal(
+    dropTicketConfirmations('Đơn #12 giá 120.000đ. Bạn có đồng ý để mình gửi yêu cầu 85.000đ không? Cảm ơn bạn.'),
+    'Đơn #12 giá 120.000đ. Cảm ơn bạn.',
+  );
+});
+
+test('lastValidDraft ignores refused and malformed drafts and returns the latest valid one', () => {
+  const rec = (result: Record<string, unknown>): ToolRecord => ({ name: 'draft_support_ticket', args: {}, result });
+  assert.equal(lastValidDraft([]), null);
+  assert.equal(lastValidDraft([rec({ status: 'duplicate_open' })]), null);
+  assert.equal(lastValidDraft([rec({ status: 'draft', draft: { type: 'khac', order_id: null, summary: ' ' } })]), null);
+  assert.deepEqual(lastValidDraft([rec({ status: 'draft', draft: { type: 'khac', order_id: null, summary: 'x' } })]), { type: 'khac', order_id: null, summary: 'x' });
 });

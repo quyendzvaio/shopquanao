@@ -11,7 +11,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { paceMs } from './args.js';
-import { parseCases, type EvalCase } from './cases.js';
+import { fillOrderPlaceholder, parseCases, type EvalCase } from './cases.js';
 import { scoreTurn, summarize, type TurnObservation } from './scorer.js';
 
 const THRESHOLD = 0.9;
@@ -90,21 +90,26 @@ function observe(message: string, body: Record<string, unknown>): TurnObservatio
     tools: Array.isArray(body.tools_used) ? (body.tools_used as unknown[]).map(String) : [],
     offered_ids: ids(offered),
     nudge: body.freeship_nudge === true,
+    ticket_pending: body.ticket_pending === true,
+    ticket_id: typeof body.ticket_id === 'number' ? body.ticket_id : null,
   };
 }
 
 async function runCase(c: EvalCase, runId: string, slot: number, createdUsers: number[]) {
   const failures: string[] = [];
-  const turns: Array<Omit<TurnObservation, 'nudge' | 'offered_ids'> & { offered_ids: number[]; nudge: boolean }> = [];
+  const turns: TurnObservation[] = [];
   let bearer: string | null = null;
+  let orderIds: number[] = [];
   try {
     if (c.user) {
-      const made = await fixture({ action: 'prepare', name: `eval_user_${runId}_${slot}`, cart: c.cart ?? [] });
+      const made = await fixture({ action: 'prepare', name: `eval_user_${runId}_${slot}`, cart: c.cart ?? [], orders: c.orders ?? [] });
       createdUsers.push(Number(made.user_id));
       bearer = String(made.token);
+      orderIds = Array.isArray(made.order_ids) ? (made.order_ids as unknown[]).map(Number) : [];
     }
     let sessionToken = '';
-    for (const [index, turn] of c.turns.entries()) {
+    for (const [index, rawTurn] of c.turns.entries()) {
+      const turn = fillOrderPlaceholder(rawTurn, orderIds);
       const body = await chat(turn.message, sessionToken, bearer);
       sessionToken = typeof body.session_token === 'string' ? body.session_token : sessionToken;
       const obs = observe(turn.message, body);
@@ -121,6 +126,7 @@ async function runCase(c: EvalCase, runId: string, slot: number, createdUsers: n
     turns: turns.map((t) => ({
       message: t.message, answer: t.answer, response_type: t.response_type,
       product_ids: t.product_ids, tools: t.tools, offered_ids: t.offered_ids, nudge: t.nudge,
+      ticket_pending: t.ticket_pending, ticket_id: t.ticket_id,
     })),
   };
 }

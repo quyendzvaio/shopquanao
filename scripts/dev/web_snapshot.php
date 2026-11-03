@@ -404,6 +404,7 @@ function snapGuest(SnapRunner $s, array $ids): void
     $s->request('guest-admin-products', 'guest', 'GET', '/admin/manage_products.php');
     $s->request('guest-admin-users', 'guest', 'GET', '/admin/manage_users.php');
     $s->request('guest-admin-orders', 'guest', 'GET', '/admin/manage_orders.php');
+    $s->request('guest-admin-tickets', 'guest', 'GET', '/admin/manage_tickets.php');
     $s->request('guest-admin-edit-product', 'guest', 'GET', '/admin/edit_product.php?id=50');
     $s->request('guest-admin-login-form', 'guest', 'GET', '/admin/login.php');
 
@@ -598,6 +599,7 @@ function snapDbAdmin(SnapRunner $s, PDO $pdo, array $ids): void
     $s->request('dbadmin-index', $a, 'GET', '/admin/index.php');
     $s->request('dbadmin-manage-products', $a, 'GET', '/admin/manage_products.php');
     $s->request('dbadmin-manage-orders', $a, 'GET', '/admin/manage_orders.php');
+    $s->request('dbadmin-manage-tickets', $a, 'GET', '/admin/manage_tickets.php');
     $s->request('dbadmin-manage-users', $a, 'GET', '/admin/manage_users.php');
     $s->request('dbadmin-edit-product-50', $a, 'GET', '/admin/edit_product.php?id=50');
     $s->request('dbadmin-edit-product-missing', $a, 'GET', '/admin/edit_product.php?id=999999');

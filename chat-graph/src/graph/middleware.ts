@@ -3,12 +3,17 @@ import { createMiddleware } from 'langchain';
 import type { Offered, ToolRecord } from '../contract.js';
 import { soldOutCorrection, soldOutNote, type AlternativeFact } from '../copy.js';
 import { isAllowedTool } from '../policies/allowList.js';
+import { asksTicketConfirmation, lastValidDraft } from '../policies/ticket.js';
 import type { TurnBudget } from '../policies/budget.js';
 import { withoutNulls, type ShopTools } from '../shopTools.js';
 import { answersSoldOut, soldOutFrom, type SoldOutState } from './soldOut.js';
 import { textOf } from './text.js';
 
 export const EMPTY_ANSWER_CORRECTION = 'Bạn chưa trả lời khách. Hãy trả lời đủ mọi ý trong câu của khách, gọi công cụ nếu cần.';
+
+export const TICKET_NO_DRAFT_NOTE = 'Bạn vừa hỏi khách có xác nhận gửi yêu cầu hay không nhưng chưa gọi `draft_support_ticket`, nên hệ thống của shop chưa có bản nháp nào. '
+  + 'Nếu khách đã nêu đơn hàng và vấn đề, gọi `draft_support_ticket` ngay: hệ thống của shop tự hiện bản nháp và hỏi xác nhận. '
+  + 'Không bao giờ hỏi khách xác nhận gửi khi chưa có bản nháp. Nếu còn thiếu thông tin, hỏi khách thông tin đó.';
 
 export const TOOL_REFUSED = 'Công cụ không được phép hoặc đã hết lượt gọi.';
 
@@ -126,8 +131,9 @@ export function policyMiddleware(deps: Deps) {
   return createMiddleware({
     name: 'ShopPolicy',
 
-    // A final answer (no tool calls) that is empty, or that misses the sold-out news on a sold-out turn, sends the
-    // loop back to the model once, with its tools, so a part of the question it skipped can still call a tool.
+    // A final answer (no tool calls) that is empty, that misses the sold-out news on a sold-out turn, or that asks the
+    // customer to confirm a ticket nobody drafted, sends the loop back to the model once, with its tools, so a part
+    // of the question it skipped (or the missing draft) can still call a tool.
     afterModel: {
       canJumpTo: ['model'],
       hook: (state) => {
@@ -139,6 +145,7 @@ export function policyMiddleware(deps: Deps) {
         let correction: string | null = null;
         if (so && !answersSoldOut(text, so)) correction = `${soldOutCorrection(so.source.name, so.alternatives)} Gọi thêm công cụ nếu cần cho các ý khác.`;
         else if (text === '') correction = EMPTY_ANSWER_CORRECTION;
+        else if (!so && asksTicketConfirmation(text) && lastValidDraft(recorder.records) === null) correction = TICKET_NO_DRAFT_NOTE;
         if (correction === null) return undefined;
         recorder.continued = true;
         return { messages: [new HumanMessage(correction)], jumpTo: 'model' as const };

@@ -87,6 +87,48 @@
         </table>
     </div>
 
+    <h2 style="margin: 40px 0 15px; font-size: 18px;">Yêu cầu hỗ trợ</h2>
+    <div style="background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 5px 20px rgba(0,0,0,0.05);">
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background: #f8f8f8; color: #666; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">
+                    <th style="padding: 20px; text-align: left;">Mã</th>
+                    <th style="padding: 20px; text-align: left;">Loại</th>
+                    <th style="padding: 20px; text-align: left;">Đơn</th>
+                    <th style="padding: 20px; text-align: left;">Nội dung</th>
+                    <th style="padding: 20px; text-align: left;">Ngày tạo</th>
+                    <th style="padding: 20px; text-align: center;">Trạng thái</th>
+                    <th style="padding: 20px; text-align: left;">Phản hồi của shop</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (!empty($tickets)): ?>
+                    <?php foreach ($tickets as $t): ?>
+                    <tr style="border-bottom: 1px solid #f1f1f1;">
+                        <td style="padding: 20px; font-weight: 700;">#<?= (int) $t['id'] ?></td>
+                        <td style="padding: 20px; font-size: 14px;"><?= htmlspecialchars((string) $t['type_label'], ENT_QUOTES, 'UTF-8') ?></td>
+                        <td style="padding: 20px; font-size: 14px;"><?= $t['order_id'] !== null ? '#' . (int) $t['order_id'] : '-' ?></td>
+                        <td style="padding: 20px; color: #666; font-size: 14px;"><?= htmlspecialchars((string) $t['summary'], ENT_QUOTES, 'UTF-8') ?></td>
+                        <td style="padding: 20px; color: #666; font-size: 14px;"><?= htmlspecialchars(date('d/m/Y H:i', strtotime((string) $t['created_at'])), ENT_QUOTES, 'UTF-8') ?></td>
+                        <td style="padding: 20px; text-align: center;">
+                            <span style="background: #eee; color: #555; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 700;">
+                                <?= htmlspecialchars((string) $t['status_label'], ENT_QUOTES, 'UTF-8') ?>
+                            </span>
+                        </td>
+                        <td style="padding: 20px; color: #666; font-size: 14px;"><?= htmlspecialchars((string) ($t['admin_note'] ?? ''), ENT_QUOTES, 'UTF-8') ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <tr>
+                        <td colspan="7" style="padding: 40px; text-align: center; color: #999;">
+                            Bạn chưa có yêu cầu hỗ trợ nào. Hãy nhờ trợ lý chat để gửi yêu cầu cho shop.
+                        </td>
+                    </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+
     <div style="margin-top: 30px; text-align: center;">
         <a href="index.php" style="color: #666; text-decoration: none; font-size: 14px;">← Tiếp tục mua sắm</a>
     </div>

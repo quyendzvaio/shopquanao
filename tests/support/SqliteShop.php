@@ -52,4 +52,15 @@ final class SqliteShop
         $insert->execute([3, 'M', 155, 165, 48, 58]);
         $insert->execute([3, 'L', 160, 170, 55, 68]);
     }
+
+    /** Adds orders and support_tickets (same columns as the migration); tests create their own users. */
+    public static function supportTables(PDO $pdo): void
+    {
+        $pdo->exec('CREATE TABLE orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, total_price REAL,
+            status TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)');
+        $pdo->exec("CREATE TABLE support_tickets (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+            order_id INTEGER NULL, type TEXT NOT NULL, summary TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'moi',
+            admin_note TEXT NULL, chat_session_id INTEGER NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)");
+    }
 }

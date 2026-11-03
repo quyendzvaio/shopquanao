@@ -26,6 +26,7 @@
     <a href="index.php">Dashboard</a>
     <a href="manage_products.php">Quản lý Sản phẩm</a>
     <a href="manage_orders.php" style="background:#34495e;">Quản lý Đơn hàng</a>
+    <a href="manage_tickets.php">Yêu cầu hỗ trợ</a>
     <a href="manage_users.php">Quản lý Người dùng</a>
     <a href="logout.php" style="color:#ff4757; margin-top:50px;">Đăng xuất</a>
 </div>

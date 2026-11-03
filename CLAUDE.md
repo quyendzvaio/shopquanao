@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Fashion shop (PHP 8.2 + MariaDB + Docker Compose) with a LangGraph chatbot (`chat-graph/`, TypeScript). The LLM picks tools, only from the 9 read-only shop tools; PHP is the only place with SQL; the `chat-graph` policy middleware enforces the hard rules (checkout refusal, tool allow-list, call budget, grounded cards and prices). Spec: `docs/superpowers/specs/2026-11-01-langgraph-chat-agent-design.md` (the outfit/free-shipping tools: `docs/superpowers/specs/2026-10-15-outfit-tags-freeship-design.md`).
+Fashion shop (PHP 8.2 + MariaDB + Docker Compose) with a LangGraph chatbot (`chat-graph/`, TypeScript). The LLM picks tools, only from the 11 shop tools, none of which writes; PHP is the only place with SQL; the `chat-graph` policy middleware enforces the hard rules (checkout refusal, tool allow-list, call budget, grounded cards and prices). Spec: `docs/superpowers/specs/2026-11-01-langgraph-chat-agent-design.md` (the outfit/free-shipping tools: `docs/superpowers/specs/2026-10-15-outfit-tags-freeship-design.md`).
 
 ## Commands
 
@@ -29,7 +29,7 @@ Local bring-up: `cp .env.example .env`, fill `LLM_*` + `MCP_SERVICE_TOKEN` (and 
 ## Layout
 
 - `public/` is the only web root: storefront pages, `admin/`, `assets/`, and the REST front controller `public/api/index.php`.
-- `src/` holds all PHP code (Composer **classmap**, no namespaces), by responsibility: `app/api/` (routes table `routes.php`, controllers in `controllers/`, `support/ChatStreamProtocol`), `app/web/` (one handler per storefront page, `admin/` for admin pages; `public/*.php` entry files only call them), `agent/` (`HarnessConfig` = the only reader of chatbot env/config; `ChatbotService` = facade, `ChatGraphClient`; `AgentFactory::executeTool` = the MCP bridge entry), `harness/` (what is left of the old pipeline: `tools/` and `memory/`, see `src/harness/README.md`), `service/` (business logic: catalog, cart, order, size, outfit, freeship, knowledge, user, review, admin), `repository/` (the only home of SQL), `model/`, `core/` (bootstrap, `config/` = `ServiceConfig`/`AppConfig`, cache, `database/MigrationRunner`, observability). New REST endpoints are registered in `src/app/api/routes.php`.
+- `src/` holds all PHP code (Composer **classmap**, no namespaces), by responsibility: `app/api/` (routes table `routes.php`, controllers in `controllers/`, `support/ChatStreamProtocol`), `app/web/` (one handler per storefront page, `admin/` for admin pages; `public/*.php` entry files only call them), `agent/` (`HarnessConfig` = the only reader of chatbot env/config; `ChatbotService` = facade, `ChatGraphClient`; `AgentFactory::executeTool` = the MCP bridge entry), `harness/` (what is left of the old pipeline: `tools/` and `memory/`, see `src/harness/README.md`), `service/` (business logic: catalog, cart, order, size, outfit, freeship, knowledge, support, user, review, admin), `repository/` (the only home of SQL), `model/`, `core/` (bootstrap, `config/` = `ServiceConfig`/`AppConfig`, cache, `database/MigrationRunner`, observability). New REST endpoints are registered in `src/app/api/routes.php`.
 - Layer rule: `app -> agent/service/model/core`, `agent -> harness/service/repository/model/core`, `service -> repository/model/core`, `repository -> model/core`; SQL only in `repository/` (permanent exceptions: `MigrationRunner` and the two Langfuse outbox files), env reads only in `agent/` and `core/` (`core/config/` for app settings). `tests/unit/ArchitectureTest.php` enforces it with no legacy allowlist: fix the code, not the test. Per-layer how-tos: `src/app/README.md`, `src/service/README.md`, `src/repository/README.md`.
 - `templates/partials/` page header/footer/chat widget, `templates/pages/` page views (`admin/` for admin); `database/schema.sql` + `database/migrations/*.sql` (dated, never edit applied ones).
 - Nginx edge-caches public catalog GETs for 60s (`docker/nginx/default.conf`); stale reads after DB edits are expected.
@@ -41,16 +41,18 @@ browser -> POST /api/chatbot/stream (SSE) -> nginx -> app (PHP): session, origin
   -> ChatbotService (src/agent facade) -> POST http://chat-graph:8090/turn (NDJSON, header X-CHAT-GRAPH-TOKEN)
   chat-graph (Node 22, LangChain.js createAgent on LangGraph):
     policy_in (CheckoutGuardrail: refusal, no LLM) -> agent <-> tools (LLM picks tools; budget, allow-list, grounding middleware)
-      -> policy_out (CardPolicy, price/stock grounding; sold-out turn: the model's answer must name the sold-out item + an alternative, else the fixed question) -> END
+      -> policy_out (CardPolicy, price/stock grounding; sold-out turn: the model's answer must name the sold-out item + an alternative, else the fixed question;
+         valid draft_support_ticket result: pending_ticket + the fixed confirmation question) -> END
     tools = mcp-server createMcpServer in-process (InMemoryTransport) -> POST app:8080/api/internal/mcp -> ToolApplicationService
   <- delta / cards / complete events; PHP re-filters cards with ChatStreamProtocol and persists the turn
 ```
 
 - `chat-graph` fails closed: LLM down, timeout or any graph error answers the fixed busy text (`response_type=busy`); there is no PHP fallback pipeline. It is private (compose `expose` only, nginx does not route it) and authed with `CHAT_GRAPH_TOKEN` (constant-time compare; refuses empty/`change-me`). `app` does not depend on it; it depends on `app` being healthy.
-- Node env: `chat-graph/src/config.ts` is the only reader for the graph itself; the imported `mcp-server/src/config.ts` separately reads `SHOP_INTERNAL_URL`, `MCP_SERVICE_TOKEN`, `MCP_REQUEST_TIMEOUT_MS`. Tool contracts: `ToolDefinitionCatalog` (PHP allow-list) and `mcp-server/src/tools.ts`; `chat-graph/src/policies/allowList.ts` lists the 9 tools. None is a cart or order-writing tool.
+- Node env: `chat-graph/src/config.ts` is the only reader for the graph itself; the imported `mcp-server/src/config.ts` separately reads `SHOP_INTERNAL_URL`, `MCP_SERVICE_TOKEN`, `MCP_REQUEST_TIMEOUT_MS`. Tool contracts: `ToolDefinitionCatalog` (PHP allow-list) and `mcp-server/src/tools.ts`; `chat-graph/src/policies/allowList.ts` lists the 11 tools. None writes: none is a cart or order tool, and the two ticket tools only draft (`draft_support_ticket`) or read (`get_support_tickets`).
 - The old deterministic PHP pipeline (intent, planning, evidence, loop, response, llm, middleware, turn, `llm_providers/`, `config/harness.php`, `config/chatbot_tools.php`) was deleted with the migration to `chat-graph`; `src/harness/` keeps only `tools/` (`ToolDefinitionCatalog`, `ToolApplicationService`) and `memory/` (conversation store, session context).
 - **UC-A `build_outfit`**: `products.style_tags` (1-3 of the 10 `StyleTag::ALL` tags, curated in migration `2026_10_15_product_style_tags.sql`) -> `OutfitBuilder` composes top+bottom or dress (+ accessory) within budget, size and the one-statement-piece palette rule. Ranking ties: with a budget the higher total wins, without one the lower (accessory ties too), then lower ids.
 - **UC-C `suggest_freeship_items`** + proactive nudge: `FreeShippingGapAdvisor` picks in-stock items with the smallest overshoot of `FREE_SHIPPING_THRESHOLD`; the nudge's last cart fingerprint is stored in `chat_session_memory.slots`.
+- **Support ticket** (spec `docs/superpowers/specs/2026-11-03-support-ticket-design.md`): the LLM drafts with `draft_support_ticket` (writes nothing), `chat-graph` returns `pending_ticket`, PHP keeps it in the chat-session slots and creates the row in `support_tickets` only when the next message is a fixed yes phrase (no LLM turn; a no phrase drops it; the draft expires after 900 s, an expired yes/no gets a fixed reply). `get_support_tickets` reads the customer's tickets; admins handle them in the admin pages.
 - MCP is private: nginx 404s `/api/internal/mcp`; it is authed by `X-MCP-SERVICE-TOKEN` (`hash_equals`).
 - Browser chat = `POST /api/chatbot/stream` as Server-Sent Events read by the widget with fetch (no WebSocket, no stream service). `ChatStreamProtocol` owns the SSE framing, the card field allow-list, and the same-origin + max-length guard shared with `POST /api/chatbot`, which is the widget's fallback when the stream fails before any text.
 
@@ -62,7 +64,7 @@ browser -> POST /api/chatbot/stream (SSE) -> nginx -> app (PHP): session, origin
 - State-changing web actions are POST with a CSRF token (`src/core/http/Csrf.php`); never a GET link. Login, register and logout are the exceptions.
 - Re-adding a product to the cart without a size keeps that line's size (web and API, `CartService::add`); a new line defaults to `S`.
 - An env admin (no real `user_id`) cannot add to cart or check out.
-- The MCP bridge only runs tools listed in `ToolDefinitionCatalog` and `chat-graph` only exposes the 9 allow-listed tools, so cart and checkout tools exist nowhere.
+- The MCP bridge only runs tools listed in `ToolDefinitionCatalog` and `chat-graph` only exposes the 11 allow-listed tools, so cart and checkout tools exist nowhere. Support tickets are the only write on the chat path, and only PHP writes them, after the customer confirms with a fixed phrase on the next turn; chat-graph and the LLM only have the draft and read tools.
 - Web checkout and add-to-cart go through `OrderService`/`CartService` like the API: checkout locks stock, saves the size and writes status `Chờ xử lý`. Orders already stored as `pending` are not migrated.
 
 ## Fixing failures (eval cases, bugs)

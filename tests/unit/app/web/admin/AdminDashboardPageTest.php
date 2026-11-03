@@ -14,6 +14,10 @@ final class AdminDashboardPageTest extends TestCase
         $pdo->exec('CREATE TABLE products (id INTEGER PRIMARY KEY)');
         $pdo->exec('CREATE TABLE users (id INTEGER PRIMARY KEY)');
         $pdo->exec('CREATE TABLE orders (id INTEGER PRIMARY KEY, total_price REAL, status TEXT)');
+        $pdo->exec("CREATE TABLE support_tickets (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+            order_id INTEGER NULL, type TEXT NOT NULL, summary TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'moi',
+            admin_note TEXT NULL, chat_session_id INTEGER NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)");
         return $pdo;
     }
 
@@ -33,6 +37,17 @@ final class AdminDashboardPageTest extends TestCase
 
         $this->assertTrue($result->isView());
         $this->assertSame(0, $result->data()['total_products']);
+    }
+
+    public function testDashboardCountsOnlyNewTickets(): void
+    {
+        $pdo = $this->db();
+        $pdo->exec("INSERT INTO support_tickets (user_id, type, summary, status) VALUES
+            (1, 'khac', 'a', 'moi'), (1, 'khac', 'b', 'moi'), (1, 'khac', 'c', 'dang_xu_ly'), (1, 'khac', 'd', 'da_xong')");
+
+        $result = $this->visit($pdo, ['admin_logged_in' => true]);
+
+        $this->assertSame(2, $result->data()['new_tickets']);
     }
 
     public function testDatabaseErrorHaltsWithTheGenericMessageAndNoSqlText(): void

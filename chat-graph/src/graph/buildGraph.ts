@@ -4,11 +4,12 @@ import type { RunnableConfig } from '@langchain/core/runnables';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import { createAgent } from 'langchain';
 import type { GraphConfig } from '../config.js';
-import type { Card, Offered, ResponseType, ToolRecord, TurnRequest } from '../contract.js';
-import { BUSY, askAlternatives, checkoutRefusal, nudgeText, soldOutCorrection, soldOutNoAlternatives } from '../copy.js';
+import type { Card, Offered, PendingTicket, ResponseType, ToolRecord, TurnRequest } from '../contract.js';
+import { BUSY, TICKET_CONFIRM_QUESTION, TICKET_NEED_DETAILS, askAlternatives, checkoutRefusal, nudgeText, soldOutCorrection, soldOutNoAlternatives, ticketDraftLine } from '../copy.js';
 import type { TurnBudget } from '../policies/budget.js';
 import { outfitsFrom, productToCard, selectCards } from '../policies/cards.js';
 import { matchesCheckout } from '../policies/checkout.js';
+import { asksTicketConfirmation, dropTicketConfirmations, lastValidDraft } from '../policies/ticket.js';
 import { hasToolCallMarkup, plainText, summaryFromCards, ungroundedClaims } from '../policies/grounding.js';
 import type { ShopTools } from '../shopTools.js';
 import { policyMiddleware, TurnRecorder } from './middleware.js';
@@ -25,6 +26,7 @@ export type GraphOutcome = {
   tools_used: string[];
   freeship_nudge: boolean;
   freeship_fingerprint: string | null;
+  pending_ticket: PendingTicket | null;
 };
 
 export type GraphDeps = {
@@ -65,6 +67,7 @@ const State = Annotation.Root({
   toolsUsed: Annotation<string[]>({ reducer: last, default: () => [] }),
   nudged: Annotation<boolean>({ reducer: last, default: () => false }),
   fingerprint: Annotation<string | null>({ reducer: last, default: () => null }),
+  pendingTicket: Annotation<PendingTicket | null>({ reducer: last, default: () => null }),
 });
 
 type S = typeof State.State;
@@ -150,16 +153,33 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
       }
     }
     const soldIds = new Set(s.soldOut?.ids ?? []);
-    if (found.markup || found.claims.length > 0) {
+    const pending = so === null ? lastValidDraft(records) : null;
+    if (pending !== null && (found.markup || found.claims.length > 0)) {
+      text = ''; // a draft turn has no cards: the fixed draft line below replaces an unusable answer
+    } else if (found.markup || found.claims.length > 0) {
       // The summary must not name a sold-out product; the ask copy is the only place that does.
       const safe = selectCards('', records).filter((c) => !soldIds.has(c.id));
       text = safe.length === 0 ? '' : summaryFromCards(safe); // '' -> busy below (or the ask alone on a sold-out turn)
     }
     // The widget shows text as typed (textContent): markdown markers would reach the customer verbatim.
     text = plainText(text);
+    // Only the shop system asks the customer to confirm sending, and only after a real draft: a model-written
+    // confirmation without one would leave "yes" with nothing to confirm, so it is dropped.
+    if (so === null && pending === null && asksTicketConfirmation(text)) {
+      text = dropTicketConfirmations(text);
+      if (!/[\p{L}\p{N}]/u.test(text)) text = TICKET_NEED_DETAILS;
+    }
     const cards = selectCards(text, records).filter((c) => !soldIds.has(c.id));
     const toolsUsed = [...new Set(records.map((r) => r.name))];
     const soldOutAnswered = so !== null && !found.markup && found.claims.length === 0 && !found.soldOut;
+
+    // A valid draft always shows the fixed summary of what will be filed and ends in the fixed confirmation
+    // question (once); PHP stores the draft and creates the ticket on "yes". The model's prose is only a lead-in.
+    if (pending !== null) {
+      const prose = text.split(TICKET_CONFIRM_QUESTION).join('').trim();
+      text = `${prose === '' ? '' : `${prose}\n`}${ticketDraftLine(pending)} ${TICKET_CONFIRM_QUESTION}`;
+      return { text, cards: [], outfits: outfitsFrom(records), toolsUsed, responseType: 'clarification', pendingTicket: pending };
+    }
 
     if (text === '' && !s.soldOut) {
       text = cards.length > 0 ? summaryFromCards(cards) : BUSY;
@@ -247,6 +267,7 @@ export function buildTurnGraph(deps: GraphDeps): { invoke(req: TurnRequest, opti
         tools_used: s.toolsUsed,
         freeship_nudge: s.nudged,
         freeship_fingerprint: s.fingerprint ?? req.freeship_fingerprint,
+        pending_ticket: s.pendingTicket,
       };
     },
   };

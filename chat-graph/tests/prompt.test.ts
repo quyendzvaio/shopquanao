@@ -41,3 +41,11 @@ test('every part of a multi-part question gets its own tool call', () => {
 test('a sold-out name match a search hid is offered as the other reading of the question', () => {
   assert.match(systemPrompt(req), /`out_of_stock_products`[^\n]*hết hàng/);
 });
+
+test('support requests go through draft_support_ticket and never claim a cancel or refund', () => {
+  const prompt = systemPrompt(req);
+  assert.match(prompt, /`draft_support_ticket`[^\n]*không bao giờ/i);
+  assert.match(prompt, /`get_order_status`[^\n]*`draft_support_ticket`/);
+  assert.match(prompt, /`get_support_tickets`/);
+  assert.match(prompt, /Không bao giờ nói một yêu cầu hỗ trợ mới đã được gửi hay đã tạo[^\n]*sau khi khách xác nhận/);
+});

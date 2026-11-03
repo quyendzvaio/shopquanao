@@ -44,13 +44,13 @@ test('non-object body throws RequestError', () => {
   assert.throws(() => parseTurnRequest(null), RequestError);
 });
 
-test('openShopTools exposes exactly the 9 read-only tools', async () => {
+test('openShopTools exposes exactly the 11 non-writing tools', async () => {
   const shop = await openShopTools(null);
   try {
     const names = shop.tools.map((t) => t.name).sort();
     assert.deepEqual(names, [
-      'build_outfit', 'find_similar_in_stock', 'get_categories', 'get_order_status', 'get_product_detail',
-      'retrieve_knowledge', 'search_products', 'suggest_freeship_items', 'suggest_size',
+      'build_outfit', 'draft_support_ticket', 'find_similar_in_stock', 'get_categories', 'get_order_status', 'get_product_detail',
+      'get_support_tickets', 'retrieve_knowledge', 'search_products', 'suggest_freeship_items', 'suggest_size',
     ]);
   } finally {
     await shop.close();

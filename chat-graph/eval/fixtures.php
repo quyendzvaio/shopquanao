@@ -5,17 +5,20 @@
  *   docker compose exec -T app php /dev/stdin '<json request>' < chat-graph/eval/fixtures.php
  *
  * `php /dev/stdin` reads this script from stdin (plain `php -` is not accepted) and passes the JSON request as $argv[1]. It talks only to
- * existing service classes (UserService, CartService), never raw SQL, and prints one JSON object.
+ * existing service/repository classes (UserService, CartService, OrderRepository, OrderService), never raw SQL, and prints one JSON object.
  *
  *   {"action":"prepare","name":"eval_user_<run>_<n>","cart":[{"product_id":53,"quantity":1,"size":"M"}]}
  *       -> {"user_id":int,"token":string}   registers the user (fresh name per run: a bearer user
  *          reuses its latest chat session, so a reused user would inherit old history) and fills its cart
+ *       optional "orders":[{"total":415000,"status":"Đang giao"}] also creates those orders for the user (no items, no stock
+ *       change; OrderRepository::insertOrder + OrderService::updateStatus) and adds "order_ids":[int,...] to the result
  *   {"action":"cleanup","user_ids":[int,...]}
  *       -> {"cleared":int,"skipped":[int]}  removes every cart line of those users, but only users whose
  *          username matches ^eval_user_ (looked up via UserService::adminList); any other id is skipped
  *          with a note on stderr, so a wrong id can never empty a real customer's cart
  *
- * Users have no delete path in the services; eval users stay in the table, clearly named eval_user_*.
+ * Users have no delete path in the services; eval users stay in the table, clearly named eval_user_*. Their orders and
+ * support tickets stay too (cleanup only empties carts).
  */
 
 require '/var/www/html/src/bootstrap.php';
@@ -49,7 +52,20 @@ switch ($request['action']) {
                 'size' => (string) ($line['size'] ?? ''),
             ]);
         }
-        echo json_encode(['user_id' => $userId, 'token' => $registered['token']]);
+        $orderIds = [];
+        $orderRepo = new OrderRepository($pdo);
+        $orderService = new OrderService($pdo);
+        foreach ((array) ($request['orders'] ?? []) as $order) {
+            $status = (string) ($order['status'] ?? 'Chờ xử lý');
+            if (!in_array($status, OrderService::STATUSES, true)) {
+                fwrite(STDERR, "fixtures: unknown order status {$status}\n");
+                exit(2);
+            }
+            $orderId = $orderRepo->insertOrder($userId, (float) ($order['total'] ?? 0));
+            $orderService->updateStatus($orderId, $status);
+            $orderIds[] = $orderId;
+        }
+        echo json_encode(['user_id' => $userId, 'token' => $registered['token'], 'order_ids' => $orderIds]);
         break;
 
     case 'cleanup':

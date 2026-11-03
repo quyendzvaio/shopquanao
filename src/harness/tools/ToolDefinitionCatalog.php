@@ -68,7 +68,7 @@ final class ToolDefinitionCatalog
         ];
     }
 
-    /** @return list<array<string,mixed>> size, policy, category and order tools */
+    /** @return list<array<string,mixed>> size, policy, category, order and support-ticket tools */
     private static function supportDefinitions(): array
     {
         return [
@@ -100,6 +100,19 @@ final class ToolDefinitionCatalog
             self::definition('get_order_status', 'Tra cứu trạng thái đơn hàng của người dùng đã đăng nhập.', [
                 'type' => 'object',
                 'properties' => ['order_id' => ['type' => 'integer']],
+            ]),
+            self::definition('draft_support_ticket', 'Soạn nháp yêu cầu hỗ trợ đơn hàng (đổi trả, hàng lỗi, huỷ đơn, đổi địa chỉ, khác) để hỏi khách xác nhận; không tạo yêu cầu.', [
+                'type' => 'object',
+                'properties' => [
+                    'type' => ['type' => 'string', 'enum' => array_keys(SupportTicketService::TYPES)],
+                    'order_id' => ['type' => 'integer', 'minimum' => 1],
+                    'summary' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 500],
+                ],
+                'required' => ['type', 'summary'],
+            ]),
+            self::definition('get_support_tickets', 'Xem các yêu cầu hỗ trợ khách đã gửi và trạng thái xử lý.', [
+                'type' => 'object',
+                'properties' => ['ticket_id' => ['type' => 'integer', 'minimum' => 1]],
             ]),
         ];
     }

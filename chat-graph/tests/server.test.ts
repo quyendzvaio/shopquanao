@@ -61,7 +61,7 @@ test('serverNonStreamReturnsJson', async () => {
     assert.equal(res.status, 200);
     assert.match(res.headers.get('content-type') ?? '', /application\/json/);
     const body = (await res.json()) as Record<string, unknown>;
-    for (const key of ['message', 'products', 'response_type', 'trace_id']) assert.ok(key in body, key);
+    for (const key of ['message', 'products', 'response_type', 'trace_id', 'pending_ticket']) assert.ok(key in body, key);
     assert.equal(body.response_type, 'final_answer');
   });
 });
