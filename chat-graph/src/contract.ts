@@ -57,6 +57,8 @@ export type TurnResult = TurnSummary & { message: string; products: Card[] };
 export type TurnEvent =
   | { type: 'progress'; stage: string }
   | { type: 'delta'; text: string }
+  /** Everything streamed so far this turn is replaced by `text` (the checked final answer differs from it). */
+  | { type: 'replace'; text: string }
   | { type: 'cards'; products: Card[] }
   | ({ type: 'complete' } & TurnSummary);
 

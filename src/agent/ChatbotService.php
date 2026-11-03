@@ -74,20 +74,21 @@ class ChatbotService
     }
 
     /**
-     * Same turn, with the answer streamed to $onDelta once chat-graph has finished its graph.
+     * Same turn, with the answer streamed to $onText: chat-graph sends each checked sentence of the agent's answer
+     * while it is written ('delta'), and 'replace' when the final checked answer differs from what was sent.
      *
-     * @param callable(string):void $onDelta
+     * @param callable(string, string):void $onText ($text, 'delta' | 'replace')
      */
-    public function respondStreaming(string $message, callable $onDelta): array
+    public function respondStreaming(string $message, callable $onText): array
     {
-        return $this->turn($message, $onDelta);
+        return $this->turn($message, $onText);
     }
 
-    /** @param (callable(string):void)|null $onDelta */
-    private function turn(string $message, ?callable $onDelta): array
+    /** @param (callable(string, string):void)|null $onText */
+    private function turn(string $message, ?callable $onText): array
     {
         $memory = new ChatbotMemory($this->pdo, $this->sessionId, $this->userId);
-        $confirmation = $this->answerTicketConfirmation($memory, $message, $onDelta);
+        $confirmation = $this->answerTicketConfirmation($memory, $message, $onText);
         if ($confirmation !== null) {
             return $confirmation;
         }
@@ -102,19 +103,20 @@ class ChatbotService
             'history' => ChatHistoryWindow::fromRows((new ChatConversationRepository($this->pdo))->messagesForSession($this->sessionId)),
             'memory' => ChatMemoryContext::build($remembered, $this->userId),
             'freeship_fingerprint' => $fingerprint,
-            'stream' => $onDelta !== null,
+            'stream' => $onText !== null,
         ];
 
         $sentText = false;
-        $forwarding = $onDelta !== null;
+        $forwarding = $onText !== null;
         try {
-            $result = $this->graph()->turn($request, $onDelta === null ? null : static function (array $event) use ($onDelta, &$sentText, &$forwarding): void {
-                if (!$forwarding || ($event['type'] ?? '') !== 'delta' || !is_string($event['text'] ?? null) || $event['text'] === '') {
+            $result = $this->graph()->turn($request, $onText === null ? null : static function (array $event) use ($onText, &$sentText, &$forwarding): void {
+                $type = $event['type'] ?? '';
+                if (!$forwarding || ($type !== 'delta' && $type !== 'replace') || !is_string($event['text'] ?? null) || ($type === 'delta' && $event['text'] === '')) {
                     return;
                 }
                 try {
                     $sentText = true;
-                    $onDelta($event['text']);
+                    $onText($event['text'], $type);
                 } catch (Throwable) {
                     // The browser went away mid-stream: stop writing, but still finish and persist the turn.
                     $forwarding = false;
@@ -127,9 +129,10 @@ class ChatbotService
                 'error_category' => $e instanceof ChatGraphUnavailable ? $e->category : 'runtime_failure',
             ], JSON_UNESCAPED_SLASHES));
             $result = self::busyResult();
-            if ($forwarding && !$sentText) {
+            if ($forwarding) {
                 try {
-                    $onDelta($result['message']);
+                    // Text already on screen is replaced, so the customer sees exactly the busy answer that is saved.
+                    $onText($result['message'], $sentText ? 'replace' : 'delta');
                 } catch (Throwable) {
                     // Nothing left to write to; the busy answer is still saved below.
                 }
@@ -152,7 +155,7 @@ class ChatbotService
                 if ($forwarding) {
                     try {
                         // The draft question was already streamed; this line tells the customer it cannot be confirmed.
-                        $onDelta(' ' . self::TICKET_FAILED);
+                        $onText(' ' . self::TICKET_FAILED, 'delta');
                     } catch (Throwable) {
                         // The browser went away; the corrected answer is still saved below.
                     }
@@ -200,10 +203,10 @@ class ChatbotService
      * reply, both without chat-graph. Anything else (other user, corrupt, other words) just drops the
      * draft and the turn goes on.
      *
-     * @param (callable(string):void)|null $onDelta
+     * @param (callable(string, string):void)|null $onText
      * @return array<string,mixed>|null the finished turn, or null when chat-graph should answer
      */
-    private function answerTicketConfirmation(ChatbotMemory $memory, string $message, ?callable $onDelta): ?array
+    private function answerTicketConfirmation(ChatbotMemory $memory, string $message, ?callable $onText): ?array
     {
         $stored = $memory->load()['slots'][PendingTicketSlot::KEY] ?? null;
         if ($stored === null || $stored === '') {
@@ -255,9 +258,9 @@ class ChatbotService
                 $text = sprintf(self::TICKET_REFUSED, (string) ($created['message'] ?? ''));
             }
         }
-        if ($onDelta !== null) {
+        if ($onText !== null) {
             try {
-                $onDelta($text);
+                $onText($text, 'delta');
             } catch (Throwable) {
                 // The browser went away; the turn is still saved below.
             }

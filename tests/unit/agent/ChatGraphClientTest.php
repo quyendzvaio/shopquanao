@@ -66,6 +66,24 @@ final class ChatGraphClientTest extends TestCase
         $this->assertSame(['total_ms' => 12], $result['latency']);
     }
 
+    public function testReplaceResetsTheStreamedMessage(): void
+    {
+        $lines = [
+            json_encode(['type' => 'delta', 'text' => 'Một. '], JSON_UNESCAPED_UNICODE),
+            json_encode(['type' => 'replace', 'text' => 'Hai.'], JSON_UNESCAPED_UNICODE),
+            json_encode(self::COMPLETE),
+        ];
+        $events = [];
+
+        $result = $this->client([implode("\n", $lines) . "\n"])->turn($this->request(), static function (array $event) use (&$events): void {
+            $events[] = $event;
+        });
+
+        $this->assertSame(['delta', 'replace', 'complete'], array_column($events, 'type'));
+        $this->assertSame('Hai.', $events[1]['text']);
+        $this->assertSame('Hai.', $result['message']);
+    }
+
     public function testNonStreamingReadsTheJsonBody(): void
     {
         $body = json_encode(['message' => 'Xin chào', 'products' => []] + array_diff_key(self::COMPLETE, ['type' => 1]));

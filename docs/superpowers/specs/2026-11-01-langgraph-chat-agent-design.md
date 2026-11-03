@@ -153,6 +153,8 @@ Cách chạy **[Claude chọn]**:
 
 Luật cũ: chữ chỉ được gửi tới trình duyệt **sau khi** câu trả lời đã qua kiểm tra. Spec giữ luật này.
 
+> Cập nhật 2026-11-04: câu trả lời cuối nay được stream theo từng câu, mỗi câu đã qua kiểm tra trước khi gửi, kèm sự kiện `replace` khi câu trả lời cuối khác phần đã gửi. Xem `2026-11-04-answer-streaming-design.md`; các gạch đầu dòng dưới đây là thiết kế ban đầu.
+
 - Câu trả lời cuối của LLM được gom đủ, kiểm tra ở `policy_out`, rồi mới gửi đi dưới dạng `delta` theo từng đoạn.
 - Cái giá phải trả là khách thấy chữ chậm hơn so với stream token trực tiếp.
 - Các lượt tool vẫn gửi `chat.progress` để widget hiện "đang tìm…".
