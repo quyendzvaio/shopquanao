@@ -38,15 +38,14 @@ final class ChatStreamProtocol
      *
      * @return array{status: int, message: string}|null null when the request may proceed
      */
-    public static function rejectBrowserRequest(string $message, array $server): ?array
+    public static function rejectBrowserRequest(string $message, array $server, AppConfig $config): ?array
     {
-        $allowed = array_values(array_filter(array_map('trim', explode(',', (string)getenv('CHATBOT_ALLOWED_ORIGINS')))));
+        $allowed = $config->allowedOrigins;
         $host = (string)($server['HTTP_X_FORWARDED_HOST'] ?? $server['HTTP_HOST'] ?? '');
         if (!self::originAllowed($server['HTTP_ORIGIN'] ?? null, $host, $allowed)) {
             return ['status' => 403, 'message' => 'Origin not allowed'];
         }
-        $maxChars = (int)(getenv('CHATBOT_MAX_MESSAGE_CHARS') ?: 2000);
-        if (mb_strlen($message) > $maxChars) {
+        if (mb_strlen($message) > $config->maxMessageChars) {
             return ['status' => 413, 'message' => 'Message is too long'];
         }
         return null;

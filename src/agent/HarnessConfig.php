@@ -3,6 +3,8 @@
 /**
  * Every environment-derived setting of the chatbot harness, read once.
  * PHP-FPM may run with clear_env, so each key falls back getenv -> $_ENV -> $_SERVER.
+ * Domain-service settings (and the free-shipping policy built from them) come from
+ * ServiceConfig, which keeps each key's own lookup.
  */
 final readonly class HarnessConfig
 {
@@ -19,6 +21,7 @@ final readonly class HarnessConfig
         public ?array $streamLlm = null,
         public array $mcp = [],
         public FreeShippingPolicy $freeShipping = new FreeShippingPolicy(),
+        public ServiceConfig $services = new ServiceConfig(),
     ) {
     }
 
@@ -30,6 +33,7 @@ final readonly class HarnessConfig
         $baseUrl = self::env('LLM_BASE_URL') ?: 'https://api.deepseek.com';
         $timeout = (int) (self::env('LLM_TIMEOUT') ?: 60);
         $model = self::env('LLM_MODEL') ?: 'deepseek-chat';
+        $services = ServiceConfig::fromEnvironment();
 
         return new self(
             toolTransport: strtolower(self::env('CHATBOT_TOOL_TRANSPORT') ?: ($isTest ? 'internal' : 'mcp')),
@@ -58,7 +62,8 @@ final readonly class HarnessConfig
                 'shop_internal_url' => self::env('SHOP_INTERNAL_URL') ?: 'http://127.0.0.1/api/internal/mcp',
                 'request_timeout_ms' => self::env('MCP_REQUEST_TIMEOUT_MS') ?: '30000',
             ],
-            freeShipping: FreeShippingPolicy::fromEnvironment(),
+            freeShipping: new FreeShippingPolicy($services->freeShippingThreshold, $services->freeshipNudgeMaxGap),
+            services: $services,
         );
     }
 

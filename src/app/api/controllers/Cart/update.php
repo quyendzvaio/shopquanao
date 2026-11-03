@@ -11,6 +11,8 @@ $data = getJsonInput();
 $data['cart_id'] = $cartId;
 try {
     jsonResponse((new CartService($pdo))->update($userId, $data));
+} catch (PDOException $error) {
+    databaseErrorResponse($error);
 } catch (InvalidArgumentException $error) {
     errorResponse($error->getMessage(), 400);
 } catch (RuntimeException $error) {

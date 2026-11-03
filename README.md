@@ -116,14 +116,15 @@ Response chỉ trả product cards của shop đã qua `ProductConstraintVerifie
 | --- | --- |
 | `public/` | Web root duy nhất: trang storefront, `admin/`, `assets/`, REST front controller `public/api/index.php` |
 | `src/app/api/` | `routes.php` + controllers REST (`controllers/`), `support/ChatStreamProtocol` |
+| `src/app/web/` | Handler cho từng trang storefront (`admin/` cho trang quản trị); `public/*.php` chỉ là entry file gọi handler, view ở `templates/pages/` |
 | `src/agent/` | `AgentFactory` (nơi duy nhất đọc env chatbot, ghép harness + LLM) và `ChatbotService` (facade) |
 | `src/harness/` | Agent trừ LLM, theo component: `llm/ turn/ intent/ planning/ loop/ evidence/ tools/ response/ memory/ middleware/`; xem [`src/harness/README.md`](src/harness/README.md) |
-| `src/service/`, `src/model/`, `src/repository/` | Nghiệp vụ (catalog, cart, order, size, outfit, freeship, knowledge), đối tượng dữ liệu, truy cập dữ liệu |
-| `src/core/` | Bootstrap, cache, `database/MigrationRunner`, observability (Langfuse outbox) |
+| `src/service/`, `src/model/`, `src/repository/` | Nghiệp vụ (catalog, cart, order, size, outfit, freeship, knowledge, user, review, admin), đối tượng dữ liệu, truy cập dữ liệu (nơi duy nhất có SQL); xem README trong từng thư mục |
+| `src/core/` | Bootstrap, `config/` (`ServiceConfig`, `AppConfig`), cache, `database/MigrationRunner`, observability (Langfuse outbox) |
 | `src/llm_providers/` | Provider LLM cụ thể (ngoài harness) |
 | `config/` | `chatbot_tools.php` (manifest tool), `harness.php` (danh sách middleware, thứ tự chạy) |
 | `tests/` | `unit/` (gồm `ArchitectureTest`), `integration/`, `support/` (fixture SQLite) |
-| `templates/` | Partials (header/footer/chat widget) |
+| `templates/` | `partials/` (header/footer/chat widget) và `pages/` (view từng trang) |
 | `database/` | `schema.sql` và `migrations/` (đặt tên theo ngày) |
 | `mcp-server/` | MCP stdio server (TypeScript) |
 | `eval/` | `cases.jsonl` (40 case) và runner |

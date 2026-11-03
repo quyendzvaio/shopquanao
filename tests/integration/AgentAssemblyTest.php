@@ -130,7 +130,7 @@ final class AgentAssemblyTest extends TestCase
         $this->setEnv('CHATBOT_TEMPLATE_RESPONSE', '1');
         $userId = $this->createUserWithCart();
         $sessionId = $this->createSession($userId);
-        $advice = (new FreeShippingService($this->pdo, FreeShippingPolicy::fromEnvironment()))->suggest($userId, ['limit' => 1]);
+        $advice = (new FreeShippingService($this->pdo, HarnessConfig::fromEnvironment()->freeShipping))->suggest($userId, ['limit' => 1]);
         $this->assertSame(30000, (int)$advice['gap']);
         $deltas = [];
 

@@ -3,8 +3,21 @@
 
 final class SizeService
 {
+    private SizeRepository $sizeRows;
+
     public function __construct(private PDO $pdo)
     {
+        $this->sizeRows = new SizeRepository($pdo);
+    }
+
+    /** Size guide rows for GET /api/size-guide: one category when $categoryId is truthy, else all. */
+    public function guides(?int $categoryId): array {
+        return $categoryId ? $this->sizeRows->guidesForCategory($categoryId) : $this->sizeRows->allGuides();
+    }
+
+    /** Legacy product_sizes rows for GET /api/products/{id}/sizes, in PDO's default (FETCH_BOTH) mode as always. */
+    public function productSizes(int $productId): array {
+        return $this->sizeRows->sizesForProduct($productId, PDO::FETCH_BOTH);
     }
 
     public function suggest(array $args): array {
@@ -35,16 +48,10 @@ final class SizeService
         $catId = (int)($queryParams['category_id'] ?? 0);
         if ($height <= 0 || $weight <= 0) return ['error' => 'Height and weight are required'];
 
-        $orderBy = $this->isSqlite()
-            ? "ORDER BY category_id, CASE size_name WHEN 'S' THEN 1 WHEN 'M' THEN 2 WHEN 'L' THEN 3 WHEN 'XL' THEN 4 ELSE 5 END"
-            : "ORDER BY category_id, FIELD(size_name, 'S','M','L','XL')";
-        if ($catId > 0) {
-            $stmt = $this->pdo->prepare("SELECT * FROM size_guides WHERE category_id = ? $orderBy");
-            $stmt->execute([$catId]);
-        } else {
-            $stmt = $this->pdo->query("SELECT * FROM size_guides $orderBy");
-        }
-        $sizes = $this->dedupeSizeRows($stmt->fetchAll(PDO::FETCH_ASSOC));
+        $rows = $catId > 0
+            ? $this->sizeRows->suggestionGuidesForCategory($catId)
+            : $this->sizeRows->allSuggestionGuides();
+        $sizes = $this->dedupeSizeRows($rows);
         $recommended = null;
         foreach ($sizes as $s) {
             $hOk = (!$s['height_from'] || $height >= (int)$s['height_from'])
@@ -82,13 +89,5 @@ final class SizeService
             $sizes[] = $s;
         }
         return $sizes;
-    }
-
-    private function isSqlite(): bool {
-        try {
-            return $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
-        } catch (Throwable $e) {
-            return false;
-        }
     }
 }

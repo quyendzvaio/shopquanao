@@ -70,7 +70,7 @@ final class FreeShippingGapAdvisorTest extends TestCase
     {
         putenv('FREE_SHIPPING_THRESHOLD');
         putenv('FREESHIP_NUDGE_MAX_GAP=150000');
-        $policy = FreeShippingPolicy::fromEnvironment();
+        $policy = HarnessConfig::fromEnvironment()->freeShipping;
         putenv('FREESHIP_NUDGE_MAX_GAP');
 
         $this->assertSame(500000, $policy->threshold);

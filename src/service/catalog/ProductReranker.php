@@ -12,6 +12,11 @@ final class ProductReranker
     /** Tối đa bao nhiêu items gửi xuống reranker (phần còn lại giữ nguyên thứ tự) */
     private const RERANK_MAX_ITEMS = 20;
 
+    /** @param ?string $url sidecar base URL (`/rerank` is appended); null disables the reranker */
+    public function __construct(private ?string $url)
+    {
+    }
+
     /**
      * Apply reranker sidecar nếu có đủ kết quả.
      * Fallback về thứ tự gốc nếu reranker không phản hồi.
@@ -108,14 +113,9 @@ final class ProductReranker
     }
 
     /**
-     * Lấy URL của reranker sidecar từ env hoặc fallback localhost.
+     * URL /rerank của reranker sidecar (cấu hình qua ServiceConfig), hoặc null khi tắt.
      */
     private function getRerankerUrl(): ?string {
-        $url = getenv('RERANKER_URL');
-        if ($url !== false && $url !== '') {
-            return rtrim($url, '/') . '/rerank';
-        }
-        // Mặc định dùng Docker service name
-        return 'http://reranker:8000/rerank';
+        return $this->url === null ? null : rtrim($this->url, '/') . '/rerank';
     }
 }

@@ -10,9 +10,9 @@ class ToolRegistry implements ChatbotToolGateway
 {
     private ToolApplicationService $tools;
 
-    public function __construct(PDO $pdo, ?int $userId = null)
+    public function __construct(PDO $pdo, ?int $userId, ServiceConfig $config, FreeShippingPolicy $freeShipping)
     {
-        $this->tools = new ToolApplicationService($pdo, $userId);
+        $this->tools = new ToolApplicationService($pdo, $userId, $config, $freeShipping);
     }
 
     public function getDefinitions(): array

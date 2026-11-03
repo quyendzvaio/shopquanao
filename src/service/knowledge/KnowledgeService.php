@@ -6,9 +6,9 @@ final class KnowledgeService
 {
     private KnowledgeRetriever $knowledgeRetriever;
 
-    public function __construct(PDO $pdo)
+    public function __construct(PDO $pdo, ServiceConfig $config)
     {
-        $this->knowledgeRetriever = new KnowledgeRetriever($pdo);
+        $this->knowledgeRetriever = new KnowledgeRetriever($pdo, $config);
     }
 
     public function retrieve(array $args): array {

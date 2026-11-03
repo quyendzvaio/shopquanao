@@ -13,15 +13,12 @@ final class FreeShippingNudge extends BaseMiddleware
     ];
     private const SLOT = 'freeship_nudged_fingerprint';
 
-    private FreeShippingService $service;
-
     public function __construct(
-        private PDO $pdo,
+        private ChatMemoryRepository $memory,
         private int $sessionId,
-        private FreeShippingPolicy $policy = new FreeShippingPolicy(),
-        ?FreeShippingService $service = null,
+        private FreeShippingPolicy $policy,
+        private FreeShippingService $service,
     ) {
-        $this->service = $service ?? new FreeShippingService($pdo, $policy);
     }
 
     /**
@@ -95,25 +92,21 @@ final class FreeShippingNudge extends BaseMiddleware
 
     public function remember(string $fingerprint): void
     {
-        $stmt = $this->pdo->prepare('SELECT slots FROM chat_session_memory WHERE session_id = ?');
-        $stmt->execute([$this->sessionId]);
-        $exists = $stmt->fetchColumn() !== false;
+        $exists = $this->memory->slotsJson($this->sessionId) !== false;
         $slots = $this->slots();
         $slots[self::SLOT] = $fingerprint;
         $json = json_encode($slots, JSON_UNESCAPED_UNICODE);
         if ($exists) {
-            $this->pdo->prepare('UPDATE chat_session_memory SET slots = ? WHERE session_id = ?')->execute([$json, $this->sessionId]);
+            $this->memory->updateSlots($this->sessionId, $json);
         } else {
-            $this->pdo->prepare("INSERT INTO chat_session_memory (session_id, summary, slots) VALUES (?, '', ?)")->execute([$this->sessionId, $json]);
+            $this->memory->insertSlots($this->sessionId, $json);
         }
     }
 
     /** @return array<string,mixed> */
     private function slots(): array
     {
-        $stmt = $this->pdo->prepare('SELECT slots FROM chat_session_memory WHERE session_id = ?');
-        $stmt->execute([$this->sessionId]);
-        $decoded = json_decode((string)($stmt->fetchColumn() ?: ''), true);
+        $decoded = json_decode((string)($this->memory->slotsJson($this->sessionId) ?: ''), true);
         return is_array($decoded) ? $decoded : [];
     }
 

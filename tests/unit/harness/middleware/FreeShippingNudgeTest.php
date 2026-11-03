@@ -48,7 +48,7 @@ final class FreeShippingNudgeTest extends TestCase
     {
         $pdo = SqliteShop::pdo();
         $pdo->exec("INSERT INTO chat_session_memory (session_id, summary, slots) VALUES (9, '', '{\"size\":\"M\"}')");
-        $ledger = new FreeShippingNudge($pdo, 9);
+        $ledger = new FreeShippingNudge(new ChatMemoryRepository($pdo), 9, new FreeShippingPolicy(), new FreeShippingService($pdo, new FreeShippingPolicy()));
 
         $this->assertNull($ledger->lastFingerprint());
         $ledger->remember('abc');
@@ -61,9 +61,9 @@ final class FreeShippingNudgeTest extends TestCase
     public function testLedgerCreatesTheMemoryRowWhenMissing(): void
     {
         $pdo = SqliteShop::pdo();
-        (new FreeShippingNudge($pdo, 4))->remember('xyz');
+        (new FreeShippingNudge(new ChatMemoryRepository($pdo), 4, new FreeShippingPolicy(), new FreeShippingService($pdo, new FreeShippingPolicy())))->remember('xyz');
 
-        $this->assertSame('xyz', (new FreeShippingNudge($pdo, 4))->lastFingerprint());
+        $this->assertSame('xyz', (new FreeShippingNudge(new ChatMemoryRepository($pdo), 4, new FreeShippingPolicy(), new FreeShippingService($pdo, new FreeShippingPolicy())))->lastFingerprint());
     }
 
     public function testMessageNamesGapThresholdAndProduct(): void

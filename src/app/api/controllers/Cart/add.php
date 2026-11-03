@@ -7,6 +7,8 @@ $data = getJsonInput();
 global $pdo;
 try {
     jsonResponse((new CartService($pdo))->add($userId, $data), 201);
+} catch (PDOException $error) {
+    databaseErrorResponse($error);
 } catch (InvalidArgumentException $error) {
     errorResponse($error->getMessage(), 400);
 } catch (RuntimeException $error) {

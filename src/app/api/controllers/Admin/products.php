@@ -3,8 +3,7 @@
 requireAdmin();
 
 global $pdo;
-$stmt = $pdo->query("SELECT * FROM products ORDER BY id DESC");
-$products = $stmt->fetchAll();
+$products = (new ProductAdminService($pdo))->allNewestFirst();
 
 foreach ($products as &$p) {
     $p['id']    = (int)$p['id'];

@@ -96,7 +96,12 @@ final class AgentFactory
         return match ($class) {
             CheckoutGuardrail::class => new CheckoutGuardrail($this->responseGenerator()),
             AnswerTemplateFallback::class => new AnswerTemplateFallback(),
-            FreeShippingNudge::class => new FreeShippingNudge($pdo, $sessionId, $this->config->freeShipping),
+            FreeShippingNudge::class => new FreeShippingNudge(
+                new ChatMemoryRepository($pdo),
+                $sessionId,
+                $this->config->freeShipping,
+                new FreeShippingService($pdo, $this->config->freeShipping)
+            ),
             TraceOutbox::class => new TraceOutbox(new LangfuseTraceOutbox($pdo)),
             default => throw new InvalidArgumentException('Unknown harness middleware: ' . $class),
         };
@@ -106,10 +111,10 @@ final class AgentFactory
     {
         $transport = $this->config->toolTransport;
         if ($transport === 'internal') {
-            return new ToolRegistry($pdo, $userId);
+            return $this->toolRegistry($pdo, $userId);
         }
         if ($transport === 'shadow') {
-            return new ShadowToolGateway(new McpToolGateway($userId, $this->config->mcp), new ToolRegistry($pdo, $userId));
+            return new ShadowToolGateway(new McpToolGateway($userId, $this->config->mcp), $this->toolRegistry($pdo, $userId));
         }
         if ($transport !== 'mcp') {
             throw new InvalidArgumentException('CHATBOT_TOOL_TRANSPORT must be mcp, shadow, or internal');
@@ -117,9 +122,41 @@ final class AgentFactory
         return new McpToolGateway($userId, $this->config->mcp);
     }
 
+    /**
+     * Runs one tool for the internal MCP bridge (POST /api/internal/mcp) with the
+     * environment's service config and free-shipping policy. Only tools listed in
+     * ToolDefinitionCatalog run (the filter ToolRegistry::execute applies), so the
+     * cart and checkout operations ToolApplicationService still implements are
+     * unreachable over MCP; any other name is an InvalidArgumentException ("Unknown
+     * tool", HTTP 400). Exceptions from the tool propagate unchanged
+     * (InvalidArgumentException for bad input, RuntimeException for auth and other
+     * runtime errors).
+     *
+     * @param array<string,mixed> $arguments
+     * @return array<string,mixed>
+     */
+    public static function executeTool(PDO $pdo, ?int $userId, string $tool, array $arguments): array
+    {
+        $allowed = array_map(
+            static fn(array $definition): string => (string) ($definition['function']['name'] ?? ''),
+            ToolDefinitionCatalog::chatbotDefinitions()
+        );
+        if (!in_array($tool, $allowed, true)) {
+            throw new InvalidArgumentException('Unknown tool: ' . $tool);
+        }
+
+        $config = HarnessConfig::fromEnvironment();
+        return (new ToolApplicationService($pdo, $userId, $config->services, $config->freeShipping))->execute($tool, $arguments);
+    }
+
     public function responseGenerator(): ResponseGenerator
     {
         return new ResponseGenerator($this->config->freeShipping);
+    }
+
+    private function toolRegistry(PDO $pdo, ?int $userId): ToolRegistry
+    {
+        return new ToolRegistry($pdo, $userId, $this->config->services, $this->config->freeShipping);
     }
 
     /**

@@ -4,15 +4,20 @@
 /** Idempotently converts known legacy size/color facts into variant rows. */
 final class CatalogVariantBackfill
 {
+    private ProductRepository $productRows;
+    private SizeRepository $sizeRows;
+    private VariantRepository $variantRows;
+
     public function __construct(private PDO $pdo)
     {
+        $this->productRows = new ProductRepository($pdo);
+        $this->sizeRows = new SizeRepository($pdo);
+        $this->variantRows = new VariantRepository($pdo);
     }
 
     public function run(): array
     {
-        $products = $this->pdo->query(
-            'SELECT id, name, description FROM products ORDER BY id'
-        )->fetchAll(PDO::FETCH_ASSOC);
+        $products = $this->productRows->allForBackfill();
         $sizes = $this->loadSizes();
         $colors = $this->loadColors();
         $report = [
@@ -52,13 +57,8 @@ final class CatalogVariantBackfill
             $productSizes = $sizes[$productId] ?? [null];
             foreach ($productSizes as $size) {
                 $variantKey = $this->variantKey($canonical, $size);
-                if ($this->variantExists($productId, $variantKey)) continue;
-                $stmt = $this->pdo->prepare(
-                    'INSERT INTO product_variants
-                        (product_id, variant_key, sku, color_id, size, price, stock, is_active)
-                     VALUES (?, ?, NULL, ?, ?, NULL, NULL, 1)'
-                );
-                $stmt->execute([$productId, $variantKey, $colorId, $size]);
+                if ($this->variantRows->exists($productId, $variantKey)) continue;
+                $this->variantRows->insertLegacy($productId, $variantKey, $colorId, $size);
                 $report['variants_created']++;
             }
         }
@@ -68,9 +68,7 @@ final class CatalogVariantBackfill
     private function loadSizes(): array
     {
         $sizes = [];
-        foreach ($this->pdo->query(
-            'SELECT product_id, size_name FROM product_sizes ORDER BY product_id, id'
-        )->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        foreach ($this->sizeRows->allProductSizes() as $row) {
             $size = ProductAttributeNormalizer::normalizeSize((string)$row['size_name']);
             if ($size !== null) $sizes[(int)$row['product_id']][] = $size;
         }
@@ -82,24 +80,15 @@ final class CatalogVariantBackfill
     private function loadColors(): array
     {
         $result = [];
-        foreach ($this->pdo->query('SELECT id, canonical_key FROM colors')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        foreach ($this->variantRows->colorKeys() as $row) {
             $result[(string)$row['canonical_key']] = (int)$row['id'];
         }
         return $result;
     }
 
-    private function variantExists(int $productId, string $variantKey): bool
-    {
-        $stmt = $this->pdo->prepare('SELECT 1 FROM product_variants WHERE product_id = ? AND variant_key = ?');
-        $stmt->execute([$productId, $variantKey]);
-        return (bool)$stmt->fetchColumn();
-    }
-
     private function variantState(int $productId): string
     {
-        $stmt = $this->pdo->prepare('SELECT variant_key FROM product_variants WHERE product_id = ?');
-        $stmt->execute([$productId]);
-        $keys = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        $keys = $this->variantRows->keysForProduct($productId);
         if ($keys === []) return 'none';
         foreach ($keys as $key) {
             if (!str_starts_with((string)$key, 'legacy|')) return 'custom';
@@ -109,16 +98,9 @@ final class CatalogVariantBackfill
 
     private function reconcileLegacyVariantColor(int $productId, string $canonical, int $colorId): void
     {
-        $stmt = $this->pdo->prepare(
-            'SELECT id, variant_key, size FROM product_variants WHERE product_id = ? AND variant_key LIKE ?'
-        );
-        $stmt->execute([$productId, 'legacy|%']);
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        foreach ($this->variantRows->legacyVariants($productId) as $row) {
             $newKey = $this->variantKey($canonical, $this->nullableSize($row['size'] ?? null));
-            $update = $this->pdo->prepare(
-                'UPDATE product_variants SET variant_key = ?, color_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-            );
-            $update->execute([$newKey, $colorId, (int)$row['id']]);
+            $this->variantRows->rekey((int)$row['id'], $newKey, $colorId);
         }
     }
 

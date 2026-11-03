@@ -8,7 +8,8 @@
  */
 
 class ChatbotMemory implements ChatbotMemoryStore {
-    private PDO $pdo;
+    private ChatMemoryRepository $memory;
+    private OrderRepository $orders;
     private int $sessionId;
     private ?int $userId;
 
@@ -86,33 +87,15 @@ class ChatbotMemory implements ChatbotMemoryStore {
     ];
 
     public function __construct(PDO $pdo, int $sessionId, ?int $userId = null) {
-        $this->pdo = $pdo;
+        $this->memory = new ChatMemoryRepository($pdo);
+        $this->orders = new OrderRepository($pdo);
         $this->sessionId = $sessionId;
         $this->userId = $userId;
     }
 
     public function ensureSchema(): void {
         try {
-            $this->pdo->exec("CREATE TABLE IF NOT EXISTS chat_session_memory (
-                session_id int NOT NULL PRIMARY KEY,
-                summary text DEFAULT NULL,
-                slots longtext DEFAULT NULL,
-                created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )");
-            if ($this->userId === null) {
-                return;
-            }
-            $this->pdo->exec("CREATE TABLE IF NOT EXISTS user_long_term_memory (
-                user_id int NOT NULL PRIMARY KEY,
-                preferences longtext DEFAULT NULL,
-                stable_facts longtext DEFAULT NULL,
-                important_events longtext DEFAULT NULL,
-                feedback longtext DEFAULT NULL,
-                purchase_history longtext DEFAULT NULL,
-                created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )");
+            $this->memory->ensureTables($this->userId !== null);
         } catch (Throwable $e) {
             error_log("Memory schema error: " . $e->getMessage());
         }
@@ -148,9 +131,7 @@ class ChatbotMemory implements ChatbotMemoryStore {
         $slots = self::DEFAULT_SLOTS;
 
         try {
-            $stmt = $this->pdo->prepare("SELECT summary, slots FROM chat_session_memory WHERE session_id = ?");
-            $stmt->execute([$this->sessionId]);
-            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            $row = $this->memory->sessionMemory($this->sessionId);
             if ($row) {
                 $summary = (string)($row['summary'] ?? '');
                 $decoded = $this->decodeJson($row['slots'] ?? null, []);
@@ -290,9 +271,7 @@ class ChatbotMemory implements ChatbotMemoryStore {
         if ($this->userId === null) return $longTerm;
 
         try {
-            $stmt = $this->pdo->prepare("SELECT preferences, stable_facts, important_events, feedback, purchase_history FROM user_long_term_memory WHERE user_id = ?");
-            $stmt->execute([$this->userId]);
-            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            $row = $this->memory->longTerm($this->userId);
             if ($row) {
                 foreach (array_keys($longTerm) as $key) {
                     $decoded = $this->decodeJson($row[$key] ?? null, $longTerm[$key]);
@@ -311,18 +290,7 @@ class ChatbotMemory implements ChatbotMemoryStore {
 
     private function saveSessionMemory(string $summary, array $slots): void {
         try {
-            if ($this->driverName() === 'sqlite') {
-                $stmt = $this->pdo->prepare("INSERT INTO chat_session_memory (session_id, summary, slots, updated_at)
-                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                    ON CONFLICT(session_id) DO UPDATE SET summary = excluded.summary, slots = excluded.slots, updated_at = CURRENT_TIMESTAMP");
-                $stmt->execute([$this->sessionId, $summary, json_encode($slots, JSON_UNESCAPED_UNICODE)]);
-                return;
-            }
-
-            $stmt = $this->pdo->prepare("INSERT INTO chat_session_memory (session_id, summary, slots, updated_at)
-                VALUES (?, ?, ?, NOW())
-                ON DUPLICATE KEY UPDATE summary = VALUES(summary), slots = VALUES(slots), updated_at = NOW()");
-            $stmt->execute([$this->sessionId, $summary, json_encode($slots, JSON_UNESCAPED_UNICODE)]);
+            $this->memory->saveSession($this->sessionId, $summary, json_encode($slots, JSON_UNESCAPED_UNICODE));
         } catch (Throwable $e) {
             error_log("Session memory save error: " . $e->getMessage());
         }
@@ -340,24 +308,7 @@ class ChatbotMemory implements ChatbotMemoryStore {
         ];
 
         try {
-            if ($this->driverName() === 'sqlite') {
-                $stmt = $this->pdo->prepare("INSERT INTO user_long_term_memory
-                    (user_id, preferences, stable_facts, important_events, feedback, purchase_history, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                    ON CONFLICT(user_id) DO UPDATE SET preferences = excluded.preferences, stable_facts = excluded.stable_facts,
-                        important_events = excluded.important_events, feedback = excluded.feedback,
-                        purchase_history = excluded.purchase_history, updated_at = CURRENT_TIMESTAMP");
-                $stmt->execute(array_merge([$this->userId], $payload));
-                return;
-            }
-
-            $stmt = $this->pdo->prepare("INSERT INTO user_long_term_memory
-                (user_id, preferences, stable_facts, important_events, feedback, purchase_history, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, NOW())
-                ON DUPLICATE KEY UPDATE preferences = VALUES(preferences), stable_facts = VALUES(stable_facts),
-                    important_events = VALUES(important_events), feedback = VALUES(feedback),
-                    purchase_history = VALUES(purchase_history), updated_at = NOW()");
-            $stmt->execute(array_merge([$this->userId], $payload));
+            $this->memory->saveLongTerm($this->userId, $payload);
         } catch (Throwable $e) {
             error_log("Long-term memory save error: " . $e->getMessage());
         }
@@ -394,20 +345,10 @@ class ChatbotMemory implements ChatbotMemoryStore {
         if ($this->userId === null) return [];
 
         try {
-            $stmt = $this->pdo->prepare("
-                SELECT o.created_at as date, p.name as product
-                FROM orders o
-                JOIN order_items oi ON oi.order_id = o.id
-                JOIN products p ON p.id = oi.product_id
-                WHERE o.user_id = ?
-                ORDER BY o.created_at DESC
-                LIMIT 10
-            ");
-            $stmt->execute([$this->userId]);
             return array_map(fn($r) => [
                 'date' => substr((string)$r['date'], 0, 10),
                 'product' => $r['product'],
-            ], $stmt->fetchAll(PDO::FETCH_ASSOC));
+            ], $this->orders->recentPurchases($this->userId));
         } catch (Throwable $e) {
             return [];
         }
@@ -450,13 +391,5 @@ class ChatbotMemory implements ChatbotMemoryStore {
             $out[] = $item;
         }
         return $out;
-    }
-
-    private function driverName(): string {
-        try {
-            return $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
-        } catch (Throwable $e) {
-            return 'mysql';
-        }
     }
 }

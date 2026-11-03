@@ -11,7 +11,7 @@ final class FinalReviewMinorsTest extends TestCase
     {
         $pdo = SqliteShop::pdo();
         $pdo->exec("INSERT INTO chat_session_memory (session_id, summary, slots) VALUES (9, '', '{\"size\":\"M\"}')");
-        (new FreeShippingNudge($pdo, 9))->remember('cart-fingerprint-abc');
+        (new FreeShippingNudge(new ChatMemoryRepository($pdo), 9, new FreeShippingPolicy(), new FreeShippingService($pdo, new FreeShippingPolicy())))->remember('cart-fingerprint-abc');
 
         (new ChatbotMemory($pdo, 9))->refreshSummary();
 
@@ -19,7 +19,7 @@ final class FinalReviewMinorsTest extends TestCase
         $this->assertStringContainsString('- size: M', (string)$row['summary']);
         $this->assertStringNotContainsString('freeship_nudged_fingerprint', (string)$row['summary']);
         $this->assertStringNotContainsString('cart-fingerprint-abc', (string)$row['summary']);
-        $this->assertSame('cart-fingerprint-abc', (new FreeShippingNudge($pdo, 9))->lastFingerprint(), 'ledger slot itself is kept');
+        $this->assertSame('cart-fingerprint-abc', (new FreeShippingNudge(new ChatMemoryRepository($pdo), 9, new FreeShippingPolicy(), new FreeShippingService($pdo, new FreeShippingPolicy())))->lastFingerprint(), 'ledger slot itself is kept');
     }
 
     public function testNonNumericFreeShippingEnvFallsBackToDefaults(): void
@@ -29,7 +29,7 @@ final class FinalReviewMinorsTest extends TestCase
         putenv('FREE_SHIPPING_THRESHOLD=abc');
         putenv('FREESHIP_NUDGE_MAX_GAP=200k');
         try {
-            $policy = FreeShippingPolicy::fromEnvironment();
+            $policy = HarnessConfig::fromEnvironment()->freeShipping;
         } finally {
             putenv($threshold === false ? 'FREE_SHIPPING_THRESHOLD' : "FREE_SHIPPING_THRESHOLD=$threshold");
             putenv($gap === false ? 'FREESHIP_NUDGE_MAX_GAP' : "FREESHIP_NUDGE_MAX_GAP=$gap");
@@ -44,7 +44,7 @@ final class FinalReviewMinorsTest extends TestCase
         $threshold = getenv('FREE_SHIPPING_THRESHOLD');
         putenv('FREE_SHIPPING_THRESHOLD=300000');
         try {
-            $this->assertSame(300000, FreeShippingPolicy::fromEnvironment()->threshold);
+            $this->assertSame(300000, HarnessConfig::fromEnvironment()->freeShipping->threshold);
         } finally {
             putenv($threshold === false ? 'FREE_SHIPPING_THRESHOLD' : "FREE_SHIPPING_THRESHOLD=$threshold");
         }

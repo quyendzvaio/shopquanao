@@ -5,9 +5,7 @@ $id = (int)($route_params['id'] ?? 0);
 
 if (!$id) errorResponse('Product ID required', 400);
 
-$stmt = $pdo->prepare("SELECT r.*, u.username FROM reviews r JOIN users u ON r.user_id = u.id WHERE r.product_id = ? ORDER BY r.created_at DESC");
-$stmt->execute([$id]);
-$reviews = $stmt->fetchAll();
+$reviews = (new ReviewService($pdo))->forProductWithUsername($id);
 
 foreach ($reviews as &$r) {
     $r['id']    = (int)$r['id'];

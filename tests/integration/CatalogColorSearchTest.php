@@ -29,7 +29,7 @@ final class CatalogColorSearchTest extends TestCase
 
     public function testBlackSearchReturnsBlackCodedProducts(): void
     {
-        $registry = new ToolRegistry($this->pdo, null);
+        $registry = new ToolRegistry($this->pdo, null, ServiceConfig::fromEnvironment(), HarnessConfig::fromEnvironment()->freeShipping);
         $result = $registry->execute('search_products', [
             'search' => 'áo',
             'category_id' => 1,
@@ -43,7 +43,7 @@ final class CatalogColorSearchTest extends TestCase
 
     public function testPurpleSearchExcludesNecklineProduct(): void
     {
-        $registry = new ToolRegistry($this->pdo, null);
+        $registry = new ToolRegistry($this->pdo, null, ServiceConfig::fromEnvironment(), HarnessConfig::fromEnvironment()->freeShipping);
         $result = $registry->execute('search_products', [
             'search' => 'áo',
             'category_id' => 1,

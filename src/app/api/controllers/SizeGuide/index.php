@@ -10,13 +10,7 @@ if (!$height || !$weight) {
 
 global $pdo;
 
-if ($catId) {
-    $stmt = $pdo->prepare("SELECT * FROM size_guides WHERE category_id = ? ORDER BY FIELD(size_name, 'S','M','L','XL')");
-    $stmt->execute([$catId]);
-} else {
-    $stmt = $pdo->query("SELECT * FROM size_guides ORDER BY category_id, FIELD(size_name, 'S','M','L','XL')");
-}
-$sizes = $stmt->fetchAll();
+$sizes = (new SizeService($pdo))->guides($catId);
 
 $recommended = null;
 foreach ($sizes as $s) {

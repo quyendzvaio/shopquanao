@@ -52,22 +52,22 @@ final class ChatStreamProtocolTest extends TestCase
     {
         $server = ['HTTP_ORIGIN' => 'http://localhost', 'HTTP_X_FORWARDED_HOST' => 'localhost', 'HTTP_HOST' => 'app:8080'];
 
-        $this->assertNull(ChatStreamProtocol::rejectBrowserRequest('áo thun dưới 300k', $server));
+        $this->assertNull(ChatStreamProtocol::rejectBrowserRequest('áo thun dưới 300k', $server, AppConfig::fromEnvironment()));
     }
 
     public function testRejectsACrossOriginBrowserMessageWith403(): void
     {
         $server = ['HTTP_ORIGIN' => 'https://evil.example', 'HTTP_X_FORWARDED_HOST' => 'localhost'];
 
-        $this->assertSame(403, ChatStreamProtocol::rejectBrowserRequest('áo thun', $server)['status'] ?? null);
+        $this->assertSame(403, ChatStreamProtocol::rejectBrowserRequest('áo thun', $server, AppConfig::fromEnvironment())['status'] ?? null);
     }
 
     public function testRejectsMessagesOverTheConfiguredLengthWith413(): void
     {
         putenv('CHATBOT_MAX_MESSAGE_CHARS=11');
 
-        $this->assertNull(ChatStreamProtocol::rejectBrowserRequest('áo sơ mi đỏ', []));
-        $this->assertSame(413, ChatStreamProtocol::rejectBrowserRequest('áo sơ mi đỏ!', [])['status'] ?? null);
+        $this->assertNull(ChatStreamProtocol::rejectBrowserRequest('áo sơ mi đỏ', [], AppConfig::fromEnvironment()));
+        $this->assertSame(413, ChatStreamProtocol::rejectBrowserRequest('áo sơ mi đỏ!', [], AppConfig::fromEnvironment())['status'] ?? null);
     }
 
     public function testConfiguredOriginsAreReadFromTheEnvironment(): void
@@ -75,7 +75,7 @@ final class ChatStreamProtocolTest extends TestCase
         putenv('CHATBOT_ALLOWED_ORIGINS=https://shop.example, https://admin.shop.example');
         $server = ['HTTP_ORIGIN' => 'https://admin.shop.example', 'HTTP_HOST' => 'app:8080'];
 
-        $this->assertNull(ChatStreamProtocol::rejectBrowserRequest('áo thun', $server));
+        $this->assertNull(ChatStreamProtocol::rejectBrowserRequest('áo thun', $server, AppConfig::fromEnvironment()));
     }
 
     public function testConfiguredOriginsReplaceTheSameOriginRule(): void

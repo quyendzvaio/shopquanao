@@ -6,4 +6,8 @@ $userId = (int)$user['id'];
 $statusFilter = $_GET['status'] ?? 'all';
 
 global $pdo;
-jsonResponse((new OrderService($pdo))->list($userId, $statusFilter));
+try {
+    jsonResponse((new OrderService($pdo))->list($userId, $statusFilter));
+} catch (PDOException $error) {
+    databaseErrorResponse($error);
+}
