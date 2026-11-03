@@ -421,7 +421,7 @@ class KnowledgeRetriever {
     private function requestRagMl(string $path, array $payload, int $timeout): ?array {
         if ($this->ragMlUrl === null) return null;
         $ch = curl_init($this->ragMlUrl . $path);
-        curl_setopt_array($ch, [
+        curl_setopt_array($ch, InternalHttp::CURL_OPTIONS + [
             CURLOPT_POST => true,
             CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
             CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
@@ -653,7 +653,7 @@ class KnowledgeRetriever {
     private function request(string $method, string $path, array $payload, int $timeout): ?array {
         if ($this->qdrantUrl === null) return null;
         $ch = curl_init($this->qdrantUrl . $path);
-        $options = [
+        $options = InternalHttp::CURL_OPTIONS + [
             CURLOPT_CUSTOMREQUEST => $method,
             CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
             CURLOPT_RETURNTRANSFER => true,
