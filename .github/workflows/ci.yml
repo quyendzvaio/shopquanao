@@ -242,6 +242,10 @@ jobs:
           docker build -t shop-quan-ao:ci-${{ github.sha }} .
           docker tag shop-quan-ao:ci-${{ github.sha }} shop-quan-ao:ci-latest
 
+      - name: App image serves when php-fpm is slow to start
+        # The base image's php-fpm readiness check gives up after 7s; docker/app-php-fpm-run keeps polling.
+        run: scripts/dev/app-image-slow-fpm.sh shop-quan-ao:ci-latest
+
       - name: Build reranker image
         run: |
           docker build -t shop-reranker:ci-${{ github.sha }} docker/reranker/
