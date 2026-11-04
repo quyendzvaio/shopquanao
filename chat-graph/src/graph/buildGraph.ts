@@ -41,6 +41,8 @@ export type GraphDeps = {
   callbacks?: unknown[];
   /** Receives the agent's final answer sentence by sentence while it is written (each one already checked). */
   onAnswerText?: (text: string) => void;
+  /** Replaces everything streamed so far (a lead-in on screen when its run turned into a tool call). */
+  onAnswerReplace?: (text: string) => void;
 };
 
 export type InvokeOptions = {
@@ -272,6 +274,7 @@ export function buildTurnGraph(deps: GraphDeps): { invoke(req: TurnRequest, opti
         // A sold-out turn or a ticket-draft turn is rewritten by policy_out, so it is sent whole at the end.
         callbacks.push(new AnswerStreamer({
           emit: onAnswerText,
+          replace: deps.onAnswerReplace ?? (() => {}),
           evidence: () => recorder.records,
           allowed: () => phase.inAgent && recorder.soldOut === null && lastValidDraft(recorder.records) === null,
         }));

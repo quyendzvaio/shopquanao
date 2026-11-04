@@ -38,7 +38,7 @@ try {
     $chatbot = ChatbotService::open($pdo, $sessionToken, getBearerToken());
     $emit(['type' => 'chat.progress', 'stage' => 'pipeline']);
     $result = $chatbot->respondStreaming($message, static function (string $text, string $kind) use ($emit): void {
-        $emit($kind === 'replace' ? ['type' => 'chat.replace', 'text' => $text] : ['type' => 'chat.delta', 'delta' => $text]);
+        $emit(ChatStreamProtocol::textEvent($kind, $text));
     });
 
     $cards = ChatStreamProtocol::cards(is_array($result['products'] ?? null) ? $result['products'] : []);
