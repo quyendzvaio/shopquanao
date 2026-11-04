@@ -206,13 +206,15 @@ test('grounding ignores non-money words after a number', () => {
 });
 
 test('hasToolCallMarkup flags every raw tool-call marker, case-insensitively', () => {
-  for (const marker of ['<tool_call>', '</tool_call>', '<|tool_calls_begin|>', '<｜tool▁calls▁begin｜>', '<function=search_products>', '<|im_start|>assistant', '<|python_tag|>', '<TOOL_CALL>', '<tool_call>search_products<arg_key>category</arg_key><arg_value>mũ</arg_value>']) {
+  for (const marker of ['<tool_call>', '</tool_call>', '<|tool_calls_begin|>', '<｜tool▁calls▁begin｜>', '<function=search_products>', '<|im_start|>assistant', '<|python_tag|>', '<TOOL_CALL>', '<tool_call>search_products<arg_key>category</arg_key><arg_value>mũ</arg_value>',
+    // DeepSeek (deepseek-v4-flash) writing its call as text, seen in the 2026-11-04 ticket eval.
+    '<｜｜DSML｜｜ calls> <｜｜DSML｜｜ invoke name="draft_support_ticket">', '</｜｜DSML｜｜ parameter>', '<| DSML | calls>']) {
     assert.equal(hasToolCallMarkup(`Để mình kiểm tra nhé ${marker} x`), true, marker);
   }
 });
 
 test('hasToolCallMarkup ignores ordinary text containing angle brackets', () => {
-  for (const text of ['giá < 300k', 'Áo thun giá <300k, size M > L', 'Mình tìm được 3 mẫu.', '']) {
+  for (const text of ['giá < 300k', 'Áo thun giá <300k, size M > L', 'Mình tìm được 3 mẫu.', 'Size S | M | L đều còn', 'size M|L', '']) {
     assert.equal(hasToolCallMarkup(text), false, text);
   }
 });

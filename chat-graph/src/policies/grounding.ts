@@ -108,7 +108,9 @@ export function ungroundedClaims(answer: string, records: ToolRecord[]): string[
   return claims;
 }
 
-const TOOL_CALL_MARKUP = /<\/?tool_call|<[|｜]\s*tool|<function=|<\|im_start\|>|<\|python_tag\|>/i;
+// `<|…`, `<｜…` and `</｜…` open the special tokens every provider's raw tool-call text uses (`<|tool_calls_begin|>`,
+// `<|im_start|>`, DeepSeek's `<｜｜DSML｜｜ calls>`); a shop answer never puts `|` right after `<`.
+const TOOL_CALL_MARKUP = /<\/?tool_call|<\/?\s*[|｜]|<function=/i;
 
 /** Raw tool-call markup in a plain-text draft: the model "called" a tool as text instead of structurally. */
 export function hasToolCallMarkup(text: string): boolean {
