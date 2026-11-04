@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Fashion shop (PHP 8.2 + MariaDB + Docker Compose) with a LangGraph chatbot (`chat-graph/`, TypeScript). The LLM picks tools, only from the 11 shop tools, none of which writes; PHP is the only place with SQL; the `chat-graph` policy middleware enforces the hard rules (checkout refusal, tool allow-list, call budget, grounded cards and prices). Spec: `docs/superpowers/specs/2026-11-01-langgraph-chat-agent-design.md` (the outfit/free-shipping tools: `docs/superpowers/specs/2026-10-15-outfit-tags-freeship-design.md`).
 
+## Delivery deadline
+
+Everything is handed over to the customer on production **before 01:00 on 2026-11-10** (1h ngày 10/11/2026), as a polished product. Until then every change is checked, tested and fixed end to end before it ships: the full local gate (`scripts/dev/gate.sh`), the manual real-LLM eval (`.claude/rules/eval.md`, target >= 90%), a green CI run on `master`, and the post-deploy smoke on the production host. Known gaps (a failing deploy step, a missing production `.env` value, a flaky eval group) are tracked and closed, not left for the customer to find.
+
 ## Commands
 
 The host has no PHP; `scripts/dev/php` and `scripts/dev/composer` run them in Docker.
