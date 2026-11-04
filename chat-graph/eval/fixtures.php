@@ -5,13 +5,14 @@
  *   docker compose exec -T app php /dev/stdin '<json request>' < chat-graph/eval/fixtures.php
  *
  * `php /dev/stdin` reads this script from stdin (plain `php -` is not accepted) and passes the JSON request as $argv[1]. It talks only to
- * existing service/repository classes (UserService, CartService, OrderRepository, OrderService), never raw SQL, and prints one JSON object.
+ * existing service/repository classes (UserService, CartService, ProductService, OrderRepository, OrderService), never raw SQL, and prints one JSON object.
  *
  *   {"action":"prepare","name":"eval_user_<run>_<n>","cart":[{"product_id":53,"quantity":1,"size":"M"}]}
  *       -> {"user_id":int,"token":string}   registers the user (fresh name per run: a bearer user
  *          reuses its latest chat session, so a reused user would inherit old history) and fills its cart
- *       optional "orders":[{"total":415000,"status":"Đang giao"}] also creates those orders for the user (no items, no stock
- *       change; OrderRepository::insertOrder + OrderService::updateStatus) and adds "order_ids":[int,...] to the result
+ *       optional "orders":[{"total":415000,"status":"Đang giao","items":[{"product_id":53,"quantity":1}]}] also creates those
+ *       orders for the user (OrderRepository::insertOrder/insertItem + OrderService::updateStatus; items at the product's
+ *       current price, which must add up to "total"; no stock change) and adds "order_ids":[int,...] to the result
  *   {"action":"cleanup","user_ids":[int,...]}
  *       -> {"cleared":int,"skipped":[int]}  removes every cart line of those users, but only users whose
  *          username matches ^eval_user_ (looked up via UserService::adminList); any other id is skipped
@@ -55,13 +56,33 @@ switch ($request['action']) {
         $orderIds = [];
         $orderRepo = new OrderRepository($pdo);
         $orderService = new OrderService($pdo);
+        $products = new ProductService($pdo);
         foreach ((array) ($request['orders'] ?? []) as $order) {
             $status = (string) ($order['status'] ?? 'Chờ xử lý');
             if (!in_array($status, OrderService::STATUSES, true)) {
                 fwrite(STDERR, "fixtures: unknown order status {$status}\n");
                 exit(2);
             }
-            $orderId = $orderRepo->insertOrder($userId, (float) ($order['total'] ?? 0));
+            // Items are priced and checked before the order exists, so a bad fixture never leaves a half-built order.
+            $total = (float) ($order['total'] ?? 0);
+            $lines = [];
+            foreach ((array) ($order['items'] ?? []) as $item) {
+                $product = $products->pageRow((int) ($item['product_id'] ?? 0));
+                if ($product === null) {
+                    fwrite(STDERR, "fixtures: unknown product in order items\n");
+                    exit(2);
+                }
+                $lines[] = [(int) $product['id'], (int) ($item['quantity'] ?? 1), (float) $product['price']];
+            }
+            $sum = array_sum(array_map(static fn (array $l): float => $l[1] * $l[2], $lines));
+            if ($lines !== [] && abs($sum - $total) > 0.001) {
+                fwrite(STDERR, "fixtures: order items add up to {$sum}, not the order total {$total}\n");
+                exit(2);
+            }
+            $orderId = $orderRepo->insertOrder($userId, $total);
+            foreach ($lines as [$productId, $quantity, $price]) {
+                $orderRepo->insertItem($orderId, $productId, $quantity, $price);
+            }
             $orderService->updateStatus($orderId, $status);
             $orderIds[] = $orderId;
         }

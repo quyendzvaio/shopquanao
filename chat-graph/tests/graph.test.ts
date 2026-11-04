@@ -8,7 +8,7 @@ import { TurnBudget } from '../src/policies/budget.js';
 import { summaryFromCards } from '../src/policies/grounding.js';
 import { productToCard } from '../src/policies/cards.js';
 import { buildTurnGraph } from '../src/graph/buildGraph.js';
-import { EMPTY_ANSWER_CORRECTION, NO_MORE_TOOLS, REPEATED_TOOL_CALL, TICKET_NO_DRAFT_NOTE } from '../src/graph/middleware.js';
+import { EMPTY_ANSWER_CORRECTION, NO_MORE_TOOLS, REPEATED_TOOL_CALL, TICKET_NO_DRAFT_NOTE, TOOL_MARKUP_CORRECTION } from '../src/graph/middleware.js';
 import { answersSoldOut, soldOutFrom } from '../src/graph/soldOut.js';
 import { ScriptedChatModel, type ScriptedStep } from './support/scriptedModel.js';
 import { fakeShopTools } from './support/fakeTools.js';
@@ -460,7 +460,7 @@ test('nudgeKeepsTotalAtSixCards', async () => {
 
 const MARKUP = 'Để mình kiểm tra ngay nhé!<tool_call>getg_product';
 
-test('toolCallMarkupDraftIsRetriedOnceAndCleanTextWins', async () => {
+test('toolCallMarkupDraftGetsOneContinuationWithToolsAndCleanTextWins', async () => {
   const product = { id: 66, name: 'Áo Thun', price: 150000, stock: 3 };
   const { model, outcome } = run(
     [ai('', [call('c1', 'search_products', { search: 'áo' })]), ai(MARKUP), ai('Mình tìm được Áo Thun mã 66 giá 150.000đ.')],
@@ -470,40 +470,44 @@ test('toolCallMarkupDraftIsRetriedOnceAndCleanTextWins', async () => {
   assert.equal(out.message, 'Mình tìm được Áo Thun mã 66 giá 150.000đ.');
   assert.equal(out.response_type, 'final_answer');
   assert.equal(model.calls.length, 3);
-  const retry = model.calls[2]!;
-  assert.match(String(retry[retry.length - 1]?.content), /tool-call/);
+  assert.equal(String(model.calls[2]?.at(-1)?.content), TOOL_MARKUP_CORRECTION);
+  assert.ok((model.toolCounts[2] ?? 0) > 0, 'the continuation step still has its tools');
 });
 
 test('toolCallMarkupStillPresentAfterRetryFallsBackToCardSummary', async () => {
   const product = { id: 66, name: 'Áo Thun', price: 150000, stock: 3 };
   const { model, outcome } = run(
-    [ai('', [call('c1', 'search_products', { search: 'áo' })]), ai(MARKUP), ai('<|tool_call_begin|>search_products')],
+    [ai('', [call('c1', 'search_products', { search: 'áo' })]), ai(MARKUP), ai(MARKUP), ai('<|tool_call_begin|>search_products')],
     { search_products: () => ({ products: [product] }) },
   );
   const out = await outcome;
   assert.equal(out.message, summaryFromCards([productToCard(product)]));
   assert.ok(!/<\s*[|｜]?\s*tool/i.test(out.message));
   assert.equal(out.response_type, 'final_answer');
-  assert.equal(model.calls.length, 3);
+  assert.equal(model.calls.length, 4);
   assert.deepEqual(out.cards.map((c) => c.id), [66]);
 });
 
 test('toolCallMarkupWithoutToolsAndStillMalformedIsBusy', async () => {
-  const { model, outcome } = run([ai(MARKUP), ai(MARKUP)], { get_categories: () => ({ categories: [] }) });
+  const { model, outcome } = run([ai(MARKUP), ai(MARKUP), ai(MARKUP)], { get_categories: () => ({ categories: [] }) });
   const out = await outcome;
   assert.equal(out.response_type, 'busy');
   assert.equal(out.message, BUSY);
-  assert.equal(model.calls.length, 2);
+  assert.equal(model.calls.length, 3);
 });
 
 test('toolCallMarkupAndUngroundedClaimShareTheSingleRetry', async () => {
   const product = { id: 66, name: 'Áo Thun', price: 150000, stock: 3 };
   const { model, outcome } = run(
-    [ai('', [call('c1', 'search_products', { search: 'áo' })]), ai(`${MARKUP} mã 999`), ai('Mã 999 vẫn sai.')],
+    // The agent's continuation step writes the same markup, so policy_out's retry gets both corrections at once.
+    [ai('', [call('c1', 'search_products', { search: 'áo' })]), ai(`${MARKUP} mã 999`), ai(`${MARKUP} mã 999`), ai('Mã 999 vẫn sai.')],
     { search_products: () => ({ products: [product] }) },
   );
   const out = await outcome;
-  assert.equal(model.calls.length, 3);
+  assert.equal(model.calls.length, 4);
+  const retry = String(model.calls[3]?.at(-1)?.content);
+  assert.match(retry, /tool-call/);
+  assert.match(retry, /mã 999/);
   assert.equal(out.message, summaryFromCards([productToCard(product)]));
 });
 
@@ -781,6 +785,24 @@ test('aDraftWithoutAPositiveIntegerOrderIdIsNoDraft', async () => {
 const orderCall = () => ai('', [call('o1', 'get_order_status', { order_id: 12 })]);
 const orderResult = { orders: [{ id: 12, status: 'Đã giao' }] };
 const ownQuestion = 'Bạn có đồng ý để mình gửi yêu cầu đổi trả cho đơn #12 không?';
+
+// DeepSeek writing draft_support_ticket as text (2026-11-04 ticket eval): the call never ran, so no draft existed.
+const DSML_CALL = '<｜｜DSML｜｜ calls> <｜｜DSML｜｜ invoke name="draft_support_ticket"> <｜｜DSML｜｜ parameter name="order_id" string="false">12</｜｜DSML｜｜ parameter>';
+
+test('aToolCallWrittenAsTextGetsOneContinuationWithToolsThenTheRealDraft', async () => {
+  const { model, outcome } = run(
+    [orderCall(), ai(DSML_CALL), draftCall(), ai('Mình đã soạn yêu cầu đổi size cho đơn #12.')],
+    { get_order_status: () => orderResult, draft_support_ticket: () => draftResult },
+    ticketReq(),
+  );
+  const out = await outcome;
+  assert.equal(model.calls.length, 4);
+  assert.equal(String(model.calls[2]?.at(-1)?.content), TOOL_MARKUP_CORRECTION);
+  assert.ok((model.toolCounts[2] ?? 0) > 0, 'the continuation step still has its tools');
+  assert.deepEqual(out.pending_ticket, ticketDraft);
+  assert.equal(out.response_type, 'clarification');
+  assert.ok(!out.message.includes('DSML'));
+});
 
 test('aModelWrittenConfirmationWithoutADraftGetsOneContinuationThenTheRealDraft', async () => {
   const { model, outcome } = run(
