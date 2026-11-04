@@ -41,6 +41,25 @@ test('the ticket group has 6 cases, T02 is the guest, the rest have an order fix
   }
 });
 
+test('every ticket order fixture has its items, and the items add up to the order total', () => {
+  // Product 53 "Áo Len Cổ Tròn Xám" costs 415000 in shop_db and shop_test: the áo the ticket messages talk about.
+  for (const c of parseCases(shipped).filter((x) => x.group === 'ticket' && x.orders !== undefined)) {
+    for (const order of c.orders ?? []) {
+      assert.deepEqual(order.items, [{ product_id: 53, quantity: 1 }], c.id);
+      assert.equal(order.total, 415000, c.id);
+    }
+  }
+});
+
+test('parseCases rejects order items without a positive product_id and quantity', () => {
+  const base = (items: string) => `{"id":"A","group":"g","user":true,"orders":[{"total":415000,"status":"Đang giao","items":${items}}],"turns":[{"message":"hi","expect":{}}]}`;
+  assert.deepEqual(parseCases(base('[{"product_id":53,"quantity":1}]'))[0]?.orders?.[0]?.items, [{ product_id: 53, quantity: 1 }]);
+  assert.throws(() => parseCases(base('[{"product_id":0,"quantity":1}]')), /order items need/);
+  assert.throws(() => parseCases(base('[{"product_id":53,"quantity":0}]')), /order items need/);
+  assert.throws(() => parseCases(base('[{"product_id":53}]')), /order items need/);
+  assert.throws(() => parseCases(base('{}')), /order items need/);
+});
+
 test('parseCases accepts the ticket expect keys and the orders fixture, orders need a user', () => {
   const ok = '{"id":"A","group":"g","user":true,"orders":[{"total":415000,"status":"Đang giao"}],"turns":[{"message":"hi","expect":{"ticket_pending":true,"ticket_created":false}}]}';
   assert.equal(parseCases(ok)[0]?.orders?.[0]?.total, 415000);
