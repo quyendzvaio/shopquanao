@@ -32,6 +32,21 @@ test('initialize and tools/list expose the complete contract', async (t) => {
   ]);
 });
 
+test('get_order_status tells the model it needs no order id and is safe for a guest', async (t) => {
+  // Without these facts a model (qwen3.5-flash-sale) asked for an order number, or claimed a system error, instead
+  // of calling the tool, which lists the recent orders by itself and answers a guest with requires_login.
+  const { client, server } = await connect();
+  t.after(async () => { await client.close(); await server.close(); });
+  const tool = (await client.listTools()).tools.find(entry => entry.name === 'get_order_status');
+  const description = tool?.description ?? '';
+  assert.match(description, /before asking/i);
+  assert.match(description, /without order_id[^.]*5 most recent orders/i);
+  assert.match(description, /requires_login/);
+  const schema = tool?.inputSchema as { properties?: Record<string, { description?: string }>; required?: string[] };
+  assert.ok(!(schema.required ?? []).includes('order_id'));
+  assert.match(schema.properties?.order_id?.description ?? '', /only when the user gives/i);
+});
+
 test('tools/call rejects invalid schemas before reaching the backend', async (t) => {
   const { client, server } = await connect(10);
   t.after(async () => { await client.close(); await server.close(); });

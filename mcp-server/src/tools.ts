@@ -102,8 +102,14 @@ export function createMcpServer(principal: Principal): McpServer {
 
   server.registerTool('get_order_status', {
     title: 'Get order status',
-    description: 'Use this when an authenticated user asks for recent order status or provides a specific order ID.',
-    inputSchema: { order_id: z.number().int().positive().optional() }, outputSchema, annotations: readOnly,
+    description: 'Use this whenever the user asks about their own orders (where an order is, its status, or an order to '
+      + 'return, exchange, cancel or report a problem with); call it before asking for an order number. Without order_id '
+      + 'it lists the customer\'s 5 most recent orders (id, status, total); with order_id it returns that one order with '
+      + 'its items. For a guest it returns requires_login, so the user can be asked to log in.',
+    inputSchema: {
+      order_id: z.number().int().positive().optional()
+        .describe('Order number, only when the user gives one; leave it out to list the recent orders.'),
+    }, outputSchema, annotations: readOnly,
   }, async (args) => result(await callTool('get_order_status', args, principal)));
 
   server.registerTool('draft_support_ticket', {

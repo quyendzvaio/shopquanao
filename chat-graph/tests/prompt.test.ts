@@ -34,6 +34,14 @@ test('order questions call get_order_status without asking for an order id', () 
   assert.match(prompt, /`requires_login`[^\n]*đăng nhập/);
 });
 
+test('the prompt states whether the customer is logged in, without the user id', () => {
+  // Without it a model guessed "not logged in" and asked a logged-in customer to log in instead of reading the orders.
+  assert.match(systemPrompt(req), /Khách chưa đăng nhập/);
+  const loggedIn = systemPrompt({ ...req, user_id: 4321 });
+  assert.match(loggedIn, /Khách đã đăng nhập[^\n]*`get_order_status`/);
+  assert.doesNotMatch(loggedIn, /4321/);
+});
+
 test('every part of a multi-part question gets its own tool call', () => {
   assert.match(systemPrompt(req), /nhiều ý[^\n]*từng ý/);
 });
