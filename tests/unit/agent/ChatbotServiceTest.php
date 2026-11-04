@@ -163,15 +163,16 @@ final class ChatbotServiceTest extends TestCase
         // Only the write of the drafted ticket fails; the user message and summary writes before it succeed.
         (new ChatbotMemory($pdo, 5, 1))->ensureSchema();
         $pdo->exec("CREATE TRIGGER block_pending_write BEFORE UPDATE ON chat_session_memory WHEN NEW.slots LIKE '%pending_ticket%' BEGIN SELECT RAISE(ABORT, 'locked'); END");
-        $deltas = [];
+        $calls = [];
 
-        $result = $this->serviceAt($pdo, $client, 1)->respondStreaming('đổi size đơn 12', static function (string $d) use (&$deltas): void { $deltas[] = $d; });
+        $result = $this->serviceAt($pdo, $client, 1)->respondStreaming('đổi size đơn 12', static function (string $text, string $kind = 'delta') use (&$calls): void { $calls[] = [$text, $kind]; });
 
         $this->assertFalse($result['ticket_pending']);
         $this->assertSame(ChatbotService::TICKET_FAILED, $result['message']);
         $this->assertSame('final_answer', $result['response_type']);
         $this->assertArrayNotHasKey('pending_ticket', $this->slots($pdo));
-        $this->assertSame(' ' . ChatbotService::TICKET_FAILED, end($deltas));
+        // The draft question already on screen is replaced, so the customer sees exactly the text that is saved.
+        $this->assertSame([ChatbotService::TICKET_FAILED, 'replace'], end($calls));
         $this->assertSame(['đổi size đơn 12', ChatbotService::TICKET_FAILED], array_column($this->messages($pdo), 'message'));
     }
 

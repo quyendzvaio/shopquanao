@@ -13,6 +13,12 @@ final class ChatStreamProtocolTest extends TestCase
         $this->assertSame("event: chat.delta\ndata: {\"type\":\"chat.delta\",\"delta\":\"Áo sơ mi\\ntrắng\"}\n\n", $frame);
     }
 
+    public function testTextEventsMapDeltaAndReplaceToTheirSseShapes(): void
+    {
+        $this->assertSame(['type' => 'chat.delta', 'delta' => 'Áo '], ChatStreamProtocol::textEvent('delta', 'Áo '));
+        $this->assertSame(['type' => 'chat.replace', 'text' => 'Áo Thun.'], ChatStreamProtocol::textEvent('replace', 'Áo Thun.'));
+    }
+
     public function testCardsKeepOnlyAllowListedFieldsAndDropInvalidIds(): void
     {
         $cards = ChatStreamProtocol::cards([

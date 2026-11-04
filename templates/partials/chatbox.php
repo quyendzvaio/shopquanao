@@ -408,6 +408,12 @@ async function sendMessage(overrideText) {
         }
     }
 
+    // Text was already shown when the stream broke: the server still finishes and saves the turn, so the saved
+    // answer is fetched from the history instead of asking the customer to send the message again.
+    if (outcome.status === 'broken' && active.sawDelta && CHAT_USER_TOKEN) {
+        if (await recoverTurnFromHistory(text, active)) outcome = { status: 'complete' };
+    }
+
     if (outcome.status === 'broken') {
         outcome = { status: 'error', message: 'Kết nối chat bị gián đoạn. Tin nhắn chưa được tự gửi lại để tránh trả lời trùng; vui lòng gửi lại.' };
     }
@@ -476,6 +482,37 @@ async function streamChatTurn(text, active) {
         }
         if (done) return { status: 'broken' };
     }
+}
+
+/**
+ * After the stream broke mid-answer: polls the history (4 tries, 2.5 s apart) for this turn's saved answer, the
+ * last bot message right after the user message just sent, and puts it in the bubble. Logged-in users only.
+ */
+async function recoverTurnFromHistory(sentText, active) {
+    for (let attempt = 0; attempt < 4; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 2500));
+        try {
+            const res = await fetch(API_CHAT + '/history', { headers: { 'Authorization': 'Bearer ' + CHAT_USER_TOKEN } });
+            if (!res.ok) continue;
+            const data = await res.json();
+            const messages = Array.isArray(data.messages) ? data.messages : [];
+            const last = messages[messages.length - 1];
+            const before = messages[messages.length - 2];
+            if (!last || last.role !== 'bot' || !before || before.role !== 'user' || before.message !== sentText) continue;
+            active.text = String(last.message || '');
+            if (active.element) active.element.textContent = sanitizeAssistantText(active.text) || active.text;
+            if (!active.cardsRendered && Array.isArray(last.products) && last.products.length > 0) {
+                renderProductCards(last.products);
+                active.cardsRendered = true;
+            }
+            if (data.ticket_pending === true) active.ticketPending = true;
+            if (data.session_token) chatSessionToken = data.session_token;
+            return true;
+        } catch (e) {
+            // The history is tried again on the next attempt.
+        }
+    }
+    return false;
 }
 
 /** Non-streaming fallback: the same validated pipeline, delivered in one response. */

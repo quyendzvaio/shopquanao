@@ -33,20 +33,24 @@ export function takeUnits(buffer: string): { units: string[]; rest: string } {
 
 export type AnswerStreamOptions = {
   emit: (text: string) => void;
+  /** Replaces everything streamed so far with `text`: a lead-in already on screen when its run turns into a tool call. */
+  replace: (text: string) => void;
   /** The tool results the answer must be grounded in, read when a unit is checked. */
   evidence: () => ToolRecord[];
   /** Read when a model run starts: false keeps that run silent (sold-out or ticket-draft turn, retry outside the agent). */
   allowed: () => boolean;
 };
 
-type Run = { buffer: string; held: string | null; emitted: number; dead: boolean };
+type Snapshot = { total: string; emittedAny: boolean; pendingSpace: string };
+type Run = { buffer: string; held: string | null; emitted: number; dead: boolean; before: Snapshot };
 
 /**
  * Streams the final answer of the agent's model runs, sentence by sentence (spec 2026-11-04 §4). Each unit passes the
  * same checks `policy_out` applies to the whole answer before it is emitted; a failed check stops streaming for the
  * rest of the turn, and `policy_out` stays the final word (the turn reconciles with a `replace`).
  * The first unit of a run is held until a second one is complete or the run ends without a tool call, so a lead-in
- * sentence written just before a tool call is never shown.
+ * sentence written just before a tool call is never shown; a longer lead-in that did reach the screen is replaced
+ * by the text before it as soon as the tool call arrives.
  */
 export class AnswerStreamer extends BaseCallbackHandler {
   name = 'answer_streamer';
@@ -57,6 +61,8 @@ export class AnswerStreamer extends BaseCallbackHandler {
   /** Whitespace after the last emitted unit, sent before the next one so the stream never ends in whitespace. */
   private pendingSpace = '';
   private emittedAny = false;
+  /** Everything emitted so far, as the widget shows it. */
+  private total = '';
 
   constructor(private readonly options: AnswerStreamOptions) {
     super();
@@ -64,7 +70,7 @@ export class AnswerStreamer extends BaseCallbackHandler {
 
   override handleChatModelStart(_llm: Serialized, _messages: BaseMessage[][], runId: string): void {
     if (this.stopped || !this.options.allowed()) return;
-    this.runs.set(runId, { buffer: '', held: null, emitted: 0, dead: false });
+    this.runs.set(runId, { buffer: '', held: null, emitted: 0, dead: false, before: { total: this.total, emittedAny: this.emittedAny, pendingSpace: this.pendingSpace } });
   }
 
   override handleLLMNewToken(token: string, _idx: unknown, runId: string, _parent?: string, _tags?: string[], fields?: { chunk?: unknown }): void {
@@ -73,8 +79,12 @@ export class AnswerStreamer extends BaseCallbackHandler {
     // Tool calls are recognized only from the chunk (ChatOpenAI passes it with every token). Without one we could not
     // tell a lead-in from the answer, so the run stays silent and the turn sends its text at the end.
     const message = (fields?.chunk as { message?: unknown } | undefined)?.message;
-    if (!AIMessageChunk.isInstance(message) || (message.tool_call_chunks?.length ?? 0) > 0) {
+    if (!AIMessageChunk.isInstance(message)) {
       this.kill(run);
+      return;
+    }
+    if ((message.tool_call_chunks?.length ?? 0) > 0) {
+      this.retract(run);
       return;
     }
     run.buffer += token;
@@ -101,7 +111,10 @@ export class AnswerStreamer extends BaseCallbackHandler {
     this.runs.delete(runId);
     if (!run || run.dead || this.stopped) return;
     const message = (output.generations[0]?.[0] as { message?: unknown } | undefined)?.message;
-    if (AIMessage.isInstance(message) && (message.tool_calls?.length ?? 0) > 0) return;
+    if (AIMessage.isInstance(message) && (message.tool_calls?.length ?? 0) > 0) {
+      this.retract(run);
+      return;
+    }
     if (run.held !== null && !this.send(run, run.held)) return;
     if (run.buffer !== '') this.send(run, run.buffer);
   }
@@ -116,6 +129,17 @@ export class AnswerStreamer extends BaseCallbackHandler {
     run.buffer = '';
   }
 
+  /** The run turned into a tool call: what it already put on screen is taken back, the rest is dropped. */
+  private retract(run: Run): void {
+    this.kill(run);
+    if (run.emitted === 0) return;
+    this.total = run.before.total;
+    this.emittedAny = run.before.emittedAny;
+    this.pendingSpace = run.before.pendingSpace;
+    run.emitted = 0;
+    this.options.replace(this.total);
+  }
+
   /** Checks one unit and emits it; false (and the whole turn stopped) when a check fails. */
   private send(run: Run, unit: string): boolean {
     const evidence = this.options.evidence();
@@ -124,7 +148,11 @@ export class AnswerStreamer extends BaseCallbackHandler {
       this.kill(run);
       return false;
     }
-    const text = plainText(unit);
+    // plainText drops an emphasis pair inside the unit; a pair spanning two units leaves one `*` in each, which the
+    // whole-answer plainText would have dropped too.
+    const text = plainText(unit)
+      .replace(/(^|[^\p{L}\p{N}*])\*(?=\S)/gu, '$1')
+      .replace(/(?<=\S)\*(?![\p{L}\p{N}])/gu, '');
     const core = text.trimEnd();
     const space = text.slice(core.length);
     // The final answer is trimmed: nothing before its first character, nothing after its last.
@@ -135,6 +163,7 @@ export class AnswerStreamer extends BaseCallbackHandler {
       return true;
     }
     this.options.emit(lead + body);
+    this.total += lead + body;
     this.emittedAny = true;
     this.pendingSpace = space;
     run.emitted += 1;

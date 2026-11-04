@@ -3,8 +3,11 @@ import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { CallbackManagerForLLMRun } from '@langchain/core/callbacks/manager';
 import { ChatGenerationChunk, type ChatResult } from '@langchain/core/outputs';
 
-/** `hangAfter`: streams this text, then waits until the call is aborted (a model that stalls mid-answer). */
-export type ScriptedStep = AIMessage | Error | 'hang' | { hangAfter: string };
+/**
+ * `hangAfter`: streams this text, then waits until the call is aborted (a model that stalls mid-answer).
+ * `failAfter`: streams this text, then throws (the provider dropped the connection mid-answer).
+ */
+export type ScriptedStep = AIMessage | Error | 'hang' | { hangAfter: string } | { failAfter: string };
 
 const waitForAbort = (signal: AbortSignal | undefined): Promise<never> => new Promise<never>((_, reject) => {
   signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
@@ -52,6 +55,7 @@ export class ScriptedChatModel extends BaseChatModel {
       const step = this.next(messages);
       if (step === 'hang' || (typeof step === 'object' && 'hangAfter' in step)) await waitForAbort(options.signal);
       if (step instanceof Error) throw step;
+      if (typeof step === 'object' && 'failAfter' in step) throw new Error('scripted model failed mid-answer');
       const message = step as AIMessage;
       return { generations: [{ text: typeof message.content === 'string' ? message.content : '', message }] };
     } finally {
@@ -66,13 +70,15 @@ export class ScriptedChatModel extends BaseChatModel {
       if (step === 'hang') await waitForAbort(options.signal);
       if (step instanceof Error) throw step;
       const isHang = typeof step === 'object' && 'hangAfter' in step;
-      const content = isHang ? step.hangAfter : typeof (step as AIMessage).content === 'string' ? (step as AIMessage).content as string : '';
+      const isFail = typeof step === 'object' && 'failAfter' in step;
+      const content = isHang ? step.hangAfter : isFail ? step.failAfter : typeof (step as AIMessage).content === 'string' ? (step as AIMessage).content as string : '';
       for (const piece of content.match(/\S+\s*|\s+/gu) ?? []) {
         const chunk = new ChatGenerationChunk({ text: piece, message: new AIMessageChunk({ content: piece }) });
         yield chunk;
         await runManager?.handleLLMNewToken(piece, undefined, undefined, undefined, undefined, { chunk });
       }
       if (isHang) await waitForAbort(options.signal);
+      if (isFail) throw new Error('scripted model failed mid-answer');
       const toolCalls = (step as AIMessage).tool_calls ?? [];
       if (toolCalls.length === 0 && content === '') {
         // An empty answer is still one (empty) chunk: the base model rejects a stream with none.
