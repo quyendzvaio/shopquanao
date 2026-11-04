@@ -65,12 +65,18 @@ function productIds(records: ToolRecord[]): Set<number> {
         if (Number.isFinite(id)) ids.add(id);
       }
     }
-    // Order ids ("đơn mã 15") from get_order_status are as real as product ids.
+    // Order ids ("đơn mã 15") from get_order_status are as real as product ids, and so are the products on the
+    // order's lines ("Áo Len Cổ Tròn Xám (mã 53)"); a line's own id is not a product and grounds nothing.
     const orders = record.result.orders;
     if (Array.isArray(orders)) {
       for (const o of orders) {
-        const id = typeof o === 'object' && o !== null ? Number((o as Record<string, unknown>).id) : NaN;
-        if (Number.isFinite(id)) ids.add(id);
+        if (typeof o !== 'object' || o === null) continue;
+        addId(ids, (o as Record<string, unknown>).id);
+        const items = (o as Record<string, unknown>).items;
+        if (!Array.isArray(items)) continue;
+        for (const item of items) {
+          if (typeof item === 'object' && item !== null) addId(ids, (item as Record<string, unknown>).product_id);
+        }
       }
     }
     // A drafted ticket's order, a refused draft's existing ticket and the customer's tickets (id, order_id).
