@@ -148,11 +148,8 @@ export class AnswerStreamer extends BaseCallbackHandler {
       this.kill(run);
       return false;
     }
-    // plainText drops an emphasis pair inside the unit; a pair spanning two units leaves one `*` in each, which the
-    // whole-answer plainText would have dropped too.
-    const text = plainText(unit)
-      .replace(/(^|[^\p{L}\p{N}*])\*(?=\S)/gu, '$1')
-      .replace(/(?<=\S)\*(?![\p{L}\p{N}])/gu, '');
+    // A pair spanning two units leaves one `*` in each; plainText drops lone markers, as it does for the whole answer.
+    const text = plainText(unit);
     const core = text.trimEnd();
     const space = text.slice(core.length);
     // The final answer is trimmed: nothing before its first character, nothing after its last.

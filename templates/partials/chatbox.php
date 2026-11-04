@@ -484,30 +484,56 @@ async function streamChatTurn(text, active) {
     }
 }
 
+async function fetchChatHistory() {
+    const res = await fetch(API_CHAT + '/history', { headers: { 'Authorization': 'Bearer ' + CHAT_USER_TOKEN } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return { data, messages: Array.isArray(data.messages) ? data.messages : [] };
+}
+
 /**
  * After the stream broke mid-answer: polls the history (4 tries, 2.5 s apart) for this turn's saved answer, the
  * last bot message right after the user message just sent, and puts it in the bubble. Logged-in users only.
+ * The turn is saved as one user+bot pair before its last events (cards, complete), so a matching pair already present
+ * when the stream broke is either this turn (its answer starts with the text streamed so far) or an earlier turn with
+ * the same short message; in the second case only rows newer than that snapshot are accepted.
  */
 async function recoverTurnFromHistory(sentText, active) {
+    const squash = value => String(value || '').replace(/\s+/g, ' ').trim();
+    const pairAnswer = fetched => {
+        const messages = fetched ? fetched.messages : [];
+        const last = messages[messages.length - 1];
+        const before = messages[messages.length - 2];
+        return last && last.role === 'bot' && before && before.role === 'user' && before.message === sentText ? last : null;
+    };
+    const apply = (fetched, last) => {
+        active.text = String(last.message || '');
+        if (active.element) active.element.textContent = sanitizeAssistantText(active.text) || active.text;
+        if (!active.cardsRendered && Array.isArray(last.products) && last.products.length > 0) {
+            renderProductCards(last.products);
+            active.cardsRendered = true;
+        }
+        if (fetched.data.ticket_pending === true) active.ticketPending = true;
+        if (fetched.data.session_token) chatSessionToken = fetched.data.session_token;
+        return true;
+    };
+
+    let minId = 0;
+    try {
+        const snapshot = await fetchChatHistory();
+        const saved = pairAnswer(snapshot);
+        const streamed = squash(active.text);
+        if (saved && streamed !== '' && squash(saved.message).startsWith(streamed)) return apply(snapshot, saved);
+        for (const m of snapshot ? snapshot.messages : []) minId = Math.max(minId, Number(m.id) || 0);
+    } catch (e) {
+        // No snapshot: the first matching pair is accepted below.
+    }
     for (let attempt = 0; attempt < 4; attempt++) {
         await new Promise(resolve => setTimeout(resolve, 2500));
         try {
-            const res = await fetch(API_CHAT + '/history', { headers: { 'Authorization': 'Bearer ' + CHAT_USER_TOKEN } });
-            if (!res.ok) continue;
-            const data = await res.json();
-            const messages = Array.isArray(data.messages) ? data.messages : [];
-            const last = messages[messages.length - 1];
-            const before = messages[messages.length - 2];
-            if (!last || last.role !== 'bot' || !before || before.role !== 'user' || before.message !== sentText) continue;
-            active.text = String(last.message || '');
-            if (active.element) active.element.textContent = sanitizeAssistantText(active.text) || active.text;
-            if (!active.cardsRendered && Array.isArray(last.products) && last.products.length > 0) {
-                renderProductCards(last.products);
-                active.cardsRendered = true;
-            }
-            if (data.ticket_pending === true) active.ticketPending = true;
-            if (data.session_token) chatSessionToken = data.session_token;
-            return true;
+            const fetched = await fetchChatHistory();
+            const last = pairAnswer(fetched);
+            if (last && Number(last.id) > minId) return apply(fetched, last);
         } catch (e) {
             // The history is tried again on the next attempt.
         }
@@ -551,6 +577,17 @@ function handleChatStreamEvent(data, active) {
 
     if (data.type === 'chat.progress') {
         setChatConnectionStatus('🟢 Đang trả lời');
+        return null;
+    }
+    // An empty replace takes back a lead-in the model wrote before calling a tool: nothing of the answer is on
+    // screen any more, so the bubble goes, the typing dots come back, and a later break may still retry over HTTP.
+    if (data.type === 'chat.replace' && String(data.text || '') === '') {
+        if (active.element) active.element.remove();
+        active.element = null;
+        active.text = '';
+        active.sawDelta = false;
+        hideTyping();
+        showTyping();
         return null;
     }
     if (data.type === 'chat.delta' || data.type === 'chat.replace') {
