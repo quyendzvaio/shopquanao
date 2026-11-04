@@ -1,0 +1,11 @@
+#!/command/execlineb -P
+# s6 run script for php-fpm, replacing the base image's /etc/s6-overlay/s6-rc.d/php-fpm/run.
+#
+# The base image's readiness check (s6-notifyoncheck, ./data/check = php-fpm-healthcheck) gives up after the
+# default 7 tries one second apart. On a host that has just rebooted php-fpm can take a minute to accept
+# connections; it then starts fine but is never marked ready, nginx (which depends on php-fpm) is never started,
+# and the container stays up and unhealthy until someone restarts it (seen on the dev host, 2026-11-04).
+# `-n 0` keeps polling until php-fpm answers. scripts/dev/app-image-slow-fpm.sh checks this on the built image.
+with-contenv
+s6-notifyoncheck -d -n 0
+/usr/local/sbin/php-fpm --nodaemonize

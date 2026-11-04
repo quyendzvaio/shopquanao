@@ -9,12 +9,14 @@ const SHIRT: ToolRecord = { name: 'search_products', args: {}, result: { product
 
 function streamer(over: { allowed?: () => boolean; records?: ToolRecord[] } = {}) {
   const emitted: string[] = [];
+  const replaced: string[] = [];
   const s = new AnswerStreamer({
     emit: (t) => emitted.push(t),
+    replace: (t) => replaced.push(t),
     evidence: () => over.records ?? [SHIRT],
     allowed: over.allowed ?? (() => true),
   });
-  return { s, emitted };
+  return { s, emitted, replaced };
 }
 
 const fields = (text: string, toolCall = false) => ({
@@ -167,4 +169,30 @@ test('streamerPrefersStreamingAndAwaitsHandlers', () => {
   const { s } = streamer();
   assert.equal(s.lc_prefer_streaming, true);
   assert.equal(s.awaitHandlers, true);
+});
+
+test('strayEmphasisMarkerIsStrippedPerUnit', async () => {
+  // `*rất đẹp. mềm*` spans two units: the whole-answer plainText drops the pair, so each unit drops its half.
+  const { s, emitted } = streamer();
+  await run(s, 'r1', ['Áo Thun *rất đẹp. ', 'mềm* và mát. ', 'Bạn xem nhé.']);
+  assert.deepEqual(emitted, ['Áo Thun rất đẹp.', ' mềm và mát.', ' Bạn xem nhé.']);
+});
+
+test('toolCallAfterEmittedTextRetractsItAtOnce', async () => {
+  // A lead-in of three sentences is on screen when the tool call arrives: it is replaced right away, not at the
+  // end of the turn, and the next run continues from the text before the lead-in (nothing here).
+  const { s, emitted, replaced } = streamer();
+  await run(s, 'r1', ['Mình tìm nhé. ', 'Chờ chút. ', 'Sắp có. ', { tool: true }], true);
+  assert.deepEqual(emitted, ['Mình tìm nhé.', ' Chờ chút.', ' Sắp có.']);
+  assert.deepEqual(replaced, ['']);
+  await run(s, 'r2', ['Áo Thun mã 66 giá 150.000đ. ', 'Bạn xem nhé.']);
+  assert.deepEqual(emitted.slice(3), ['Áo Thun mã 66 giá 150.000đ.', ' Bạn xem nhé.']);
+  assert.equal(replaced.length, 1);
+});
+
+test('toolCallWithNothingEmittedReplacesNothing', async () => {
+  const { s, emitted, replaced } = streamer();
+  await run(s, 'r1', ['Mình tìm nhé. ', { tool: true }], true);
+  assert.deepEqual(emitted, []);
+  assert.deepEqual(replaced, []);
 });

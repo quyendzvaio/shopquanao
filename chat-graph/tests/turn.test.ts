@@ -276,6 +276,26 @@ test('nudgeTextArrivesAsAClosingDelta', async () => {
   assert.equal(textSeen(events), result.message);
 });
 
+test('leadInOfThreeSentencesIsRetractedWhenTheToolCallArrives', async () => {
+  const { result, events, texts } = await streamed([
+    ai('Mình tìm nhé. Chờ chút. Sắp có. ', [call('c1', 'search_products', { search: 'áo thun' })]),
+    ai('Shop có Áo Thun mã 66 giá 150.000đ. Bạn xem nhé.'),
+  ], shirtSearch);
+  const retract = texts.findIndex((e) => e.type === 'replace' && e.text === '');
+  assert.ok(retract > 0, 'the lead-in sentences on screen were replaced by nothing');
+  assert.ok(texts.slice(retract + 1).every((e) => e.type === 'delta'), 'after the retraction the answer streams as deltas');
+  assert.equal(textSeen(events), result.message);
+  assert.equal(result.message, 'Shop có Áo Thun mã 66 giá 150.000đ. Bạn xem nhé.');
+});
+
+test('modelErrorAfterStreamedTextReplacesWithBusy', async () => {
+  const { result, events, texts } = await streamed([searchCall, { failAfter: 'Shop có Áo Thun. Bạn xem nhé. ' }], shirtSearch);
+  assert.equal(result.message, BUSY);
+  assert.ok(texts.some((e) => e.type === 'delta'), 'text was streamed before the error');
+  assert.deepEqual(texts.at(-1), { type: 'replace', text: BUSY });
+  assert.equal(textSeen(events), BUSY);
+});
+
 test('deadlineAfterStreamedTextReplacesWithBusy', async () => {
   const config = { ...CONFIG, budget: { ...CONFIG.budget, turnTimeoutMs: 300 } } as GraphConfig;
   const { result, events, texts } = await streamed([searchCall, { hangAfter: 'Shop có Áo Thun. Bạn xem nhé. ' }], shirtSearch, {}, config);

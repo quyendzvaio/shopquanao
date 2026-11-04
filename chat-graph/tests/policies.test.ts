@@ -137,6 +137,8 @@ test('plainText drops markdown markers and keeps lines, dashes and prices', () =
   assert.equal(plainText('Mẫu *Váy Xòe* rất *đẹp*, xem [chi tiết](/product.php?id=78) nhé'), 'Mẫu Váy Xòe rất đẹp, xem chi tiết nhé');
   assert.equal(plainText('- Size S\n- giá < 300k, 2 * 3 = 6'), '- Size S\n- giá < 300k, 2 * 3 = 6');
   assert.equal(plainText('Áo_thun snake_case giữ nguyên'), 'Áo_thun snake_case giữ nguyên');
+  // A pair spanning a newline (or two streamed sentences) leaves lone markers: dropped; `M*L` and `2 * 3` stay.
+  assert.equal(plainText('Áo *rất đẹp.\nmềm* và mát, size M*L'), 'Áo rất đẹp.\nmềm và mát, size M*L');
 });
 
 test('groundingAcceptsPriceSpellings', () => {
