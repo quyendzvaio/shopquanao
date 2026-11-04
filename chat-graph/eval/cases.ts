@@ -2,7 +2,9 @@ import type { Expect } from './scorer.js';
 
 export type CartLine = { product_id: number; quantity: number; size: string };
 export type EvalTurn = { message: string; expect: Expect };
-export type OrderFixture = { total: number; status: string };
+export type OrderItem = { product_id: number; quantity: number };
+/** `items` become order_items rows at the product's current price; fixtures.php checks they add up to `total`. */
+export type OrderFixture = { total: number; status: string; items?: OrderItem[] };
 export type EvalCase = { id: string; group: string; user: boolean; cart?: CartLine[]; orders?: OrderFixture[]; turns: EvalTurn[] };
 
 const EXPECT_KEYS = new Set<string>([
@@ -27,6 +29,12 @@ export function parseCases(text: string): EvalCase[] {
     if (!Array.isArray(c.turns) || c.turns.length === 0) throw new Error(`${where}: no turns`);
     if (c.cart !== undefined && !c.user) throw new Error(`${where}: a cart needs user=true`);
     if (c.orders !== undefined && !c.user) throw new Error(`${where}: orders need user=true`);
+    for (const order of c.orders ?? []) {
+      const items: unknown = order.items;
+      if (items === undefined) continue;
+      const valid = Array.isArray(items) && items.every((i: OrderItem) => Number.isInteger(i?.product_id) && i.product_id > 0 && Number.isInteger(i.quantity) && i.quantity > 0);
+      if (!valid) throw new Error(`${where}: order items need a positive integer product_id and quantity`);
+    }
     for (const turn of c.turns) {
       if (typeof turn.message !== 'string' || turn.message === '') throw new Error(`${where}: empty message`);
       for (const key of Object.keys(turn.expect ?? {})) {

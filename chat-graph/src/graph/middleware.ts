@@ -3,6 +3,7 @@ import { createMiddleware } from 'langchain';
 import type { Offered, ToolRecord } from '../contract.js';
 import { soldOutCorrection, soldOutNote, type AlternativeFact } from '../copy.js';
 import { isAllowedTool } from '../policies/allowList.js';
+import { hasToolCallMarkup } from '../policies/grounding.js';
 import { asksTicketConfirmation, lastValidDraft } from '../policies/ticket.js';
 import type { TurnBudget } from '../policies/budget.js';
 import { withoutNulls, type ShopTools } from '../shopTools.js';
@@ -14,6 +15,9 @@ export const EMPTY_ANSWER_CORRECTION = 'Bạn chưa trả lời khách. Hãy tr�
 export const TICKET_NO_DRAFT_NOTE = 'Bạn vừa hỏi khách có xác nhận gửi yêu cầu hay không nhưng chưa gọi `draft_support_ticket`, nên hệ thống của shop chưa có bản nháp nào. '
   + 'Nếu khách đã nêu đơn hàng và vấn đề, gọi `draft_support_ticket` ngay: hệ thống của shop tự hiện bản nháp và hỏi xác nhận. '
   + 'Không bao giờ hỏi khách xác nhận gửi khi chưa có bản nháp. Nếu còn thiếu thông tin, hỏi khách thông tin đó.';
+
+export const TOOL_MARKUP_CORRECTION = 'Câu trả lời vừa rồi chứa văn bản gọi công cụ thô (tool-call) thay vì gọi công cụ thật, nên công cụ chưa chạy và khách sẽ thấy văn bản đó. '
+  + 'Nếu cần công cụ, gọi nó bằng cơ chế gọi công cụ, không viết lệnh gọi vào câu trả lời; nếu không, trả lời khách bằng tiếng Việt bình thường.';
 
 export const TOOL_REFUSED = 'Công cụ không được phép hoặc đã hết lượt gọi.';
 
@@ -145,6 +149,8 @@ export function policyMiddleware(deps: Deps) {
         let correction: string | null = null;
         if (so && !answersSoldOut(text, so)) correction = `${soldOutCorrection(so.source.name, so.alternatives)} Gọi thêm công cụ nếu cần cho các ý khác.`;
         else if (text === '') correction = EMPTY_ANSWER_CORRECTION;
+        // A tool call written as text never ran: back to the model with its tools, so it can make the call for real.
+        else if (hasToolCallMarkup(text)) correction = TOOL_MARKUP_CORRECTION;
         else if (!so && asksTicketConfirmation(text) && lastValidDraft(recorder.records) === null) correction = TICKET_NO_DRAFT_NOTE;
         if (correction === null) return undefined;
         recorder.continued = true;
