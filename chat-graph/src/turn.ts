@@ -118,6 +118,11 @@ export async function runTurn(
           streamed += text;
           emit({ type: 'delta', text });
         },
+        onAnswerReplace: (text: string) => {
+          if (finished) return;
+          streamed = text;
+          emit({ type: 'replace', text });
+        },
       } : {}),
     });
     const run = graph.invoke(req, { signal: abort.signal });

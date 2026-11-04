@@ -134,7 +134,11 @@ export function plainText(text: string): string {
     .replace(/^([ \t]*)[*+][ \t]+/gmu, '$1- ')
     .replace(/\[([^\]\n]+)\]\([^)\s]+\)/gu, '$1')
     .replace(/\*\*|__|`/gu, '')
-    .replace(/(^|[^\p{L}\p{N}*])\*(?=\S)([^*\n]+?)\*(?![\p{L}\p{N}])/gu, '$1$2');
+    .replace(/(^|[^\p{L}\p{N}*])\*(?=\S)([^*\n]+?)\*(?![\p{L}\p{N}])/gu, '$1$2')
+    // A lone marker (an emphasis pair spanning a newline or, when streaming, two sentences) is dropped too, so the
+    // streamed sentences and the whole answer agree; `2 * 3` and `M*L` keep their star.
+    .replace(/(^|[^\p{L}\p{N}*])\*(?=\S)/gu, '$1')
+    .replace(/(?<=\S)\*(?![\p{L}\p{N}])/gu, '');
 }
 
 export function summaryFromCards(cards: Card[]): string {

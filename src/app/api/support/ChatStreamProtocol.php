@@ -22,6 +22,18 @@ final class ChatStreamProtocol
         return "event: {$type}\ndata: {$data}\n\n";
     }
 
+    /**
+     * The browser event for a piece of checked answer text from ChatbotService::respondStreaming: `delta` appends,
+     * `replace` swaps the whole bubble (the final answer differed from what was streamed).
+     *
+     * @param 'delta'|'replace' $kind
+     * @return array{type: string, delta?: string, text?: string}
+     */
+    public static function textEvent(string $kind, string $text): array
+    {
+        return $kind === 'replace' ? ['type' => 'chat.replace', 'text' => $text] : ['type' => 'chat.delta', 'delta' => $text];
+    }
+
     /** @return list<array<string, mixed>> */
     public static function cards(array $products): array
     {

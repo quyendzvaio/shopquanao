@@ -154,8 +154,8 @@ class ChatbotService
                 $result['response_type'] = 'final_answer';
                 if ($forwarding) {
                     try {
-                        // The draft question was already streamed; this line tells the customer it cannot be confirmed.
-                        $onText(' ' . self::TICKET_FAILED, 'delta');
+                        // The draft question was already streamed: replace it, so the screen shows the saved text.
+                        $onText(self::TICKET_FAILED, 'replace');
                     } catch (Throwable) {
                         // The browser went away; the corrected answer is still saved below.
                     }
