@@ -168,6 +168,14 @@ test('grounding accepts amounts written inside tool text and order ids', () => {
   assert.deepEqual(ungroundedClaims('Đơn mã 16 đang giao', [orders]), ['mã 16']);
 });
 
+test('grounding accepts the product id of an order line, never the line id', () => {
+  // get_order_status with order_id returns the order's lines; the model names the product as "mã 53".
+  const order: ToolRecord = { name: 'get_order_status', args: { order_id: 68 }, result: { orders: [{ id: 68, status: 'Đang giao', total_price: 415000,
+    items: [{ id: 35, product_id: 53, quantity: 1, price: 415000, name: 'Áo Len Cổ Tròn Xám' }] }] } };
+  assert.deepEqual(ungroundedClaims('Đơn #68 gồm Áo Len Cổ Tròn Xám (mã 53) - 415.000đ', [order]), []);
+  assert.deepEqual(ungroundedClaims('Đơn #68 gồm mã 35', [order]), ['mã 35']);
+});
+
 test('grounding ignores unit-less numbers and letters after unit', () => {
   assert.deepEqual(ungroundedClaims('size 42 và 2kg đẹp', [search([1])]), []);
 });
