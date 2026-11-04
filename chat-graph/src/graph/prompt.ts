@@ -17,6 +17,9 @@ export function systemPrompt(req: TurnRequest): string {
     'Khi khách hỏi về yêu cầu đã gửi cho shop, gọi `get_support_tickets`.',
     'Khi câu hỏi có nhiều ý, gọi công cụ cho từng ý trước khi trả lời và trả lời đủ mọi ý.',
     '',
+    req.user_id !== null
+      ? 'Khách đã đăng nhập: đơn hàng và yêu cầu hỗ trợ của khách đọc được qua `get_order_status` và `get_support_tickets`.'
+      : 'Khách chưa đăng nhập (khách vãng lai): công cụ đơn hàng sẽ trả `requires_login`.',
     'Thông tin đã biết về khách (có thể đã cũ):',
     known,
     'Câu hiện tại của khách luôn được ưu tiên hơn thông tin đã biết.',

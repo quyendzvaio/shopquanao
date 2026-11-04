@@ -97,9 +97,9 @@ final class ToolDefinitionCatalog
                 'type' => 'object',
                 'properties' => (object) [],
             ]),
-            self::definition('get_order_status', 'Tra cứu trạng thái đơn hàng của người dùng đã đăng nhập.', [
+            self::definition('get_order_status', 'Tra cứu đơn hàng của khách: không có order_id thì trả 5 đơn gần nhất (mã, trạng thái, tổng tiền), có order_id thì trả đơn đó kèm sản phẩm; khách chưa đăng nhập nhận requires_login.', [
                 'type' => 'object',
-                'properties' => ['order_id' => ['type' => 'integer']],
+                'properties' => ['order_id' => ['type' => 'integer', 'description' => 'Mã đơn, chỉ khi khách nêu; bỏ trống để xem các đơn gần nhất.']],
             ]),
             self::definition('draft_support_ticket', 'Soạn nháp yêu cầu hỗ trợ đơn hàng (đổi trả, hàng lỗi, huỷ đơn, đổi địa chỉ, khác) để hỏi khách xác nhận; không tạo yêu cầu.', [
                 'type' => 'object',
