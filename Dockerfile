@@ -22,6 +22,8 @@ WORKDIR /var/www/html
 # continues serving root PHP pages and static assets.
 COPY docker/app-nginx-api.conf /etc/nginx/server-opts.d/api-router.conf
 COPY docker/php.ini /usr/local/etc/php/conf.d/zz-shop.ini
+# php-fpm readiness polls until it answers (the base image gives up after 7s and never starts nginx).
+COPY --chmod=755 docker/app-php-fpm-run /etc/s6-overlay/s6-rc.d/php-fpm/run
 
 COPY --from=php-deps --chown=www-data:www-data /build/vendor/ vendor/
 COPY --chown=www-data:www-data public/ public/
