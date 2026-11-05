@@ -9,7 +9,7 @@ import { BUSY, TICKET_CONFIRM_QUESTION, TICKET_NEED_DETAILS, askAlternatives, ch
 import type { TurnBudget } from '../policies/budget.js';
 import { outfitsFrom, productToCard, selectCards } from '../policies/cards.js';
 import { matchesCheckout } from '../policies/checkout.js';
-import { asksTicketConfirmation, dropTicketConfirmations, lastValidDraft } from '../policies/ticket.js';
+import { asksTicketConfirmation, draftLeadIn, dropTicketConfirmations, lastValidDraft } from '../policies/ticket.js';
 import { hasToolCallMarkup, plainText, summaryFromCards, ungroundedClaims } from '../policies/grounding.js';
 import type { ShopTools } from '../shopTools.js';
 import { AnswerStreamer } from './answerStream.js';
@@ -188,7 +188,7 @@ function compileTurnGraph(deps: GraphDeps, budget: TurnBudget, recorder: TurnRec
     // A valid draft always shows the fixed summary of what will be filed and ends in the fixed confirmation
     // question (once); PHP stores the draft and creates the ticket on "yes". The model's prose is only a lead-in.
     if (pending !== null) {
-      const prose = text.split(TICKET_CONFIRM_QUESTION).join('').trim();
+      const prose = draftLeadIn(text.split(TICKET_CONFIRM_QUESTION).join(''));
       text = `${prose === '' ? '' : `${prose}\n`}${ticketDraftLine(pending)} ${TICKET_CONFIRM_QUESTION}`;
       return { text, cards: [], outfits: outfitsFrom(records), toolsUsed, responseType: 'clarification', pendingTicket: pending };
     }

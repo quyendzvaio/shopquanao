@@ -690,6 +690,26 @@ test('aModelThatAlreadyWroteTheQuestionDoesNotRepeatIt', async () => {
   assert.ok(out.message.includes(ticketDraftLine(ticketDraft)));
 });
 
+test('aDraftTurnAsksOnlyTheFixedQuestion: the model lead-in keeps no question of its own', async () => {
+  // Seen on production (qwen3.5-flash-sale) and in 10 of 22 eval draft turns: the model wrote its own confirmation
+  // question in words the confirmation detector does not match, so the customer was asked twice.
+  for (const own of ['Bạn có đồng ý với nội dung trên không?', 'Mình có cần gửi yêu cầu này cho shop không?']) {
+    const { outcome } = run(
+      [draftCall(), ai(`Mình đã soạn nội dung như sau.\n${own} Nếu đồng ý, shop sẽ liên hệ đổi hàng cho bạn.`)],
+      { draft_support_ticket: () => draftResult },
+      ticketReq(),
+    );
+    const out = await outcome;
+    assert.equal(
+      out.message,
+      `Mình đã soạn nội dung như sau.\nNếu đồng ý, shop sẽ liên hệ đổi hàng cho bạn.\n${ticketDraftLine(ticketDraft)} ${TICKET_CONFIRM_QUESTION}`,
+      own,
+    );
+    assert.equal(countOf(out.message, '?'), 1, own);
+    assert.deepEqual(out.pending_ticket, ticketDraft, own);
+  }
+});
+
 test('anEmptyAnswerOnADraftTurnGetsTheDraftLineAndTheQuestion', async () => {
   const { outcome } = run([draftCall(), ai(''), ai('')], { draft_support_ticket: () => draftResult }, ticketReq());
   const out = await outcome;

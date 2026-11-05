@@ -98,6 +98,9 @@ jobs:
           extensions: pdo, pdo_mysql, curl, mbstring, sqlite3
           tools: composer, phpunit
 
+      - name: Load the app image's php.ini (timezone, opcache)
+        run: sudo cp docker/php.ini "$(php -r 'echo PHP_CONFIG_FILE_SCAN_DIR;')/zz-shop.ini" && php -r 'echo date_default_timezone_get(), PHP_EOL;'
+
       - name: Install dependencies
         run: composer install --no-interaction --no-progress
 
@@ -136,6 +139,9 @@ jobs:
         with:
           php-version: ${{ env.PHP_VERSION }}
           extensions: pdo, pdo_mysql, curl, mbstring
+
+      - name: Load the app image's php.ini (timezone, opcache)
+        run: sudo cp docker/php.ini "$(php -r 'echo PHP_CONFIG_FILE_SCAN_DIR;')/zz-shop.ini" && php -r 'echo date_default_timezone_get(), PHP_EOL;'
 
       - name: Wait for MariaDB
         run: |
