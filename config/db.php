@@ -9,7 +9,11 @@ $pdo = null;
 
 do {
     try {
-        $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8mb4", $user, $pass);
+        // TIMESTAMP columns are stored in UTC and read in the session zone: use PHP's offset (date.timezone in
+        // docker/php.ini) so NOW(), the column defaults and every date shown agree with PHP's date().
+        $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8mb4", $user, $pass, [
+            PDO::MYSQL_ATTR_INIT_COMMAND => "SET time_zone = '" . date('P') . "'",
+        ]);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         break;
     } catch (PDOException $e) {

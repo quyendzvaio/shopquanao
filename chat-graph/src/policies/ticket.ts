@@ -39,11 +39,26 @@ export function asksTicketConfirmation(text: string): boolean {
   return (text.match(QUESTION) ?? []).some(isTicketConfirmation);
 }
 
-/** The text without each question sentence that asks for a ticket confirmation. */
-export function dropTicketConfirmations(text: string): string {
+/** The text without each question sentence for which `drop` is true, spaces and line breaks tidied. */
+function dropQuestions(text: string, drop: (sentence: string) => boolean): string {
   return text
-    .replace(QUESTION, (sentence) => (isTicketConfirmation(sentence) ? '' : sentence))
+    .replace(QUESTION, (sentence) => (drop(sentence) ? '' : sentence))
     .replace(/[ \t]{2,}/gu, ' ')
     .replace(/[ \t]*\n[ \t]*/gu, '\n')
+    .replace(/\n{3,}/gu, '\n\n')
     .trim();
+}
+
+/** The text without each question sentence that asks for a ticket confirmation. */
+export function dropTicketConfirmations(text: string): string {
+  return dropQuestions(text, isTicketConfirmation);
+}
+
+/**
+ * The model's lead-in on a draft turn without any question: the fixed confirmation question that follows must be the
+ * only one, and a model asks its own in words the confirmation check does not know ("Bạn có đồng ý với nội dung trên
+ * không?"), so the customer was asked twice.
+ */
+export function draftLeadIn(text: string): string {
+  return dropQuestions(text, () => true);
 }
