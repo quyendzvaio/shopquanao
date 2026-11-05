@@ -389,6 +389,15 @@ services:
       LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:-}
       LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-}
       LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-}
+      # A user who signs up joins the shop's org and project as ADMIN, so the traces are there without an invite.
+      # Sign up once, then set LANGFUSE_DISABLE_SIGNUP=true (deploy secret) so nobody else can create an account.
+      LANGFUSE_DEFAULT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-}
+      LANGFUSE_DEFAULT_ORG_ROLE: ADMIN
+      LANGFUSE_DEFAULT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-}
+      LANGFUSE_DEFAULT_PROJECT_ROLE: ADMIN
+      AUTH_DISABLE_SIGNUP: ${LANGFUSE_DISABLE_SIGNUP:-false}
+      # Minutes a login lasts (default 90 days): the trace link opens without signing in again.
+      AUTH_SESSION_MAX_AGE: ${LANGFUSE_SESSION_MAX_AGE:-129600}
       LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
     depends_on:
       langfuse-postgres: { condition: service_healthy }

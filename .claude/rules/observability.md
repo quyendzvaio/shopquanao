@@ -19,6 +19,8 @@ Before starting on a NEW host, validate the Postgres filesystem: `scripts/langfu
 
 Never commit Langfuse values or bake them into an image.
 
+Production UI: `http://3.151.132.92:3000` (`LANGFUSE_PUBLIC_URL` deploy secret = NEXTAUTH_URL; AWS security group opens port 3000 to the owner's IP only). The INIT user's password is unknown, so access works by sign-up: a new user joins the INIT org and project as ADMIN (`LANGFUSE_DEFAULT_*` in compose). After the account exists, set the deploy secret `LANGFUSE_DISABLE_SIGNUP=true` and re-run Deploy. A login lasts `LANGFUSE_SESSION_MAX_AGE` minutes (default 90 days).
+
 ## Tracing (chat-graph)
 
 - `chat-graph` sends its own traces to Langfuse (`chat-graph/src/tracing.ts`: Langfuse LangChain callback handler + OTel span processor, enabled only with `APP_ENV=production`, `LANGFUSE_ENABLED=true` and both keys, otherwise it logs `[chat-graph] Langfuse tracing off: APP_ENV is not production` once at startup when the flag is on; message/answer content stays out unless `LANGFUSE_TRACE_CONTENT=true`). Tracing failures never affect the answer.
