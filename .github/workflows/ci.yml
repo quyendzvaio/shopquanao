@@ -441,6 +441,8 @@ jobs:
             echo "LANGFUSE_INIT_PROJECT_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}" >> .env
             echo "LANGFUSE_INIT_USER_EMAIL=${{ secrets.LANGFUSE_INIT_USER_EMAIL || 'admin@shopquanao.local' }}" >> .env
             echo "LANGFUSE_INIT_USER_NAME=${{ secrets.LANGFUSE_INIT_USER_NAME || 'shop-admin' }}" >> .env
+            # Sign up once (new users join the shop project as ADMIN), then set this secret to true and re-run Deploy.
+            echo "LANGFUSE_DISABLE_SIGNUP=${{ secrets.LANGFUSE_DISABLE_SIGNUP || 'false' }}" >> .env
             echo "LANGFUSE_INIT_USER_PASSWORD=${{ secrets.LANGFUSE_INIT_USER_PASSWORD }}" >> .env
             if grep -qx 'LANGFUSE_ENABLED=true' .env; then
               for required in LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_POSTGRES_PASSWORD LANGFUSE_REDIS_PASSWORD LANGFUSE_CLICKHOUSE_PASSWORD LANGFUSE_MINIO_SECRET_KEY LANGFUSE_SALT LANGFUSE_ENCRYPTION_KEY LANGFUSE_NEXTAUTH_SECRET LANGFUSE_INIT_USER_PASSWORD; do
