@@ -13,6 +13,7 @@ trait EnvSandbox
         'KNOWLEDGE_HYBRID_CANDIDATES', 'KNOWLEDGE_VERSION', 'KNOWLEDGE_RERANKER_MODEL', 'RAG_RERANK_TIMEOUT',
         'RAG_EMBED_TIMEOUT', 'RERANKER_URL', 'CHATBOT_ALLOWED_ORIGINS', 'CHATBOT_MAX_MESSAGE_CHARS',
         'ADMIN_EMAIL', 'ADMIN_USER', 'ADMIN_PASSWORD', 'CHAT_GRAPH_URL', 'CHAT_GRAPH_TOKEN', 'CHAT_GRAPH_TIMEOUT',
+        'PROMPT_CACHE_TTL',
     ];
     /** @var array<string,array{0:string|false,1:mixed,2:mixed}> */
     private array $envSnapshot = [];

@@ -6,6 +6,22 @@ use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/EnvSandbox.php';
 
+final class InMemoryPromptCacheBackend
+{
+    /** @var array<string,mixed> */
+    public array $values = [];
+
+    public function get(string $key): mixed
+    {
+        return $this->values[$key] ?? null;
+    }
+
+    public function set(string $key, mixed $value, int $ttl = 300): void
+    {
+        $this->values[$key] = $value;
+    }
+}
+
 /** The chat facade: the session seam (open, errorCategory) and one turn through chat-graph with a fake transport. */
 final class ChatbotServiceTest extends TestCase
 {
@@ -16,6 +32,8 @@ final class ChatbotServiceTest extends TestCase
     protected function setUp(): void
     {
         $this->cleanEnv();
+        // No shared prompt cache in the default tests: each one runs its own graph.
+        $this->setEnv('PROMPT_CACHE_TTL', '0');
         // Busy turns log a chat_graph line; keep it out of the test output.
         $this->previousErrorLog = ini_set('error_log', '/dev/null');
     }
@@ -783,5 +801,72 @@ final class ChatbotServiceTest extends TestCase
         $this->assertSame('busy', $result['response_type']);
         $this->assertSame([], $requests);
         $this->assertCount(2, $this->messages($pdo));
+    }
+
+    /** A service whose prompt cache is backed by the given in-memory store. */
+    private function serviceWithCache(PDO $pdo, ChatGraphClient $client, InMemoryPromptCacheBackend $backend, ?int $userId = null): ChatbotService
+    {
+        $pdo->exec('INSERT INTO chat_sessions (id, user_id, session_token) VALUES (5, ' . ($userId ?? 'NULL') . ", 'tok-5')");
+
+        return new ChatbotService($pdo, 5, $userId, $client, null, new PromptCache($backend));
+    }
+
+    public function testGuestTurnIsCachedAndTheSecondOneSkipsTheGraph(): void
+    {
+        $this->setEnv('PROMPT_CACHE_TTL', '1800');
+        $pdo = $this->pdo();
+        $backend = new InMemoryPromptCacheBackend();
+        $requests = [];
+        $first = $this->client([['type' => 'delta', 'text' => 'Áo polo còn hàng.'], $this->completeEvent(['tools_used' => ['search_products']])], $requests);
+        $service = $this->serviceWithCache($pdo, $first, $backend);
+
+        $result = $service->respond('áo polo đỏ');
+
+        $this->assertCount(1, $requests);
+        $this->assertSame('final_answer', $result['response_type']);
+
+        // A second, independent guest session with the same first question: cache hit, no graph call.
+        $this->assertCount(1, $requests);
+        $second = $this->client([['type' => 'delta', 'text' => 'unexpected'], $this->completeEvent()], $requests);
+        $pdo->exec("INSERT INTO chat_sessions (id, user_id, session_token) VALUES (6, NULL, 'tok-6')");
+        $guest2 = new ChatbotService($pdo, 6, null, $second, null, new PromptCache($backend));
+        $result2 = $guest2->respond('áo polo đỏ');
+
+        $this->assertCount(1, $requests); // the graph was not called again
+        $this->assertSame('Áo polo còn hàng.', $result2['message']);
+        $this->assertSame('hit', $result2['latency']['prompt_cache'] ?? null);
+        // The hit still saved the conversation row for its own session.
+        $rows = $pdo->query("SELECT role, message FROM chat_messages WHERE session_id = 6 ORDER BY id")->fetchAll();
+        $this->assertSame(['user', 'bot'], array_column($rows, 'role'));
+        $this->assertSame('áo polo đỏ', $rows[0]['message']);
+        $this->assertSame('Áo polo còn hàng.', $rows[1]['message']);
+    }
+
+    public function testLoggedInTurnsAreNeverCached(): void
+    {
+        $pdo = $this->pdo();
+        $backend = new InMemoryPromptCacheBackend();
+        $requests = [];
+        $client = $this->client([['type' => 'delta', 'text' => 'ok'], $this->completeEvent()], $requests);
+        $service = $this->serviceWithCache($pdo, $client, $backend, 1);
+
+        $service->respond('đơn của mình đâu');
+        $service->respond('đơn của mình đâu');
+
+        $this->assertCount(2, $requests); // both turns hit the graph
+        $this->assertSame([], $backend->values); // nothing was stored
+    }
+
+    public function testNudgedTurnsAreNotCached(): void
+    {
+        $pdo = $this->pdo();
+        $backend = new InMemoryPromptCacheBackend();
+        $requests = [];
+        $client = $this->client([['type' => 'delta', 'text' => 'ok'], $this->completeEvent(['freeship_nudge' => true, 'freeship_fingerprint' => 'fp-1'])], $requests);
+        $service = $this->serviceWithCache($pdo, $client, $backend);
+
+        $service->respond('mua thêm gì để free ship');
+
+        $this->assertSame([], $backend->values);
     }
 }
