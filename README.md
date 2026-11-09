@@ -5,7 +5,9 @@ Website bán quần áo (PHP 8.2, MariaDB 10.11, Docker Compose) kèm trợ lý 
 ## Mục lục
 
 - [Chức năng](#chức-năng)
-- [Kiến trúc](#kiến-trúc)
+- [Kiến trúc hệ thống](#kiến-trúc-hệ-thống)
+- [Thiết kế cao cấp (HLD)](#thiết-kế-cao-cấp-hld)
+- [Đánh giá (RAGAS & eval)](#đánh-gía-ragas--eval)
 - [Chạy trên máy local](#chạy-trên-máy-local)
 - [Cấu hình](#cấu-hình)
 - [Kiểm thử](#kiểm-thử)
@@ -13,6 +15,7 @@ Website bán quần áo (PHP 8.2, MariaDB 10.11, Docker Compose) kèm trợ lý 
 - [Vận hành production](#vận-hành-production)
 - [Cấu trúc thư mục](#cấu-trúc-thư-mục)
 - [Tài liệu liên quan](#tài-liệu-liên-quan)
+- [Lưu ý bảo mật](#lưu-ý-bảo-mật)
 
 ## Chức năng
 
@@ -32,18 +35,18 @@ Website bán quần áo (PHP 8.2, MariaDB 10.11, Docker Compose) kèm trợ lý 
 | Yêu cầu hỗ trợ | "áo nhận bị rách, đổi giúp" | Soạn nháp; chỉ tạo yêu cầu khi khách trả lời "đồng ý" ở lượt sau |
 | Chặn | "thanh toán giúp mình" | Từ chối: chatbot không có công cụ ghi giỏ hàng, đơn hàng hay thanh toán |
 
-## Kiến trúc
+## Kiến trúc hệ thống
 
 ```text
 Trình duyệt ── POST /api/chatbot/stream (SSE) ──> nginx ──> app (PHP)
-                                                        │  phiên chat, origin, độ dài, rate limit,
-                                                        │  lịch sử và bộ nhớ hội thoại (MariaDB)
+                                                        │ phiên chat, origin, độ dài, rate limit,
+                                                        │ lịch sử và bộ nhớ hội thoại (MariaDB)
                                                         ▼
                                   chat-graph (Node 22, LangGraph, nội bộ, cổng 8090)
                                     policy_in   từ chối checkout, không gọi LLM
                                     agent <-> tools   LLM chọn công cụ; allow-list, ngân sách, grounding
                                     policy_out  thẻ sản phẩm, giá và tồn kho phải khớp kết quả công cụ
-                                                        │  công cụ = mcp-server chạy trong cùng tiến trình
+                                                        │ công cụ = mcp-server chạy trong cùng tiến trình
                                                         ▼
                                   app: POST /api/internal/mcp (nội bộ, có token) ──> service ──> repository (SQL)
 ```
@@ -54,13 +57,13 @@ Trình duyệt ── POST /api/chatbot/stream (SSE) ──> nginx ──> app (
 | `app` | PHP-FPM: website, REST API, phiên chat, endpoint MCP nội bộ, client gọi `chat-graph` |
 | `chat-graph` | Agent LangGraph; chỉ nội bộ, nginx không định tuyến tới |
 | `db` | MariaDB 10.11 |
-| `redis` | Cache dùng chung (rate limit, catalog) |
+| `redis` | Cache dùng chung (rate limit, catalog, turn-level prompt cache) |
 | `qdrant` | Vector store cho tài liệu chính sách |
 | `rag-ml` | Embedding và rerank cho tài liệu |
 | `reranker` | Rerank kết quả tìm sản phẩm |
 | `langfuse-*` | Tracing (profile `observability`, không bật mặc định) |
 
-Nguyên tắc chính:
+### Nguyên tắc chính
 
 - SQL chỉ nằm trong `src/repository/`. LLM không viết SQL và không có công cụ ghi; yêu cầu hỗ trợ là thứ duy nhất được ghi từ luồng chat, và do PHP ghi sau khi khách xác nhận.
 - Chatbot hỏng (LLM lỗi, quá thời gian, vượt ngân sách) thì trả câu "Hệ thống đang bận" cố định (`response_type=busy`), không có đường dự phòng nào khác.
@@ -68,7 +71,89 @@ Nguyên tắc chính:
 - `/api/internal/mcp` trả 404 từ bên ngoài; bên trong được bảo vệ bằng `X-MCP-SERVICE-TOKEN`.
 - Thứ tự phụ thuộc giữa các lớp PHP (`app -> agent -> harness -> service -> repository -> core`) được `tests/unit/ArchitectureTest.php` kiểm tra.
 
-Chi tiết: [`CLAUDE.md`](CLAUDE.md), [`.claude/rules/architecture.md`](.claude/rules/architecture.md).
+## Thiết kế cao cấp (HLD)
+
+### 1. Luồng chat
+
+```
+Browser ──POST /api/chatbot/stream──▶ nginx ──▶ app (PHP)
+                                              │ phiên, origin, độ dài, rate limit (nginx)
+                                              │ lưu tin nhắn vào MariaDB
+                                              ▼
+                                    POST http://chat-graph:<port>/turn   (mạng nội bộ Compose)
+                                                   │
+                                     chat-graph (Node 22, TypeScript)
+                                     LangGraph + createAgent + middleware policy + LLM
+                                                   │ tool qua MCP (mcp-server, trong tiến trình)
+                                                   ▼
+                                  app (PHP) /api/internal/mcp ── ToolApplicationService ── service/repository ── MariaDB
+```
+
+- **PHP giữ phần dữ liệu:** storefront, REST, DB, các tool (`ToolApplicationService`, `ToolDefinitionCatalog`, `/api/internal/mcp`), phiên chat và lịch sử tin nhắn.
+- **Node (`chat-graph`) lo phần "nghĩ":** graph, LLM, các policy. Node lấy tool qua `mcp-server` có sẵn.
+- Service mới `chat-graph` trong `docker-compose.yml`: chỉ nằm trong mạng nội bộ, không có cổng public và nginx không định tuyến tới nó. PHP gọi tới bằng header `X-CHAT-GRAPH-TOKEN`, so sánh kiểu hằng thời gian (constant-time). Token là biến env `CHAT_GRAPH_TOKEN`, không dùng chung `MCP_SERVICE_TOKEN`.
+
+### 2. Graph
+
+```
+START
+  └▶ policy_in            (beforeAgent: CheckoutGuardrail → END với câu từ chối cố định, không gọi LLM)
+  └▶ agent ⇄ tools        (createAgent: LLM chọn tool; middleware giới hạn số lần, lọc tool, kiểm tra kết quả)
+        │
+        ├─ [cạnh: hết hàng] ─▶ find_alternatives ─▶ ask_alternatives ─▶ END
+        │
+        └─ [còn lại] ─▶ policy_out (kiểm tra câu trả lời và thẻ) ─▶ END
+```
+
+- **Cạnh "hết hàng"** chạy khi trong lượt có một kết quả `search_products` mà `out_of_stock_ids` khác rỗng. Ngay khi gặp kết quả đó, graph rẽ nhánh: tìm mẫu thay thế bằng code cố định (`find_similar_in_stock`). LLM nhận dữ liệu (mẫu đã hết, các mẫu thay thế) và tự viết cả câu trả lời; code kiểm tra câu đó, sai thì dùng câu hỏi cố định.
+- **`find_alternatives`** gọi tool mới `find_similar_in_stock` với `product_id` là mẫu đã hết. Node này không gọi LLM.
+- **`ask_alternatives`** giữ câu LLM viết khi câu đó đạt kiểm tra; nếu không, dùng mẫu câu cố định.
+
+### 3. Policy out (`policy_out`)
+
+`CardPolicy` (thẻ chỉ từ kết quả tool của lượt đó, tối đa 6) và grounding (giá/tồn kho trong câu trả lời phải khớp kết quả tool). Câu trả lời ra dạng plain text (`plainText` strips markdown vì widget render `textContent`). Trước đó, câu trả lời trống, câu trả lời hết hàng thiếu tin tức, câu có raw tool-call markup, hoặc câu hỏi xác nhận ticket không có bản nháp hợp lệ → gửi vòng agent lại model một lần với công cụ (`afterModel`).
+
+### 4. Hỗ trợ ticket
+
+Khi `draft_support_ticket` trả về `draft`, `policy_out` đặt `pending_ticket` và gộp bản tóm tắt cố định (loại, đơn, nội dung) cộng câu hỏi `Bạn xác nhận gửi yêu cầu này cho shop không?` vào lead-in của model. PHP lưu nháp vào `chat_session_memory.slots`; lượt sau nếu khách nói "đồng ý" PHP tạo hàng trong `support_tickets` (không qua chat-graph). Nếu nói "thôi" hoặc tin nhắn khác thì hủy nháp.
+
+### 5. Xử lý sự cố
+
+Bất kỳ lỗi LLM, timeout, vượt ngân sách hay lỗi graph → câu trả lời cố định "Hệ thống đang bận" (`response_type=busy`). Không có PHP fallback pipeline.
+
+### 6. Free-shipping nudge
+
+Quyết định trong `chat-graph` từ cart fingerprint PHP gửi; ngưỡng `FREE_SHIPPING_THRESHOLD`=500000, khoảng tối đa `FREESHIP_NUDGE_MAX_GAP`=200000. PHP lưu fingerprint mới vào `chat_session_memory.slots`.
+
+### 7. Bo regla đã bỏ
+
+Luồng PHP cũ (`TurnRunner`, `IntentResolver`, `EvidenceExecutionLoop`, middleware cũ, `llm_providers/`, `config/harness.php`, `config/chatbot_tools.php`) đã bị xóa khi chuyển sang `chat-graph`. `src/harness/` chỉ giữ `tools/` và `memory/`.
+
+## Đánh giá (RAGAS & eval)
+
+Chatbot được đánh giá ở hai lớp:
+
+| Lớp | Lệnh | LLM | Khi nào |
+| --- | --- | --- | --- |
+| CI | `npm --prefix chat-graph test` | Giả lập, không cần mạng | Mỗi lần push |
+| Thủ công | `npm --prefix chat-graph run eval` | LLM thật trong `.env` | Trước khi phát hành, sau khi đổi prompt, policy hoặc model; mục tiêu ≥ 90% của 57 case |
+
+### Kết quả RAGAS gần đây (9 kịch bản, mô hình cũ `-v4-flash-sale`)
+
+| Chỉ số | Giá trị | Ghi chú |
+| --- | --- | --- |
+| Deterministic passed | 9 / 9 | 100% các kịch bản chính sách |
+| Answer relevancy | 0.51 | Đánh giá trên 9 lượt |
+| Faithfulness | 0.72 | Đánh giá trên 6 lượt có bối cảnh |
+| Context precision | 0.99 | Bao gồm tài liệu RAG + bằng chứng sản phẩm/đơn hàng |
+| Context recall | 0.83 | — |
+| Độ trễ trung bình | ~26 ms | p95 ~38 ms |
+
+Bằng chứng RAGAS dùng embeddings từ `rag-ml` (`bkai-foundation-models/vietnamese-bi-encoder`), câu hỏi answer_relevancy được sinh bằng tiếng Việt.
+
+### Bộ eval
+
+57 case trong `chat-graph/eval/cases.jsonl` chia thành các nhóm: `s1_regression`, `outfit`, `freeship`, `guardrail`, `unrelated`, `multi_intent`, `sold_out`, `catalog`, `knowledge`, `order`, `memory`, `ticket`. Chạy: `npm --prefix chat-graph run eval -- --group=<nhóm>` hoặc cả bộ; báo cáo ra `reports/eval/` (gitignored, không commit). Thay đổi trên luồng chat phải có unit test đi kèm; eval thủ công không thay cho test.
 
 ## Chạy trên máy local
 
@@ -112,9 +197,10 @@ Toàn bộ cấu hình nằm trong `.env` (không commit). Danh sách đầy đ�
 | `MCP_SERVICE_TOKEN` | Token giữa `chat-graph` và endpoint MCP của PHP |
 | `CHAT_GRAPH_TOKEN` | Token giữa PHP và `chat-graph`; để trống thì dùng giá trị mặc định cho dev |
 | `CHATBOT_ALLOWED_ORIGINS`, `CHATBOT_MAX_MESSAGE_CHARS` | Origin được gọi chatbot, độ dài tin nhắn tối đa |
-| `FREE_SHIPPING_THRESHOLD`, `FREESHIP_NUDGE_MAX_GAP` | Ngưỡng free ship (500000) và khoảng thiếu để nhắc chủ động (200000) |
+| `FREE_SHIPPING_THRESHOLD`, `FREESHIP_NUDGE_MAX_GAP` | Ngưỡng free ship (500000) và khoảng thiếu để nhắc chủ động (200.000đ) |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Tài khoản quản trị |
 | `APP_ENV` | `production` mới gửi trace lên Langfuse |
+| `PROMPT_CACHE_TTL` | TTL (giây) của turn-level prompt cache cho khách vãng lai; `0` tắt cache; mặc định 1800 (30 phút) |
 | `LANGFUSE_*` | Xem [Tracing với Langfuse](#tracing-với-langfuse) |
 
 Giờ hệ thống là giờ Việt Nam: `docker/php.ini` đặt `date.timezone=Asia/Ho_Chi_Minh`, và `config/db.php` đặt cùng múi giờ cho phiên MariaDB.
@@ -130,15 +216,6 @@ npm --prefix mcp-server ci && npm --prefix mcp-server test && npm --prefix mcp-s
 npm --prefix chat-graph ci && npm --prefix chat-graph test && npm --prefix chat-graph run build
 scripts/dev/smoke.sh                                     # smoke HTTP, gồm 404/403 cho đường dẫn mã nguồn
 ```
-
-Đánh giá chatbot có hai lớp:
-
-| Lớp | Lệnh | LLM | Khi nào |
-| --- | --- | --- | --- |
-| CI | `npm --prefix chat-graph test` | Giả lập, không cần mạng | Mỗi lần push |
-| Thủ công | `npm --prefix chat-graph run eval` | LLM thật trong `.env` | Trước khi phát hành, sau khi đổi prompt, policy hoặc model; mục tiêu đạt ít nhất 90% của 57 case |
-
-Cách chạy và đọc kết quả eval: [`.claude/rules/eval.md`](.claude/rules/eval.md). Thay đổi trên luồng chat phải có unit test đi kèm; eval thủ công không thay cho test.
 
 ## Phát hành và deploy
 
@@ -203,6 +280,19 @@ Truy cập trên production:
 - Tài khoản mới đăng ký tự vào project `fashion-shop-chatbot-eval` với quyền ADMIN. Sau khi người cần dùng đã có tài khoản, đặt secret `LANGFUSE_DISABLE_SIGNUP=true` và chạy lại Deploy để khóa đăng ký.
 - Một lần đăng nhập giữ trong 90 ngày.
 
+### Turn-level prompt cache (tiết kiệm chi phí LLM)
+
+- Có sẵn qua biến `PROMPT_CACHE_TTL` (mặc định 1800s = 30 phút; `0` để tắt).
+- Chỉ cache lượt chat của **khách vãng lai** (`user_id` rỗng), không stream, không có nháp ticket sống.
+- Key hash từ: nội dung câu hỏi + cửa sổ lịch sử 6 lượt + tóm tắt/slots phiên. Dùng lại câu trả lời đã lưu mà không gọi LLM/graph.
+- Không cache: lượt đã đăng nhập (xem đơn/ticket/giỏ), lượt stream, lượt nudge free-ship, busy/từ chối/hỏi lại.
+- Cache luôn lưu cả hai dòng hội thoại và refresh tóm tắt, nên phiên không bị "mất trí nhớ" khi hit.
+
+### Theo dõi chi phí
+
+- Mỗi lượt gọi LLM được log token (`prompt_tokens`, `completion_tokens`, `total_tokens`) và thời gian qua `UsageLogger` trong `chat-graph/src/turn.ts`.
+- Dùng số liệu này để so sánh trước/sau khi bật prompt cache và điều chỉnh `PROMPT_CACHE_TTL`.
+
 Chạy Langfuse trên máy local:
 
 ```bash
@@ -236,11 +326,17 @@ Lưu trữ, sao lưu và cách reset an toàn: [`docs/langfuse-observability.md`
 
 | Tài liệu | Nội dung |
 | --- | --- |
-| [`CLAUDE.md`](CLAUDE.md) | Tóm tắt kỹ thuật và các luật cứng của dự án |
-| [`.claude/rules/`](.claude/rules/) | Kiến trúc, database, kiểm thử, eval, observability, deploy |
-| [`docs/ban-giao-production-checklist.md`](docs/ban-giao-production-checklist.md) | Checklist bàn giao production |
-| [`docs/superpowers/specs/`](docs/superpowers/specs/) | Thiết kế: agent LangGraph, phối đồ và free ship, yêu cầu hỗ trợ, stream câu trả lời |
+| [`docs/technical-spec.md`](docs/technical-spec.md) | Thiết kế cao cấp (HLD) của hệ thống hiện tại |
 | [`docs/langfuse-observability.md`](docs/langfuse-observability.md) | Vận hành Langfuse |
-| [`docs/technical-spec.md`](docs/technical-spec.md) | Tổng quan kỹ thuật |
+| [`docs/ban-giao-production-checklist.md`](docs/ban-giao-production-checklist.md) | Checklist bàn giao production |
+| [`docs/chatbot-spec.md`](docs/chatbot-spec.md) | Tối tiền chi tiết chatbot |
+| [`docs/SRS_Chatbot_ISO_IEC_IEEE_29148_2018.md`](docs/SRS_Chatbot_ISO_IEC_IEEE_29148_2018.md) | Yêu cầu phần mềm của chatbot (ISO/IEC/IEEE 29148) |
+| [`docs/Manual_Test_Cases_Chatbot.md`](docs/Manual_Test_Cases_Chatbot.md) | Bộ kiểm thử tay cho chatbot |
 
 `.env`, báo cáo (`reports/`), cache model và dữ liệu DB local không được đưa vào Git hay image.
+
+## Lưu ý bảo mật
+
+- Không in `LLM_API_KEY` hoặc bất kỳ secret nào vào chat, log hay commit.
+- Ghi GitHub secret qua pipe, không gõ tay: `grep '^LLM_API_KEY=' .env | cut -d= -f2- | tr -d '\n' | gh secret set LLM_API_KEY`.
+- IP máy chủ production không được để trong file tracked (dùng `<production host>` thay thế).
