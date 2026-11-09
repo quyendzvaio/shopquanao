@@ -2,6 +2,8 @@ import type { TurnRequest } from '../contract.js';
 
 export function systemPrompt(req: TurnRequest): string {
   const known = JSON.stringify({ slots: req.memory.slots, summary: req.memory.summary, profile: req.memory.profile });
+  // The 13 stable rule lines come first so an automatic provider prefix cache can reuse them across turns;
+  // the per-customer JSON (`known`) that changes per request goes last.
   return [
     'Bạn là trợ lý bán hàng của một cửa hàng thời trang. Luôn trả lời bằng tiếng Việt, ngắn gọn, thân thiện.',
     'Chỉ dùng các công cụ của cửa hàng để tra cứu sản phẩm, size, chính sách và đơn hàng; không bịa dữ liệu ngoài kết quả công cụ.',

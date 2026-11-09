@@ -17,7 +17,6 @@ export type ModelCallStat = {
 
 function usageOf(output: LLMResult): Usage {
   const raw = (output.llmOutput ?? {}) as Usage;
-  // ChatOpenAI puts the provider usage on the first generation's message as well; llmOutput usually mirrors it.
   if (typeof raw.prompt_tokens === 'number') return raw;
   const gen = output.generations[0]?.[0] as { message?: { usage_metadata?: Usage } } | undefined;
   const meta = gen?.message?.usage_metadata;
@@ -34,7 +33,12 @@ export class UsageLogger extends BaseCallbackHandler {
   private readonly calls: ModelCallStat[] = [];
   private readonly started = new Map<string, { at: number; chars: number }>();
 
-  override handleLLMStart(_llm: Serialized, messages: BaseMessage[][], runId: string): void {
+  override handleLLMStart(_llm: Serialized, prompts: string[], runId: string): void {
+    const chars = prompts.join('').length;
+    this.started.set(runId, { at: Date.now(), chars });
+  }
+
+  override handleChatModelStart(_llm: Serialized, messages: BaseMessage[][], runId: string): void {
     let chars = 0;
     for (const list of messages) {
       for (const m of list ?? []) {
