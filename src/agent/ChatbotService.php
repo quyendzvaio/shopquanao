@@ -24,17 +24,23 @@ class ChatbotService
     private ?ChatbotSessionContext $context = null;
     /** @var Closure():int unix seconds; injectable so draft expiry is testable */
     private Closure $now;
+    /** True for the current turn when the answer is streamed (never cached). */
+    private bool $turnWasStreaming = false;
+    /** Turn-level cache for guest turns (never breaks a turn: all reads/writes are guarded). */
+    private PromptCache $promptCache;
 
     public function __construct(
         PDO $pdo,
         private int $sessionId,
         private ?int $userId,
         ?ChatGraphClient $graph = null,
-        ?Closure $now = null
+        ?Closure $now = null,
+        ?PromptCache $promptCache = null
     ) {
         $this->pdo = $pdo;
         $this->graph = $graph;
         $this->now = $now ?? static fn (): int => time();
+        $this->promptCache = $promptCache ?? new PromptCache();
     }
 
     /** Resolves the durable chat session (bearer user first, then the guest token, else a new one) and opens the service on it. */
@@ -87,6 +93,7 @@ class ChatbotService
     /** @param (callable(string, string):void)|null $onText */
     private function turn(string $message, ?callable $onText): array
     {
+        $this->turnWasStreaming = $onText !== null;
         $memory = new ChatbotMemory($this->pdo, $this->sessionId, $this->userId);
         $confirmation = $this->answerTicketConfirmation($memory, $message, $onText);
         if ($confirmation !== null) {
@@ -95,6 +102,40 @@ class ChatbotService
         $remembered = $memory->rememberUserMessage($message);
         $storedFingerprint = $remembered['slots'][self::FINGERPRINT_SLOT] ?? null;
         $fingerprint = is_string($storedFingerprint) && $storedFingerprint !== '' ? $storedFingerprint : null;
+
+        // ── Turn-level cache (prompt-cache plan 2.3) ─────────────────────────
+        // Only guest turns are cached: no orders, tickets or carts to leak, and
+        // the turn depends only on message + history + memory + catalog state.
+        // Streaming and live ticket confirmations always run the graph. A hit
+        // still saves the conversation row and refreshes the summary, so the
+        // session history stays exactly as if the graph had answered.
+        $cacheKey = $this->cacheEligible($memory) ? $this->promptCache->keyFor(
+            $message,
+            $this->historyWindow(),
+            (string) ($remembered['summary'] ?? ''),
+            is_array($remembered['slots'] ?? null) ? $remembered['slots'] : []
+        ) : null;
+        $cached = $cacheKey !== null ? $this->promptCache->get($cacheKey) : null;
+        if (is_array($cached)) {
+            // Same persistence as the graph path, so a hit leaves the session exactly as a real turn would.
+            (new PdoChatbotConversationStore($this->pdo, $this->sessionId))->saveMessages(
+                $message,
+                (string) $cached['message'],
+                is_array($cached['products'] ?? null) ? $cached['products'] : [],
+                [],
+                [],
+                [
+                    'response_type' => $cached['response_type'] ?? 'final_answer',
+                    'tools_used' => is_array($cached['tools_used'] ?? null) ? $cached['tools_used'] : [],
+                    'offered' => is_array($cached['offered'] ?? null) ? $cached['offered'] : [],
+                ]
+            );
+            $memory->refreshSummary();
+            $cached['latency'] = ['prompt_cache' => 'hit'] + (is_array($cached['latency'] ?? null) ? $cached['latency'] : []);
+            error_log(json_encode(['operation' => 'prompt_cache', 'success' => true, 'hit' => true], JSON_UNESCAPED_SLASHES));
+            return $cached;
+        }
+
         $request = [
             'message' => mb_substr($message, 0, self::MAX_MESSAGE_CHARS),
             'user_id' => $this->userId !== null && $this->userId > 0 ? $this->userId : null,
@@ -176,7 +217,7 @@ class ChatbotService
             $memory->rememberSlot(self::FINGERPRINT_SLOT, $result['freeship_fingerprint']);
         }
 
-        return [
+        $final = [
             'message' => $result['message'],
             'answer' => $result['message'],
             'products' => $cards,
@@ -192,6 +233,56 @@ class ChatbotService
             'ticket_pending' => $ticketPending,
             'ticket_id' => null,
         ];
+        $this->storeCachedTurn($memory, $message, $cacheKey ?? '', $final);
+        return $final;
+    }
+
+    /**
+     * Turn-level cache eligibility for guest turns (prompt-cache plan 2.3).
+     * All required: guest session (no user_id), no streaming, no live ticket
+     * draft in the slots. Logged-in turns see orders, tickets, carts: never
+     * cached. Streamed answers must come from the graph, sentence by sentence.
+     */
+    private function cacheEligible(ChatbotMemory $memory): bool
+    {
+        if ($this->userId !== null || $this->turnWasStreaming || !$this->promptCache->enabled()) {
+            return false;
+        }
+        $slots = $memory->load()['slots'] ?? [];
+        return !PendingTicketSlot::isLive($slots[PendingTicketSlot::KEY] ?? null, $this->userId, ($this->now)());
+    }
+
+    /** The history window the request carries, identical to the one built for chat-graph. */
+    private function historyWindow(): array
+    {
+        return ChatHistoryWindow::fromRows((new ChatConversationRepository($this->pdo))->messagesForSession($this->sessionId));
+    }
+
+    /**
+     * Stores a finished guest turn in the prompt cache (same eligibility as
+     * cacheEligible). Final answers are cached, including text-only ones (FAQ,
+     * size advice, shop policy): those are the most repeated questions, so they
+     * are where the cache saves the most. A busy, refusal or clarification turn
+     * is never stored, and a nudged turn is left out because the nudge depends
+     * on the cart of the moment. Price/stock drift is bounded by PROMPT_CACHE_TTL.
+     */
+    private function storeCachedTurn(ChatbotMemory $memory, string $message, string $cacheKey, array $result): void
+    {
+        if ($this->userId !== null || $this->turnWasStreaming || $cacheKey === '') {
+            return;
+        }
+        if (($result['response_type'] ?? '') !== 'final_answer' || ($result['freeship_nudge'] ?? true) === true) {
+            return;
+        }
+        if (($result['freeship_fingerprint'] ?? null) !== null) {
+            return; // the nudge/fingerprint pair is tied to the cart of the moment
+        }
+        try {
+            $this->promptCache->set($cacheKey, $result);
+            error_log(json_encode(['operation' => 'prompt_cache', 'success' => true, 'hit' => false, 'stored' => true], JSON_UNESCAPED_SLASHES));
+        } catch (Throwable) {
+            // Cache must never break a turn.
+        }
     }
 
     /**

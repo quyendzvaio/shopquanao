@@ -6,6 +6,7 @@ import { BUSY, PRIMARY_INTENT } from './copy.js';
 import { buildTurnGraph, type GraphOutcome } from './graph/buildGraph.js';
 import { TurnBudget } from './policies/budget.js';
 import type { ShopTools } from './shopTools.js';
+import { UsageLogger } from './usageLogger.js';
 
 export type TurnDeps = {
   config: GraphConfig;
@@ -98,6 +99,7 @@ export async function runTurn(
   });
   deadline.catch(() => {});
 
+  const usage = new UsageLogger(); // per-turn: catches every model run below
   try {
     const opening = deps.openTools(req.user_id);
     // Tools that finish opening after the turn ended must still be closed.
@@ -108,7 +110,7 @@ export async function runTurn(
       tools,
       budget: () => budget,
       config: deps.config,
-      callbacks: deps.callbacks,
+      callbacks: [...(deps.callbacks ?? []), usage],
       onProgress: (stage) => {
         if (!finished) emit({ type: 'progress', stage });
       },
@@ -137,9 +139,10 @@ export async function runTurn(
     abort.abort(); // Nothing of this turn may keep running (or spending tokens) after the reply.
     if (tools !== null) closeQuietly(tools);
   }
-
+  usage.log();
   const counts = budget.counts();
-  const summary: TurnSummary = {
+  const totalMs = Date.now() - startedAt;
+  console.log(`[chat-graph] turn done: ${totalMs}ms model_calls=${counts.model_calls} tool_calls=${counts.tool_calls} type=${outcome.response_type}`);  const summary: TurnSummary = {
     response_type: outcome.response_type,
     primary_intent: primaryIntent(outcome),
     tools_used: outcome.tools_used,
@@ -149,7 +152,7 @@ export async function runTurn(
     freeship_fingerprint: outcome.freeship_fingerprint,
     pending_ticket: outcome.pending_ticket,
     trace_id: randomBytes(16).toString('hex'),
-    latency: { total_ms: Date.now() - startedAt, tool_calls: counts.tool_calls, model_calls: counts.model_calls },
+    latency: { total_ms: totalMs, tool_calls: counts.tool_calls, model_calls: counts.model_calls },
   };
 
   for (const e of closingTextEvents(streamed, outcome.message)) emit(e);
