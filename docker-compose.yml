@@ -179,23 +179,34 @@ services:
     environment:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bkai-foundation-models/vietnamese-bi-encoder}
       KNOWLEDGE_RERANKER_MODEL: ${KNOWLEDGE_RERANKER_MODEL:-itdainb/PhoRanker}
-      RAG_ML_DEVICE: ${RAG_ML_DEVICE:-cpu}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-768}
+      # ONNX Runtime threads; 0 lets ORT pick from the host CPU count.
+      RAG_ML_THREADS: ${RAG_ML_THREADS:-0}
       RAG_ML_WARMUP_ON_START: ${RAG_ML_WARMUP_ON_START:-true}
       RAG_ML_KEEPWARM_SECONDS: ${RAG_ML_KEEPWARM_SECONDS:-60}
       RAG_ML_MAX_TEXTS: 64
       RAG_ML_MAX_RERANK_TEXTS: ${RAG_ML_MAX_RERANK_TEXTS:-12}
+      MODELS_DIR: /models/onnx
       HF_HOME: /models/huggingface
-      SENTENCE_TRANSFORMERS_HOME: /models/sentence-transformers
     expose:
       - "8000"
     volumes:
-      - hf_cache:/models
+      # Model weights are baked into the image at build time; the volume only keeps
+      # the HF download cache so a rebuild on the host reuses it.
+      - rag_ml_models:/models
+    # Measured with the ONNX fp16 runtime: ~600 MB resident for both models.
+    # The cap keeps the sidecar from starving MariaDB/php-fpm on a small VPS.
+    deploy:
+      resources:
+        limits:
+          memory: ${RAG_ML_MEMORY_LIMIT:-1g}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5).read()"]
       interval: 30s
       timeout: 10s
-      start_period: 180s
-      retries: 8
+      # ONNX warmup is one inference per model (< 5 s), far below the old PyTorch cold start.
+      start_period: 60s
+      retries: 5
 
   db:
     image: mariadb:10.11
@@ -441,6 +452,7 @@ volumes:
   redis_data:
   qdrant_data:
   hf_cache:
+  rag_ml_models:
   langfuse_clickhouse_data_v2:
   langfuse_clickhouse_logs_v2:
   langfuse_minio_data:
